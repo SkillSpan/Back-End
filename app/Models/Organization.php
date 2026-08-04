@@ -27,17 +27,4 @@ class Organization extends Model
     {
         return $this->belongsTo(User::class, 'verified_by');
     }
-    // علاقة لجلب جميع الملفات المرفوعة لهذه المنظمة (سواء كانت تحقق أو غيرها)
-    public function uploadedFiles()
-    {
-        return $this->morphMany(UploadedFile::class, 'fileable');
-    }
-
-    // دالة مساعدة لجلب مستندات التحقق فقط (نفترض أننا سنضع type = 'verification_document')
-    public function verificationDocuments()
-    {
-        return $this->morphMany(UploadedFile::class, 'fileable')
-                    ->where('type', 'verification_document'); 
-                    // لو ما حبيت تعدل enum، استخدم 'other' بدلاً من 'verification_document' حالياً
-    }
 }

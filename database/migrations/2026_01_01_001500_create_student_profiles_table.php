@@ -17,9 +17,9 @@ return new class extends Migration
             $table->json('interests')->nullable();
             $table->string('availability')->nullable();
             $table->string('preferred_work_type')->nullable();
-            $table->enum('visibility', ['public','organization_only','private'])->default('private');
+            $table->enum('visibility', ['public', 'organization_only', 'private'])->default('private');
             $table->unsignedTinyInteger('completeness_percent')->default(0);
-            $table->enum('enrollment_status', ['enrolled','graduated','on_leave'])->default('enrolled');
+            $table->enum('enrollment_status', ['enrolled', 'graduated', 'on_leave'])->default('enrolled');
             $table->boolean('graduation_status')->default(false);
             $table->date('graduation_date')->nullable();
             $table->foreignId('primary_career_role_id')->nullable()->constrained('career_roles')->nullOnDelete();
