@@ -3,26 +3,56 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
-class User extends Model
+class User extends Authenticatable
 {
+    use HasApiTokens;
     use HasFactory;
+    use Notifiable;
     use SoftDeletes;
 
-    protected $fillable = ['name','email','password','phone','locale','status','last_login_at'];
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'phone',
+        'locale',
+        'status',
+        'last_login_at',
+        'terms_accepted_at',
+        'privacy_accepted_at',
+        'email_verified_at',
+    ];
 
-    protected $casts = ['email_verified_at' => 'datetime', 'last_login_at' => 'datetime', 'password' => 'hashed'];
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'last_login_at' => 'datetime',
+        'terms_accepted_at' => 'datetime',
+        'privacy_accepted_at' => 'datetime',
+        'password' => 'hashed',
+    ];
 
     public function roles()
     {
-        return $this->belongsToMany(Role::class, 'user_role')->withPivot('organization_id')->withTimestamps();
+        return $this->belongsToMany(Role::class, 'user_role')
+            ->withPivot('organization_id')
+            ->withTimestamps();
     }
 
     public function organizations()
     {
-        return $this->belongsToMany(Organization::class, 'organization_members')->withPivot('role_in_org', 'status')->withTimestamps();
+        return $this->belongsToMany(Organization::class, 'organization_members')
+            ->withPivot('role_in_org', 'status')
+            ->withTimestamps();
     }
 
     public function studentProfile()
@@ -53,5 +83,15 @@ class User extends Model
     public function authSessions()
     {
         return $this->hasMany(AuthSession::class);
+    }
+
+    public function accountVerifications()
+    {
+        return $this->hasMany(AccountVerification::class);
+    }
+
+    public function hasRole(string $slug): bool
+    {
+        return $this->roles()->where('slug', $slug)->exists();
     }
 }

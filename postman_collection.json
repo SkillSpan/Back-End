@@ -1,0 +1,266 @@
+{
+  "info": {
+    "name": "SkillBridge Auth API",
+    "description": "مصادقة منصة SkillBridge",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "تسجيل فرد",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "user_type",
+              "value": "individual"
+            },
+            {
+              "key": "name",
+              "value": "أحمد محمد"
+            },
+            {
+              "key": "email",
+              "value": "ahmed@test.com"
+            },
+            {
+              "key": "phone",
+              "value": "966501234567"
+            },
+            {
+              "key": "password",
+              "value": "password123"
+            },
+            {
+              "key": "password_confirmation",
+              "value": "password123"
+            },
+            {
+              "key": "terms_accepted",
+              "value": "true"
+            },
+            {
+              "key": "privacy_accepted",
+              "value": "true"
+            },
+            {
+              "key": "education",
+              "value": "هندسة برمجيات"
+            },
+            {
+              "key": "specialization",
+              "value": "تطوير الويب"
+            },
+            {
+              "key": "career_status",
+              "value": "طالب"
+            }
+          ]
+        },
+        "url": "{{base_url}}/api/auth/register"
+      }
+    },
+    {
+      "name": "تسجيل مؤسسة",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "name",
+              "value": "Ahmed",
+              "type": "text"
+            },
+            {
+              "key": "email",
+              "value": "admin@company.com",
+              "type": "text"
+            },
+            {
+              "key": "password",
+              "value": "password123",
+              "type": "text"
+            },
+            {
+              "key": "password_confirmation",
+              "value": "password123",
+              "type": "text"
+            },
+            {
+              "key": "terms_accepted",
+              "value": "true",
+              "type": "text"
+            },
+            {
+              "key": "privacy_accepted",
+              "value": "true",
+              "type": "text"
+            },
+            {
+              "key": "organization_name",
+              "value": "Tech Company",
+              "type": "text"
+            },
+            {
+              "key": "organization_type",
+              "value": "company",
+              "type": "text"
+            },
+            {
+              "key": "organization_contact_email",
+              "value": "info@company.com",
+              "type": "text"
+            },
+            {
+              "key": "organization_contact_phone",
+              "value": "966500000000",
+              "type": "text"
+            },
+            {
+              "key": "organization_website",
+              "value": "https://company.com",
+              "type": "text"
+            },
+            {
+              "key": "organization_description",
+              "value": "شركة تقنية",
+              "type": "text"
+            },
+            {
+              "key": "proof_file",
+              "type": "file",
+              "src": []
+            }
+          ]
+        },
+        "url": "{{base_url}}/api/auth/register/organization"
+      }
+    },
+    {
+      "name": "تأكيد الحساب",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\": \"ahmed@test.com\", \"otp\": \"123456\"}"
+        },
+        "url": "{{base_url}}/api/auth/verify"
+      }
+    },
+    {
+      "name": "إعادة إرسال OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\": \"ahmed@test.com\"}"
+        },
+        "url": "{{base_url}}/api/auth/resend-otp"
+      }
+    },
+    {
+      "name": "تسجيل الدخول",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\": \"ahmed@test.com\", \"password\": \"password123\"}"
+        },
+        "url": "{{base_url}}/api/auth/login"
+      }
+    },
+    {
+      "name": "نسيت كلمة المرور",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\": \"ahmed@example.com\"}"
+        },
+        "url": "{{base_url}}/api/auth/forgot-password"
+      }
+    },
+    {
+      "name": "إعادة تعيين كلمة المرور",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\": \"ahmed@example.com\", \"otp\": \"123456\", \"password\": \"NewPassword123\", \"password_confirmation\": \"NewPassword123\"}"
+        },
+        "url": "{{base_url}}/api/auth/reset-password"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ]
+}

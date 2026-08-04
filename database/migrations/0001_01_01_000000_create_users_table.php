@@ -8,19 +8,15 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     *
+     * NOTE: the `users` table itself is created by
+     * 2026_01_01_000000_create_users_table.php (custom schema with
+     * phone/locale/status/etc.). This migration only creates the
+     * remaining default Laravel tables to avoid a duplicate
+     * "Schema::create('users', ...)" call.
      */
     public function up(): void
     {
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
-            $table->rememberToken();
-            $table->timestamps();
-        });
-
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
             $table->string('token');
@@ -42,7 +38,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('users');
         Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('sessions');
     }

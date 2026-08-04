@@ -9,15 +9,10 @@ class UploadedFile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','type','path','mime_type','size','status','fileable_type','fileable_id'];
+    protected $fillable = ['user_id','type','path','mime_type','size','status'];
 
     public function user()
     {
         return $this->belongsTo(User::class);
-    }
-
-    public function fileable()
-    {
-        return $this->morphTo();
     }
 }
