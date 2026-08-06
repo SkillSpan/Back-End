@@ -26,13 +26,12 @@ class AccountVerificationNotification extends Notification implements ShouldQueu
         $minutes = (int) config('verification.otp_lifetime_minutes', 10);
 
         return (new MailMessage)
-            ->subject('رمز التحقق - SkillBridge')
-            ->greeting('مرحباً '.$notifiable->name)
-            ->line('شكراً لتسجيلك في منصة SkillBridge.')
-            ->line('يرجى استخدام الرمز التالي لتأكيد حسابك:')
-            ->line('**'.$this->otp.'**')
-            ->line("هذا الرمز صالح لمدة {$minutes} دقائق.")
-            ->line('إذا لم تقم بإنشاء هذا الحساب، يمكنك تجاهل هذه الرسالة.')
-            ->salutation('مع تحيات فريق SkillBridge');
+            ->subject('Your SkillSpan Verification Code')
+            ->view('emails.otp-verification', [
+                'name' => $notifiable->name,
+                'otp' => $this->otp,
+                'minutes' => $minutes,
+                'logoUrl' => asset('images/skillspan.jpg'),
+            ]);
     }
 }
