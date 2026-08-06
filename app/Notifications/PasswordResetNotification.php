@@ -26,13 +26,12 @@ class PasswordResetNotification extends Notification implements ShouldQueue
         $minutes = (int) config('password_reset.otp_lifetime_minutes', 10);
 
         return (new MailMessage)
-            ->subject('رمز إعادة تعيين كلمة المرور - SkillBridge')
-            ->greeting('مرحباً ' . $notifiable->name)
-            ->line('وصلنا طلب لإعادة تعيين كلمة المرور الخاصة بحسابك في SkillBridge.')
-            ->line('يرجى استخدام الرمز التالي لإعادة تعيين كلمة المرور:')
-            ->line('**' . $this->otp . '**')
-            ->line("هذا الرمز صالح لمدة {$minutes} دقائق.")
-            ->line('إذا لم تطلب إعادة تعيين كلمة المرور، يمكنك تجاهل هذه الرسالة.')
-            ->salutation('مع تحيات فريق SkillBridge');
+            ->subject('Your SkillSpan Password Reset Code')
+            ->view('emails.password-reset', [
+                'name' => $notifiable->name,
+                'otp' => $this->otp,
+                'minutes' => $minutes,
+                'logoUrl' => asset('images/skillspan.jpg'),
+            ]);
     }
 }
