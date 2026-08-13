@@ -6,19 +6,41 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     *
+     * يستبدل الجدول الافتراضي (email كـ primary key) ببنية أفضل مبنية
+     * على user_id، مع تتبع صريح لتاريخ الانتهاء (expires_at) وتاريخ
+     * الاستهلاك (consumed_at) بدل الاعتماد على الحذف المباشر بعد
+     * الاستخدام أو حساب الانتهاء من config في كل مرة.
+     */
     public function up(): void
     {
-        Schema::create('role_permission', function (Blueprint $table) {
+        Schema::dropIfExists('password_reset_tokens');
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('role_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('permission_id')->constrained()->cascadeOnDelete();
-            $table->timestamps();
-            $table->unique(['role_id','permission_id']);
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->string('token_hash');
+            $table->timestamp('expires_at');
+            $table->timestamp('consumed_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+
+            $table->index(['user_id', 'consumed_at']);
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
-        Schema::dropIfExists('role_permission');
+        Schema::dropIfExists('password_reset_tokens');
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
     }
 };
