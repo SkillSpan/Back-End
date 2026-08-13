@@ -190,6 +190,39 @@ class AuthController extends Controller
     }
 
     /**
+     * POST /api/auth/forgot-password/resend
+     * Task: re-send password reset OTP respecting the resend interval.
+     */
+    public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
+    {
+        $user = User::where('email', $request->input('email'))->firstOrFail();
+
+        if (! $this->authService->canResendPasswordReset($user->email)) {
+            $availableAt = $this->authService->passwordResetResendAvailableAt($user->email);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'لا يمكنك إعادة الإرسال الآن. يرجى الانتظار.',
+                'data' => [
+                    'retry_after' => $availableAt ? now()->diffInSeconds($availableAt) : null,
+                ],
+            ], 429);
+        }
+
+        $this->authService->sendPasswordResetOtp($user);
+
+        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم إرسال رمز إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.',
+            'data' => [
+                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
      * POST /api/auth/reset-password
      * Task: validate OTP against password_reset_tokens, update password.
      */

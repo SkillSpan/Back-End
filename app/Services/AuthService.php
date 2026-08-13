@@ -11,6 +11,7 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -352,6 +353,29 @@ class AuthService
         $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
 
         return now()->diffInSeconds($record->created_at) >= $resendInterval;
+    }
+
+    public function passwordResetResendAvailableAt(string $email): ?Carbon
+    {
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || ! $record->created_at) {
+            return null;
+        }
+
+        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
+        $availableAt = Carbon::parse($record->created_at)->addSeconds($resendInterval);
+
+        return $availableAt->isFuture() ? $availableAt : null;
     }
 
     public function resetPassword(string $email, string $otp, string $newPassword): bool
