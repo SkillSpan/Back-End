@@ -11,6 +11,7 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -164,6 +165,12 @@ class AuthService
             'contact_phone' => $data['organization_contact_phone'] ?? null,
             'website' => $data['organization_website'] ?? null,
             'description' => $data['organization_description'] ?? null,
+            'industry' => $data['organization_industry'] ?? null,
+            'company_size' => $data['organization_company_size'] ?? null,
+            'country' => $data['organization_country'] ?? null,
+            'city' => $data['organization_city'] ?? null,
+            'address' => $data['organization_address'] ?? null,
+            'postal_code' => $data['organization_postal_code'] ?? null,
         ]);
 
         $roleSlug = match ($data['organization_type']) {
@@ -307,20 +314,37 @@ class AuthService
         $max = (10 ** $digits) - 1;
         $otp = str_pad((string) random_int(0, $max), $digits, '0', STR_PAD_LEFT);
 
-        DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $user->email],
-            [
-                'token' => Hash::make($otp),
-                'created_at' => now(),
-            ]
-        );
+        $lifetimeMinutes = (int) config('password_reset.otp_lifetime_minutes', 10);
+
+        // أي طلبات سابقة لم تُستهلك تُعتبر منتهية بمجرد توليد رمز جديد.
+        DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
+        DB::table('password_reset_tokens')->insert([
+            'user_id' => $user->id,
+            'token_hash' => Hash::make($otp),
+            'expires_at' => now()->addMinutes($lifetimeMinutes),
+            'consumed_at' => null,
+            'created_at' => now(),
+        ]);
 
         $user->notify(new PasswordResetNotification($otp));
     }
 
     public function canResendPasswordReset(string $email): bool
     {
-        $record = DB::table('password_reset_tokens')->where('email', $email)->first();
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            return true;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->latest('created_at')
+            ->first();
 
         if (! $record || ! $record->created_at) {
             return true;
@@ -331,12 +355,47 @@ class AuthService
         return now()->diffInSeconds($record->created_at) >= $resendInterval;
     }
 
+    public function passwordResetResendAvailableAt(string $email): ?Carbon
+    {
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || ! $record->created_at) {
+            return null;
+        }
+
+        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
+        $availableAt = Carbon::parse($record->created_at)->addSeconds($resendInterval);
+
+        return $availableAt->isFuture() ? $availableAt : null;
+    }
+
     public function resetPassword(string $email, string $otp, string $newPassword): bool
     {
         try {
             DB::beginTransaction();
 
-            $record = DB::table('password_reset_tokens')->where('email', $email)->first();
+            $user = User::where('email', $email)->first();
+
+            if (! $user) {
+                DB::rollBack();
+
+                return false;
+            }
+
+            $record = DB::table('password_reset_tokens')
+                ->where('user_id', $user->id)
+                ->whereNull('consumed_at')
+                ->latest('created_at')
+                ->first();
 
             if (! $record) {
                 DB::rollBack();
@@ -344,25 +403,23 @@ class AuthService
                 return false;
             }
 
-            $lifetimeMinutes = (int) config('password_reset.otp_lifetime_minutes', 10);
-            $expiresAt = \Illuminate\Support\Carbon::parse($record->created_at)->addMinutes($lifetimeMinutes);
-
-            if (now()->greaterThan($expiresAt)) {
+            if (now()->greaterThan($record->expires_at)) {
                 DB::rollBack();
 
                 return false;
             }
 
-            if (! Hash::check($otp, $record->token)) {
+            if (! Hash::check($otp, $record->token_hash)) {
                 DB::rollBack();
 
                 return false;
             }
 
-            $user = User::where('email', $email)->firstOrFail();
             $user->update(['password' => $newPassword]);
 
-            DB::table('password_reset_tokens')->where('email', $email)->delete();
+            DB::table('password_reset_tokens')
+                ->where('id', $record->id)
+                ->update(['consumed_at' => now()]);
 
             DB::commit();
 

@@ -9,10 +9,10 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * يستبدل الجدول الافتراضي (email كـ primary key) ببنية أفضل مبنية
-     * على user_id، مع تتبع صريح لتاريخ الانتهاء (expires_at) وتاريخ
-     * الاستهلاك (consumed_at) بدل الاعتماد على الحذف المباشر بعد
-     * الاستخدام أو حساب الانتهاء من config في كل مرة.
+     * ملاحظة: هاي الـ migration بتعمل drop كامل لجدول password_reset_tokens
+     * وتعيد بناءه بالبنية الصح (id, user_id, token_hash, expires_at, consumed_at).
+     * تم التأكد من المستخدم إنه لا توجد بيانات مهمة بالجدول حاليًا على الإنتاج
+     * (لسا ما جربها أي مستخدم فعلي).
      */
     public function up(): void
     {
@@ -20,13 +20,15 @@ return new class extends Migration
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('user_id')
+                ->constrained('users')
+                ->cascadeOnDelete();
             $table->string('token_hash');
             $table->timestamp('expires_at');
             $table->timestamp('consumed_at')->nullable();
-            $table->timestamp('created_at')->nullable();
+            $table->timestamp('created_at')->useCurrent();
 
-            $table->index(['user_id', 'consumed_at']);
+            $table->index('user_id');
         });
     }
 

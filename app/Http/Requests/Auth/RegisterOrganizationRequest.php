@@ -30,6 +30,12 @@ class RegisterOrganizationRequest extends FormRequest
             'organization_contact_phone' => ['nullable', 'string', 'max:20'],
             'organization_website' => ['nullable', 'url', 'max:255'],
             'organization_description' => ['nullable', 'string', 'max:1000'],
+            'organization_industry' => ['nullable', 'string', 'max:255'],
+            'organization_company_size' => ['nullable', 'string', 'max:50'],
+            'organization_country' => ['nullable', 'string', 'max:255'],
+            'organization_city' => ['nullable', 'string', 'max:255'],
+            'organization_address' => ['nullable', 'string', 'max:500'],
+            'organization_postal_code' => ['nullable', 'string', 'max:20'],
 
             'proof_file' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
         ];
