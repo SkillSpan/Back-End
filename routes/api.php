@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,4 +19,11 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/forgot-password/resend', [AuthController::class, 'resendPasswordReset']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::get('/organizations', [AdminOrganizationController::class, 'index']);
+    Route::get('/organizations/{organization}', [AdminOrganizationController::class, 'show']);
+    Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
+    Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
 });

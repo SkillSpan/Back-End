@@ -45,13 +45,13 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            'terms_accepted.accepted' => 'يجب قبول الشروط والأحكام.',
-            'privacy_accepted.accepted' => 'يجب قبول سياسة الخصوصية.',
-            'proof_file.required' => 'يرجى رفع ملف يثبت هوية المؤسسة (شهادة تسجيل الشركة أو الجامعة).',
-            'proof_file.mimes' => 'يجب أن يكون الملف من نوع: jpg, jpeg, png, pdf.',
-            'proof_file.max' => 'حجم الملف لا يتجاوز 5 ميجابايت.',
-            'organization_name.required' => 'اسم المؤسسة مطلوب.',
-            'organization_type.required' => 'يرجى تحديد نوع المؤسسة.',
+            'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
+            'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
+            'proof_file.required' => 'Please upload a document proving the organization\'s identity (company or university registration certificate).',
+            'proof_file.mimes' => 'The file must be one of the following types: jpg, jpeg, png, pdf.',
+            'proof_file.max' => 'The file size must not exceed 5 MB.',
+            'organization_name.required' => 'The organization name is required.',
+            'organization_type.required' => 'Please specify the organization type.',
         ];
     }
 }

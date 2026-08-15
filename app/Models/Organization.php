@@ -27,4 +27,27 @@ class Organization extends Model
     {
         return $this->belongsTo(User::class, 'verified_by');
     }
+
+    /**
+     * The registration proof/certificate uploaded by the organization's admin
+     * during registration (see AuthService::uploadProofFile). Proof files are
+     * not linked to the organization directly, so we resolve them through the
+     * organization's admin member.
+     */
+    public function proofFile(): ?UploadedFile
+    {
+        $adminUserId = $this->members()
+            ->wherePivot('role_in_org', 'admin')
+            ->orderBy('organization_members.created_at')
+            ->value('users.id');
+
+        if (! $adminUserId) {
+            return null;
+        }
+
+        return UploadedFile::where('user_id', $adminUserId)
+            ->where('type', 'certificate')
+            ->latest()
+            ->first();
+    }
 }

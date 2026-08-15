@@ -32,7 +32,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إنشاء الحساب بنجاح. يرجى التحقق من بريدك الإلكتروني.',
+            'message' => 'Your account has been created successfully. Please check your email to verify your account.',
             'data' => [
                 'user_id' => $user->id,
                 'email' => $user->email,
@@ -57,7 +57,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إنشاء حساب المؤسسة بنجاح. سيتم مراجعة ملف الإثبات والتحقق من بريدك الإلكتروني.',
+            'message' => 'Your organization account has been created successfully. Your proof document will be reviewed and you need to verify your email.',
             'data' => [
                 'user_id' => $user->id,
                 'email' => $user->email,
@@ -79,13 +79,18 @@ class AuthController extends Controller
 
         if (! $verified) {
             throw ValidationException::withMessages([
-                'otp' => 'رمز التحقق غير صحيح أو منتهي الصلاحية.',
+                'otp' => 'The verification code is invalid or has expired.',
             ]);
         }
 
+        $user = User::where('email', $request->input('email'))->first();
+        $isOrganizationMember = $user && $user->organizations()->exists();
+
         return response()->json([
             'success' => true,
-            'message' => 'تم تفعيل حسابك بنجاح. يمكنك الآن تسجيل الدخول.',
+            'message' => $isOrganizationMember
+                ? 'Your email has been confirmed. Please wait until your account has been verified.'
+                : 'Your account has been activated successfully. You can now log in.',
             'data' => [
                 'redirect_url' => '/login',
             ],
@@ -104,7 +109,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'لا يمكنك إعادة الإرسال الآن. يرجى الانتظار.',
+                'message' => 'You cannot resend the code right now. Please wait before trying again.',
                 'data' => [
                     'retry_after' => $seconds,
                 ],
@@ -116,7 +121,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني.',
+            'message' => 'A new verification code has been sent to your email.',
             'data' => [
                 'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
             ],
@@ -129,13 +134,33 @@ class AuthController extends Controller
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
             throw ValidationException::withMessages([
-                'email' => 'بيانات الدخول غير صحيحة.',
+                'email' => 'The provided credentials are incorrect.',
             ]);
         }
 
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
-                'email' => 'يجب تفعيل حسابك أولاً. يرجى التحقق من بريدك الإلكتروني.',
+                'email' => 'You must activate your account first. Please check your email.',
+            ]);
+        }
+
+        $pendingOrganization = $user->organizations()
+            ->where('verification_status', 'pending')
+            ->first();
+
+        if ($pendingOrganization) {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
+            ]);
+        }
+
+        $rejectedOrganization = $user->organizations()
+            ->where('verification_status', 'rejected')
+            ->first();
+
+        if ($rejectedOrganization) {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization registration was rejected. Please contact support for more information.',
             ]);
         }
 
@@ -145,7 +170,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم تسجيل الدخول بنجاح.',
+            'message' => 'Logged in successfully.',
             'data' => [
                 'user' => $user->load(['roles', 'studentProfile']),
                 'token' => $token,
@@ -170,7 +195,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'لا يمكنك إعادة الإرسال الآن. يرجى الانتظار.',
+                'message' => 'You cannot resend the code right now. Please wait before trying again.',
                 'data' => [
                     'retry_after' => $seconds,
                 ],
@@ -182,7 +207,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إرسال رمز إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.',
+            'message' => 'A password reset code has been sent to your email.',
             'data' => [
                 'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
             ],
@@ -202,7 +227,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'لا يمكنك إعادة الإرسال الآن. يرجى الانتظار.',
+                'message' => 'You cannot resend the code right now. Please wait before trying again.',
                 'data' => [
                     'retry_after' => $availableAt ? now()->diffInSeconds($availableAt) : null,
                 ],
@@ -215,7 +240,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إرسال رمز إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.',
+            'message' => 'A password reset code has been sent to your email.',
             'data' => [
                 'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
             ],
@@ -236,13 +261,13 @@ class AuthController extends Controller
 
         if (! $reset) {
             throw ValidationException::withMessages([
-                'otp' => 'رمز إعادة التعيين غير صحيح أو منتهي الصلاحية.',
+                'otp' => 'The reset code is invalid or has expired.',
             ]);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'تم إعادة تعيين كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.',
+            'message' => 'Your password has been reset successfully. You can now log in.',
             'data' => [
                 'redirect_url' => '/login',
             ],

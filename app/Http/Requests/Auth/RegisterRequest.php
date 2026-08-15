@@ -38,8 +38,8 @@ class RegisterRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            'terms_accepted.accepted' => 'يجب قبول الشروط والأحكام.',
-            'privacy_accepted.accepted' => 'يجب قبول سياسة الخصوصية.',
+            'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
+            'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
         ];
     }
 }
