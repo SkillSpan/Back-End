@@ -94,4 +94,14 @@ class User extends Authenticatable
     {
         return $this->roles()->where('slug', $slug)->exists();
     }
+
+    /**
+     * دايمًا نخزّن الإيميل بحروف صغيرة وبدون مسافات زايدة، عشان
+     * البحث عنه لاحقًا (تسجيل دخول، تحقق، نسيت كلمة السر) ما يتأثر
+     * بحساسية الأحرف الكبيرة/الصغيرة أو نسخ-لصق فيه مسافات.
+     */
+    public function setEmailAttribute(string $value): void
+    {
+        $this->attributes['email'] = strtolower(trim($value));
+    }
 }

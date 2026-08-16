@@ -240,7 +240,7 @@ class AuthService
         try {
             DB::beginTransaction();
 
-            $user = User::where('email', $email)->firstOrFail();
+            $user = User::where('email', strtolower(trim($email)))->firstOrFail();
 
             $verification = AccountVerification::where('user_id', $user->id)
                 ->where('decision', 'pending')
@@ -335,7 +335,7 @@ class AuthService
 
     public function canResendPasswordReset(string $email): bool
     {
-        $user = User::where('email', $email)->first();
+        $user = User::where('email', strtolower(trim($email)))->first();
 
         if (! $user) {
             return true;
@@ -357,7 +357,7 @@ class AuthService
 
     public function passwordResetResendAvailableAt(string $email): ?Carbon
     {
-        $user = User::where('email', $email)->first();
+        $user = User::where('email', strtolower(trim($email)))->first();
 
         if (! $user) {
             return null;
@@ -383,7 +383,7 @@ class AuthService
         try {
             DB::beginTransaction();
 
-            $user = User::where('email', $email)->first();
+            $user = User::where('email', strtolower(trim($email)))->first();
 
             if (! $user) {
                 DB::rollBack();

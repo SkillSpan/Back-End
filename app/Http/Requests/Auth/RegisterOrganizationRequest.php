@@ -13,6 +13,17 @@ class RegisterOrganizationRequest extends FormRequest
         return true;
     }
 
+    /**
+     * نطبّع الإيميل (حروف صغيرة + إزالة مسافات) قبل الفاليديشن،
+     * عشان قاعدة unique تكتشف التكرار حتى لو انكتب بحروف مختلفة.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('email')) {
+            $this->merge(['email' => strtolower(trim((string) $this->input('email')))]);
+        }
+    }
+
     public function rules(): array
     {
         return [

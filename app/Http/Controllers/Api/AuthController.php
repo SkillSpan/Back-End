@@ -83,7 +83,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $user = User::where('email', $request->input('email'))->first();
+        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
         $isOrganizationMember = $user && $user->organizations()->exists();
 
         return response()->json([
@@ -99,7 +99,7 @@ class AuthController extends Controller
 
     public function resendOtp(ResendOtpRequest $request): JsonResponse
     {
-        $user = User::where('email', $request->input('email'))->firstOrFail();
+        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
 
         $key = 'resend-otp:' . $user->id;
         $decaySeconds = (int) config('verification.resend_interval_seconds', 60);
@@ -130,7 +130,7 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', $request->input('email'))->first();
+        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
             throw ValidationException::withMessages([
@@ -141,26 +141,6 @@ class AuthController extends Controller
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
                 'email' => 'You must activate your account first. Please check your email.',
-            ]);
-        }
-
-        $pendingOrganization = $user->organizations()
-            ->where('verification_status', 'pending')
-            ->first();
-
-        if ($pendingOrganization) {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
-            ]);
-        }
-
-        $rejectedOrganization = $user->organizations()
-            ->where('verification_status', 'rejected')
-            ->first();
-
-        if ($rejectedOrganization) {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization registration was rejected. Please contact support for more information.',
             ]);
         }
 
@@ -180,12 +160,69 @@ class AuthController extends Controller
     }
 
     /**
+     * POST /api/auth/login/organization
+     * تسجيل دخول خاص بحسابات المؤسسات (شركة / جامعة / جهة تدريب) فقط.
+     * يرفض أي حساب فرد (learner) حتى لو الإيميل وكلمة السر صحيحين.
+     */
+    public function loginOrganization(LoginRequest $request): JsonResponse
+    {
+        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+
+        if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            throw ValidationException::withMessages([
+                'email' => 'The provided credentials are incorrect.',
+            ]);
+        }
+
+        if ($user->status !== 'active' || ! $user->email_verified_at) {
+            throw ValidationException::withMessages([
+                'email' => 'You must activate your account first. Please check your email.',
+            ]);
+        }
+
+        $organization = $user->organizations()->first();
+
+        if (! $organization) {
+            throw ValidationException::withMessages([
+                'email' => 'This account is not registered as an organization. Please use the individual login.',
+            ]);
+        }
+
+        if ($organization->verification_status === 'pending') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
+            ]);
+        }
+
+        if ($organization->verification_status === 'rejected') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization registration was rejected. Please contact support for more information.',
+            ]);
+        }
+
+        $user->update(['last_login_at' => now()]);
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged in successfully.',
+            'data' => [
+                'user' => $user->load('roles'),
+                'organizations' => [$organization],
+                'token' => $token,
+                'token_type' => 'Bearer',
+            ],
+        ]);
+    }
+
+    /**
      * POST /api/auth/forgot-password
      * Task: validate email exists, generate OTP, email it, rate-limit resends.
      */
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', $request->input('email'))->firstOrFail();
+        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
 
         $key = 'forgot-password:' . $user->id;
         $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
@@ -220,7 +257,7 @@ class AuthController extends Controller
      */
     public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', $request->input('email'))->firstOrFail();
+        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
 
         if (! $this->authService->canResendPasswordReset($user->email)) {
             $availableAt = $this->authService->passwordResetResendAvailableAt($user->email);
