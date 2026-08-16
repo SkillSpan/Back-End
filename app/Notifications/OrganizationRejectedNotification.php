@@ -24,17 +24,13 @@ class OrganizationRejectedNotification extends Notification implements ShouldQue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $message = (new MailMessage)
-            ->subject('Update on Your Organization Registration - SkillBridge')
-            ->greeting('Hello ' . $notifiable->name)
-            ->line("We have reviewed your organization registration for \"{$this->organization->name}\" and, unfortunately, we are unable to approve it at this time.");
-
-        if ($this->reason) {
-            $message->line("Reason: {$this->reason}");
-        }
-
-        return $message
-            ->line('If you believe this is a mistake or you can provide additional verification documents, please contact our support team.')
-            ->salutation('Best regards, The SkillBridge Team');
+        return (new MailMessage)
+            ->subject('Update on Your Organization Registration - SkillSpan')
+            ->view('emails.organization-rejected', [
+                'name' => $notifiable->name,
+                'organizationName' => $this->organization->name,
+                'reason' => $this->reason,
+                'logoUrl' => asset('images/skillspan.jpg'),
+            ]);
     }
 }
