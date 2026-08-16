@@ -3,12 +3,9 @@
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\SetupController;
 
-/*
-|--------------------------------------------------------------------------
-| SkillBridge API Routes
-|--------------------------------------------------------------------------
-*/
+
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
@@ -28,3 +25,6 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
     Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
 });
+
+
+Route::post('/setup/create-admin', [SetupController::class, 'createAdmin']);
