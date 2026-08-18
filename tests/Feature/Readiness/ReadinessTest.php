@@ -159,7 +159,7 @@ class ReadinessTest extends TestCase
             $data = $request->data();
             return $data['user_id'] > 0
                 && $data['target_role'] === 'Data Analyst'
-                && collect($data['skills'])->pluck('importance_weight')->sort()->values()->all() === [25.0, 30.0, 45.0];
+                && collect($data['skills'])->pluck('importance_weight')->sort()->values()->all() === [0.25, 0.3, 0.45];
         });
     }
 
@@ -340,7 +340,7 @@ class ReadinessTest extends TestCase
                 'skill_name' => $roleSkill->skill->name,
                 'current_level' => 3.0,
                 'required_level' => (float) $roleSkill->required_level,
-                'importance_weight' => (float) $roleSkill->importance_weight * 100,
+                'importance_weight' => (float) $roleSkill->importance_weight,
                 'is_critical' => (bool) $roleSkill->is_critical,
                 'gap' => 1.0,
                 'status' => 'gap',
