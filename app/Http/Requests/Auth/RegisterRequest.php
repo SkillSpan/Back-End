@@ -13,6 +13,17 @@ class RegisterRequest extends FormRequest
         return true;
     }
 
+    /**
+     * نطبّع الإيميل (حروف صغيرة + إزالة مسافات) قبل الفاليديشن،
+     * عشان قاعدة unique تكتشف التكرار حتى لو انكتب بحروف مختلفة.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('email')) {
+            $this->merge(['email' => strtolower(trim((string) $this->input('email')))]);
+        }
+    }
+
     public function rules(): array
     {
         return [
@@ -31,6 +42,13 @@ class RegisterRequest extends FormRequest
                 'string',
                 Rule::in(['enrolled', 'graduated', 'on_leave', 'student', 'graduate', 'looking_for_job', 'employed']),
             ],
+
+            // مسار الأفراد فقط. أي بيانات شركة هون معناها إنه المستخدم
+            // بالغلط استخدم هالمسار بدل /api/auth/register/organization.
+            'user_type' => ['nullable', 'string', 'in:individual'],
+            'organization_name' => ['prohibited'],
+            'organization_type' => ['prohibited'],
+            'proof_file' => ['prohibited'],
         ];
     }
 
@@ -38,8 +56,12 @@ class RegisterRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            'terms_accepted.accepted' => 'يجب قبول الشروط والأحكام.',
-            'privacy_accepted.accepted' => 'يجب قبول سياسة الخصوصية.',
+            'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
+            'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
+            'user_type.in' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',
+            'organization_name.prohibited' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',
+            'organization_type.prohibited' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',
+            'proof_file.prohibited' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',
         ];
     }
 }

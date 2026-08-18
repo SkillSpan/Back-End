@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "SkillBridge Auth API",
-    "description": "مصادقة منصة SkillBridge",
+    "name": "SkillSpan Auth API",
+    "description": "مصادقة منصة SkillSpan",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
