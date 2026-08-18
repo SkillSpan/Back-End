@@ -254,26 +254,30 @@ class AuthController extends Controller
     /**
      * POST /api/auth/forgot-password/resend
      * Task: re-send password reset OTP respecting the resend interval.
+     * Uses the same RateLimiter key as forgotPassword() so both actions
+     * share a single, atomic rate limit (no separate DB-based check).
      */
     public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
     {
         $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
 
-        if (! $this->authService->canResendPasswordReset($user->email)) {
-            $availableAt = $this->authService->passwordResetResendAvailableAt($user->email);
+        $key = 'forgot-password:' . $user->id;
+        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
+
+        if (RateLimiter::tooManyAttempts($key, 1)) {
+            $seconds = RateLimiter::availableIn($key);
 
             return response()->json([
                 'success' => false,
                 'message' => 'You cannot resend the code right now. Please wait before trying again.',
                 'data' => [
-                    'retry_after' => $availableAt ? now()->diffInSeconds($availableAt) : null,
+                    'retry_after' => $seconds,
                 ],
             ], 429);
         }
 
+        RateLimiter::hit($key, $decaySeconds);
         $this->authService->sendPasswordResetOtp($user);
-
-        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
         return response()->json([
             'success' => true,
