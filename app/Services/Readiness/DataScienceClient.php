@@ -13,8 +13,16 @@ class DataScienceClient
 {
     public function analyze(array $payload, string $requestId): array
     {
-        $baseUrl = rtrim((string) config('services.data_science.url'), '/');
-        $timeout = (int) config('services.data_science.timeout', 10);
+        $baseUrl = rtrim(
+            (string) config('services.data_science.url'),
+            '/'
+        );
+
+        $timeout = (int) config(
+            'services.data_science.timeout',
+            10
+        );
+
         $endpoint = $baseUrl . '/api/v1/skill-gap';
         $startedAt = microtime(true);
 
@@ -35,7 +43,13 @@ class DataScienceClient
                 ])
                 ->post($endpoint, $payload);
         } catch (ConnectionException $e) {
-            $this->logFailure($payload, $requestId, null, $startedAt, $e->getMessage());
+            $this->logFailure(
+                $payload,
+                $requestId,
+                null,
+                $startedAt,
+                $e->getMessage(),
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science service is unavailable or timed out.',
@@ -45,7 +59,13 @@ class DataScienceClient
                 $e,
             );
         } catch (Throwable $e) {
-            $this->logFailure($payload, $requestId, null, $startedAt, $e->getMessage());
+            $this->logFailure(
+                $payload,
+                $requestId,
+                null,
+                $startedAt,
+                $e->getMessage(),
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science integration failed unexpectedly.',
@@ -56,7 +76,12 @@ class DataScienceClient
             );
         }
 
-        return $this->parseResponse($response, $payload, $requestId, $startedAt);
+        return $this->parseResponse(
+            $response,
+            $payload,
+            $requestId,
+            $startedAt,
+        );
     }
 
     private function parseResponse(
@@ -65,11 +90,20 @@ class DataScienceClient
         string $requestId,
         float $startedAt,
     ): array {
-        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+        $durationMs = (int) round(
+            (microtime(true) - $startedAt) * 1000
+        );
+
         $status = $response->status();
 
         if ($status === 422) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'FastAPI validation error');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'FastAPI validation error',
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science service rejected the request.',
@@ -80,7 +114,13 @@ class DataScienceClient
         }
 
         if ($status >= 500) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'FastAPI server error');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'FastAPI server error',
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science service failed to process the request.',
@@ -90,7 +130,13 @@ class DataScienceClient
         }
 
         if (! $response->successful()) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Unexpected FastAPI HTTP status');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Unexpected FastAPI HTTP status',
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science service returned an unexpected HTTP status.',
@@ -100,8 +146,15 @@ class DataScienceClient
         }
 
         $data = $response->json();
+
         if (! is_array($data)) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Invalid JSON response');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Invalid JSON response',
+            );
 
             throw new ReadinessIntegrationException(
                 'The Data Science service returned an invalid JSON response.',
@@ -110,13 +163,22 @@ class DataScienceClient
             );
         }
 
-        Log::info('Data Science readiness request completed.', [
-            'request_id' => $requestId,
-            'user_id' => $payload['user_id'] ?? null,
-            'target_role' => $payload['target_role'] ?? null,
-            'http_status' => $status,
-            'duration_ms' => $durationMs,
-        ]);
+        Log::info(
+            'Data Science readiness request completed.',
+            [
+                'request_id' => $requestId,
+                'student_profile_id' =>
+                    $payload['student_profile_id'] ?? null,
+                'career_role_id' =>
+                    $payload['career_role_id'] ?? null,
+                'career_role_version' =>
+                    $payload['career_role_version'] ?? null,
+                'algorithm_version' =>
+                    $data['algorithm_version'] ?? null,
+                'http_status' => $status,
+                'duration_ms' => $durationMs,
+            ],
+        );
 
         return $data;
     }
@@ -135,13 +197,24 @@ class DataScienceClient
         float $startedAt,
         string $reason,
     ): void {
-        Log::warning('Data Science readiness request failed.', [
-            'request_id' => $requestId,
-            'user_id' => $payload['user_id'] ?? null,
-            'target_role' => $payload['target_role'] ?? null,
-            'http_status' => $status,
-            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-            'failure_reason' => $reason,
-        ]);
+        Log::warning(
+            'Data Science readiness request failed.',
+            [
+                'request_id' => $requestId,
+                'student_profile_id' =>
+                    $payload['student_profile_id'] ?? null,
+                'career_role_id' =>
+                    $payload['career_role_id'] ?? null,
+                'career_role_version' =>
+                    $payload['career_role_version'] ?? null,
+                'algorithm_version' =>
+                    $payload['algorithm_version'] ?? null,
+                'http_status' => $status,
+                'duration_ms' => (int) round(
+                    (microtime(true) - $startedAt) * 1000
+                ),
+                'failure_reason' => $reason,
+            ],
+        );
     }
 }

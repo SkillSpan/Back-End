@@ -10,7 +10,6 @@ use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class ReadinessService
 {
@@ -20,8 +19,11 @@ class ReadinessService
     ) {
     }
 
-    public function calculate(StudentProfile $studentProfile, ?int $careerRoleId, string $requestId): ReadinessResult
-    {
+    public function calculate(
+        StudentProfile $studentProfile,
+        ?int $careerRoleId,
+        string $requestId
+    ): ReadinessResult {
         $careerRoleId ??= $studentProfile->primary_career_role_id;
 
         if (! $careerRoleId) {
@@ -39,7 +41,9 @@ class ReadinessService
             ->first();
 
         if (! $careerRole) {
-            $exists = CareerRole::query()->whereKey($careerRoleId)->exists();
+            $exists = CareerRole::query()
+                ->whereKey($careerRoleId)
+                ->exists();
 
             if ($exists) {
                 throw new ReadinessException(
@@ -77,7 +81,10 @@ class ReadinessService
                 ->orderByDesc('id')
                 ->first();
 
-            $roleSkill->setAttribute('latest_evaluation', $latestEvaluation);
+            $roleSkill->setAttribute(
+                'latest_evaluation',
+                $latestEvaluation
+            );
 
             if ($latestEvaluation === null) {
                 $missingSkillIds[] = (int) $roleSkill->skill_id;
@@ -93,18 +100,32 @@ class ReadinessService
             );
         }
 
-        $payload = $this->payloadBuilder->build($studentProfile, $careerRole, $roleSkills);
-        $result = $this->dataScienceClient->analyze($payload, $requestId);
-        $this->validateDataScienceResult($result, $payload, $careerRole, $roleSkills);
+        $payload = $this->payloadBuilder->build(
+            $studentProfile,
+            $careerRole,
+            $roleSkills,
+        );
 
-        $algorithmVersion = (string) config('services.data_science.algorithm_version', 'skill-gap-v1');
+        $result = $this->dataScienceClient->analyze(
+            $payload,
+            $requestId,
+        );
+
+        $this->validateDataScienceResult(
+            $result,
+            $payload,
+            $careerRole,
+            $roleSkills,
+        );
+
+        $algorithmVersion = (string) $result['algorithm_version'];
+
         $calculatedAt = now();
 
         $snapshot = [
             'career_role_id' => (int) $careerRole->id,
             'career_role_version' => (int) $careerRole->version,
             'student_profile_id' => (int) $studentProfile->id,
-            'user_id' => (int) $studentProfile->user_id,
             'payload' => $payload,
             'fastapi_result' => $result,
             'algorithm_version' => $algorithmVersion,
@@ -124,13 +145,19 @@ class ReadinessService
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
+
                 'score' => $result['readiness_score'],
                 'skill_match_component' => $result['base_readiness_score'],
+
                 'practical_experience_component' => null,
                 'assessment_reliability_component' => null,
                 'profile_completeness_component' => null,
-                'critical_cap_applied' => $result['critical_skill_cap_applied'],
+
+                'critical_cap_applied' =>
+                    (bool) $result['critical_skill_cap_applied'],
+
                 'band' => null,
+
                 'algorithm_version' => $algorithmVersion,
                 'calculated_at' => $calculatedAt,
                 'snapshot' => $snapshot,
@@ -138,11 +165,19 @@ class ReadinessService
         });
     }
 
-    public function latest(StudentProfile $studentProfile, ?int $careerRoleId = null): ?ReadinessResult
-    {
+    public function latest(
+        StudentProfile $studentProfile,
+        ?int $careerRoleId = null
+    ): ?ReadinessResult {
         return ReadinessResult::query()
             ->where('student_profile_id', $studentProfile->id)
-            ->when($careerRoleId, fn ($query) => $query->where('career_role_id', $careerRoleId))
+            ->when(
+                $careerRoleId,
+                fn ($query) => $query->where(
+                    'career_role_id',
+                    $careerRoleId
+                )
+            )
             ->latest('calculated_at')
             ->latest('id')
             ->first();
@@ -155,10 +190,13 @@ class ReadinessService
         $roleSkills,
     ): void {
         $required = [
-            'user_id',
+            'student_profile_id',
+            'career_role_id',
+            'career_role_version',
             'target_role',
             'base_readiness_score',
             'readiness_score',
+            'algorithm_version',
             'critical_skill_cap_applied',
             'critical_skill_readiness_cap',
             'critical_skill_gap_count',
@@ -180,15 +218,43 @@ class ReadinessService
             }
         }
 
-        if ((int) $result['user_id'] !== (int) $payload['user_id']) {
+        if (
+            (int) $result['student_profile_id']
+            !== (int) $payload['student_profile_id']
+        ) {
             throw new ReadinessIntegrationException(
-                'The Data Science response does not match the authenticated user.',
+                'The Data Science response does not match the student profile.',
                 502,
                 'DATA_SCIENCE_RESPONSE_MISMATCH',
             );
         }
 
-        if ((string) $result['target_role'] !== (string) $careerRole->title) {
+        if (
+            (int) $result['career_role_id']
+            !== (int) $payload['career_role_id']
+        ) {
+            throw new ReadinessIntegrationException(
+                'The Data Science response does not match the career role.',
+                502,
+                'DATA_SCIENCE_RESPONSE_MISMATCH',
+            );
+        }
+
+        if (
+            (int) $result['career_role_version']
+            !== (int) $payload['career_role_version']
+        ) {
+            throw new ReadinessIntegrationException(
+                'The Data Science response does not match the career role version.',
+                502,
+                'DATA_SCIENCE_RESPONSE_MISMATCH',
+            );
+        }
+
+        if (
+            (string) $result['target_role']
+            !== (string) $careerRole->title
+        ) {
             throw new ReadinessIntegrationException(
                 'The Data Science response does not match the requested career role.',
                 502,
@@ -196,8 +262,27 @@ class ReadinessService
             );
         }
 
-        foreach (['base_readiness_score', 'readiness_score'] as $field) {
-            if (! is_numeric($result[$field]) || (float) $result[$field] < 0 || (float) $result[$field] > 100) {
+        if (
+            ! is_string($result['algorithm_version'])
+            || trim($result['algorithm_version']) === ''
+        ) {
+            throw new ReadinessIntegrationException(
+                'The Data Science response contains an invalid algorithm version.',
+                502,
+                'DATA_SCIENCE_INVALID_RESPONSE',
+                ['field' => 'algorithm_version'],
+            );
+        }
+
+        foreach ([
+            'base_readiness_score',
+            'readiness_score',
+        ] as $field) {
+            if (
+                ! is_numeric($result[$field])
+                || (float) $result[$field] < 0
+                || (float) $result[$field] > 100
+            ) {
                 throw new ReadinessIntegrationException(
                     'The Data Science response contains an invalid readiness score.',
                     502,
@@ -215,7 +300,10 @@ class ReadinessService
             );
         }
 
-        if (count($result['skill_results']) !== $roleSkills->count()) {
+        if (
+            count($result['skill_results'])
+            !== $roleSkills->count()
+        ) {
             throw new ReadinessIntegrationException(
                 'The Data Science response contains an unexpected number of skill results.',
                 502,
@@ -223,11 +311,25 @@ class ReadinessService
             );
         }
 
-        $allowedSkillNames = $roleSkills->pluck('skill.name')->filter()->values()->all();
-        $skillResultNames = [];
+        $expectedSkills = [];
+
+        foreach ($payload['skills'] as $skill) {
+            $expectedSkills[(int) $skill['skill_id']] = $skill;
+        }
+
+        $seenSkillIds = [];
 
         foreach ($result['skill_results'] as $skillResult) {
-            foreach (['skill_name', 'current_level', 'required_level', 'importance_weight', 'is_critical', 'gap', 'status'] as $field) {
+            foreach ([
+                'skill_id',
+                'skill_name',
+                'current_level',
+                'required_level',
+                'importance_weight',
+                'is_critical',
+                'gap',
+                'status',
+            ] as $field) {
                 if (! array_key_exists($field, $skillResult)) {
                     throw new ReadinessIntegrationException(
                         'The Data Science response contains an incomplete skill result.',
@@ -238,31 +340,140 @@ class ReadinessService
                 }
             }
 
-            $skillName = (string) $skillResult['skill_name'];
-            if (! in_array($skillName, $allowedSkillNames, true)) {
+            $skillId = (int) $skillResult['skill_id'];
+
+            if (! isset($expectedSkills[$skillId])) {
                 throw new ReadinessIntegrationException(
                     'The Data Science response contains an unknown skill.',
                     502,
                     'DATA_SCIENCE_INVALID_RESPONSE',
-                    ['skill_name' => $skillName],
+                    ['skill_id' => $skillId],
                 );
             }
 
-            $skillResultNames[] = $skillName;
-        }
+            if (in_array($skillId, $seenSkillIds, true)) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains duplicate skill results.',
+                    502,
+                    'DATA_SCIENCE_INVALID_RESPONSE',
+                    ['skill_id' => $skillId],
+                );
+            }
 
-        if (count(array_unique($skillResultNames)) !== count($skillResultNames)) {
-            throw new ReadinessIntegrationException(
-                'The Data Science response contains duplicate skill results.',
-                502,
-                'DATA_SCIENCE_INVALID_RESPONSE',
+            $expected = $expectedSkills[$skillId];
+
+            if ((string) $skillResult['skill_name']
+                !== (string) $expected['skill_name']) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched skill name.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            if (
+                abs(
+                    (float) $skillResult['current_level']
+                    - (float) $expected['current_level']
+                ) > 0.0001
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched current level.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            if (
+                abs(
+                    (float) $skillResult['required_level']
+                    - (float) $expected['required_level']
+                ) > 0.0001
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched required level.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            if (
+                abs(
+                    (float) $skillResult['importance_weight']
+                    - (float) $expected['importance_weight']
+                ) > 0.0001
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched importance weight.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            if (
+                (bool) $skillResult['is_critical']
+                !== (bool) $expected['is_critical']
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched critical flag.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            $expectedGap = max(
+                (float) $expected['required_level']
+                - (float) $expected['current_level'],
+                0.0,
             );
+
+            if (
+                abs(
+                    (float) $skillResult['gap']
+                    - $expectedGap
+                ) > 0.01
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched skill gap.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            $expectedStatus =
+                $expectedGap == 0.0 ? 'met' : 'gap';
+
+            if (
+                (string) $skillResult['status']
+                !== $expectedStatus
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched skill status.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            $seenSkillIds[] = $skillId;
         }
 
-        Log::debug('Validated Data Science readiness response.', [
-            'career_role_id' => $careerRole->id,
-            'career_role_version' => $careerRole->version,
-            'result_skill_count' => count($result['skill_results']),
-        ]);
+        Log::debug(
+            'Validated Data Science readiness response.',
+            [
+                'career_role_id' => $careerRole->id,
+                'career_role_version' => $careerRole->version,
+                'result_skill_count' =>
+                    count($result['skill_results']),
+                'algorithm_version' =>
+                    $result['algorithm_version'],
+            ],
+        );
     }
 }

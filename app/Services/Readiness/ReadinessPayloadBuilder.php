@@ -11,8 +11,7 @@ class ReadinessPayloadBuilder
 {
     /**
      * Build the exact request contract accepted by the current FastAPI service.
-     * FastAPI accepts importance weights on a 0..100 relative scale, while the
-     * Laravel database/SRS stores normalized weights on a 0..1 scale.
+     * importance_weight is normalized on a 0..1 scale.
      */
     public function build(StudentProfile $studentProfile, CareerRole $careerRole, Collection $roleSkills): array
     {
@@ -55,17 +54,20 @@ class ReadinessPayloadBuilder
             }
 
             $skills[] = [
+                'skill_id' => (int) $roleSkill->skill_id,
                 'skill_name' => (string) $roleSkill->skill->name,
                 'current_level' => $currentLevel,
                 'required_level' => $requiredLevel,
-                // FastAPI currently accepts relative weights up to 100.
-                // Multiplying all normalized weights by 100 keeps the ratio unchanged.
-                'importance_weight' => round($importanceWeight * 100, 3),
+                // importance_weight is normalized on a 0..1 scale.
+                'importance_weight' => $importanceWeight,
                 'is_critical' => (bool) $roleSkill->is_critical,
             ];
         }
 
         return [
+            'student_profile_id' => (int) $studentProfile->id,
+            'career_role_id' => (int) $careerRole->id,
+            'career_role_version' => (int) $careerRole->version,
             'user_id' => (int) $studentProfile->user_id,
             'target_role' => (string) $careerRole->title,
             'skills' => $skills,
