@@ -2,10 +2,9 @@
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\AuthController;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\SetupController;
-
-
+use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
@@ -26,5 +25,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
 });
 
+Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
+    Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
+    Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
+});
 
 Route::post('/setup/create-admin', [SetupController::class, 'createAdmin']);
