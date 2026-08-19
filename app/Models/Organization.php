@@ -36,18 +36,14 @@ class Organization extends Model
      */
     public function proofFile(): ?UploadedFile
     {
-        $adminUserId = $this->members()
-            ->wherePivot('role_in_org', 'admin')
-            ->orderBy('organization_members.created_at')
-            ->value('users.id');
-
-        if (! $adminUserId) {
-            return null;
-        }
-
-        return UploadedFile::where('user_id', $adminUserId)
+        return $this->files()
             ->where('type', 'certificate')
             ->latest()
             ->first();
+    }
+
+    public function files()
+    {
+        return $this->morphMany(UploadedFile::class, 'fileable');
     }
 }

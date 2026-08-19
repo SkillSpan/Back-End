@@ -130,19 +130,36 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+        $email = strtolower(trim($request->input('email')));
+        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            throw ValidationException::withMessages([
+                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ]);
+        }
+
+        $user = User::where('email', $email)->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            RateLimiter::hit($throttleKey, 300); // قفل مؤقت 5 دقائق بعد المحاولة الفاشلة
+
             throw ValidationException::withMessages([
                 'email' => 'The provided credentials are incorrect.',
             ]);
         }
+
+        RateLimiter::clear($throttleKey);
 
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
                 'email' => 'You must activate your account first. Please check your email.',
             ]);
         }
+
+        $this->assertOrganizationIsApproved($user);
 
         $user->update(['last_login_at' => now()]);
 
@@ -166,13 +183,28 @@ class AuthController extends Controller
      */
     public function loginOrganization(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+        $email = strtolower(trim($request->input('email')));
+        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            throw ValidationException::withMessages([
+                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ]);
+        }
+
+        $user = User::where('email', $email)->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            RateLimiter::hit($throttleKey, 300);
+
             throw ValidationException::withMessages([
                 'email' => 'The provided credentials are incorrect.',
             ]);
         }
+
+        RateLimiter::clear($throttleKey);
 
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
@@ -188,17 +220,7 @@ class AuthController extends Controller
             ]);
         }
 
-        if ($organization->verification_status === 'pending') {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
-            ]);
-        }
-
-        if ($organization->verification_status === 'rejected') {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization registration was rejected. Please contact support for more information.',
-            ]);
-        }
+        $this->assertOrganizationIsApproved($user);
 
         $user->update(['last_login_at' => now()]);
 
@@ -217,75 +239,91 @@ class AuthController extends Controller
     }
 
     /**
+     * يتحقق من حالة موافقة المؤسسة لأي يوزر مرتبط بمؤسسة، ويمنع الدخول
+     * لو كانت pending أو rejected — بغض النظر عن أي endpoint استُخدم
+     * لتسجيل الدخول (login أو login/organization). هذا يمنع الـ bypass
+     * الأمني عبر استخدام الـ generic login endpoint.
+     */
+    private function assertOrganizationIsApproved(User $user): void
+    {
+        $organization = $user->organizations()->first();
+
+        if (! $organization) {
+            return;
+        }
+
+        if ($organization->verification_status === 'pending') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
+            ]);
+        }
+
+        if ($organization->verification_status === 'rejected') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization registration was rejected. Please contact support for more information.',
+            ]);
+        }
+    }
+
+    /**
      * POST /api/auth/forgot-password
      * Task: validate email exists, generate OTP, email it, rate-limit resends.
      */
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
+        $email = strtolower(trim($request->input('email')));
+        $user = User::where('email', $email)->first();
+
+        $neutralResponse = fn () => response()->json([
+            'success' => true,
+            'message' => 'If an account with that email exists, a password reset code has been sent.',
+        ]);
+
+        if (! $user) {
+            // نفس الرد المحايد بالضبط، بدون ما نكشف إذا الإيميل مسجل أصلاً.
+            return $neutralResponse();
+        }
 
         $key = 'forgot-password:' . $user->id;
         $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
-            $seconds = RateLimiter::availableIn($key);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot resend the code right now. Please wait before trying again.',
-                'data' => [
-                    'retry_after' => $seconds,
-                ],
-            ], 429);
+            // نفس الرد المحايد أيضًا هون — منع كشف حتى عبر توقيت الاستجابة
+            // أو رسائل مختلفة بحالة rate limiting.
+            return $neutralResponse();
         }
 
         RateLimiter::hit($key, $decaySeconds);
         $this->authService->sendPasswordResetOtp($user);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'A password reset code has been sent to your email.',
-            'data' => [
-                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
-            ],
-        ]);
+        return $neutralResponse();
     }
 
     /**
      * POST /api/auth/forgot-password/resend
      * Task: re-send password reset OTP respecting the resend interval.
-     * Uses the same RateLimiter key as forgotPassword() so both actions
-     * share a single, atomic rate limit (no separate DB-based check).
      */
     public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
+        $email = strtolower(trim($request->input('email')));
+        $user = User::where('email', $email)->first();
 
-        $key = 'forgot-password:' . $user->id;
-        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
+        $neutralResponse = fn () => response()->json([
+            'success' => true,
+            'message' => 'If an account with that email exists, a password reset code has been sent.',
+        ]);
 
-        if (RateLimiter::tooManyAttempts($key, 1)) {
-            $seconds = RateLimiter::availableIn($key);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot resend the code right now. Please wait before trying again.',
-                'data' => [
-                    'retry_after' => $seconds,
-                ],
-            ], 429);
+        if (! $user) {
+            return $neutralResponse();
         }
 
-        RateLimiter::hit($key, $decaySeconds);
+        if (! $this->authService->canResendPasswordReset($user->email)) {
+            return $neutralResponse();
+        }
+
         $this->authService->sendPasswordResetOtp($user);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'A password reset code has been sent to your email.',
-            'data' => [
-                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
-            ],
-        ]);
+        return $neutralResponse();
     }
 
     /**

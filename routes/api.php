@@ -21,6 +21,8 @@ Route::prefix('auth')->group(function () {
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/organizations', [AdminOrganizationController::class, 'index']);
     Route::get('/organizations/{organization}', [AdminOrganizationController::class, 'show']);
+    Route::get('/organizations/{organization}/proof-file', [AdminOrganizationController::class, 'downloadProofFile'])
+        ->name('admin.organizations.proof-file');
     Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
     Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
 });

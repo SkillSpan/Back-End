@@ -11,6 +11,7 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -194,10 +195,12 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/' . $organization->id, 'public');
+        $path = $file->store('proofs/' . $organization->id, 'local');
 
         UploadedFile::create([
             'user_id' => $user->id,
+            'fileable_type' => Organization::class,
+            'fileable_id' => $organization->id,
             'type' => 'certificate',
             'path' => $path,
             'mime_type' => $file->getMimeType(),
@@ -252,8 +255,21 @@ class AuthService
                 return false;
             }
 
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            if ($verification->attempts >= $maxAttempts) {
+                // تجاوز الحد الأقصى للمحاولات: نرفض الطلب بشكل نهائي حتى لو
+                // الرمز صحيح، لمنع الـ brute-force. المستخدم لازم يطلب
+                // رمز جديد عبر resend-otp.
+                $verification->update(['decision' => 'rejected', 'decided_at' => now()]);
+                DB::commit();
+
+                return false;
+            }
+
             if (! Hash::check($otp, $verification->challenge_state)) {
-                DB::rollBack();
+                $verification->increment('attempts');
+                DB::commit();
 
                 return false;
             }
@@ -330,6 +346,51 @@ class AuthService
         ]);
 
         $user->notify(new PasswordResetNotification($otp));
+    }
+
+    public function canResendPasswordReset(string $email): bool
+    {
+        $user = User::where('email', strtolower(trim($email)))->first();
+
+        if (! $user) {
+            return true;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || ! $record->created_at) {
+            return true;
+        }
+
+        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
+
+        return now()->diffInSeconds($record->created_at) >= $resendInterval;
+    }
+
+    public function passwordResetResendAvailableAt(string $email): ?Carbon
+    {
+        $user = User::where('email', strtolower(trim($email)))->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || ! $record->created_at) {
+            return null;
+        }
+
+        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
+        $availableAt = Carbon::parse($record->created_at)->addSeconds($resendInterval);
+
+        return $availableAt->isFuture() ? $availableAt : null;
     }
 
     public function resetPassword(string $email, string $otp, string $newPassword): bool
