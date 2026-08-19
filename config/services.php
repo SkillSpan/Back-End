@@ -41,4 +41,8 @@ return [
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
     ],
 
+    'google' => [
+    'client_id' => env('GOOGLE_CLIENT_ID'),
+],
+
 ];

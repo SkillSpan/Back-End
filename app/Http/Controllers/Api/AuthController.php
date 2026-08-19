@@ -310,4 +310,22 @@ class AuthController extends Controller
             ],
         ]);
     }
+    public function loginWithGoogle(GoogleLoginRequest $request): JsonResponse
+{
+    $result = $this->authService->loginWithGoogle(
+        $request->input('credential'),
+        (bool) $request->input('terms_accepted', false),
+        (bool) $request->input('privacy_accepted', false)
+    );
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Logged in successfully with Google.',
+        'data' => [
+            'user' => $result['user'],
+            'token' => $result['token'],
+            'token_type' => 'Bearer',
+        ],
+    ]);
+}
 }
