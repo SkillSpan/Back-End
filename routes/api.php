@@ -24,7 +24,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/organizations/{organization}', [AdminOrganizationController::class, 'show']);
     Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
     Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
-}); 
+});
 
 Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
     Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);

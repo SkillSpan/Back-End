@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
+use App\Http\Requests\Auth\GoogleLoginRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\RegisterOrganizationRequest;
@@ -124,6 +125,33 @@ class AuthController extends Controller
             'message' => 'A new verification code has been sent to your email.',
             'data' => [
                 'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/auth/google
+     * Verify Google's ID token on the backend, then login or create an
+     * individual learner account.
+     */
+    public function loginWithGoogle(GoogleLoginRequest $request): JsonResponse
+    {
+        $result = $this->authService->loginWithGoogle(
+            $request->input('credential'),
+            (bool) $request->input('terms_accepted', false),
+            (bool) $request->input('privacy_accepted', false)
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['created']
+                ? 'Account created and logged in successfully with Google.'
+                : 'Logged in successfully with Google.',
+            'data' => [
+                'user' => $result['user'],
+                'token' => $result['token'],
+                'token_type' => 'Bearer',
+                'is_new_user' => $result['created'],
             ],
         ]);
     }
@@ -310,22 +338,4 @@ class AuthController extends Controller
             ],
         ]);
     }
-    public function loginWithGoogle(GoogleLoginRequest $request): JsonResponse
-{
-    $result = $this->authService->loginWithGoogle(
-        $request->input('credential'),
-        (bool) $request->input('terms_accepted', false),
-        (bool) $request->input('privacy_accepted', false)
-    );
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Logged in successfully with Google.',
-        'data' => [
-            'user' => $result['user'],
-            'token' => $result['token'],
-            'token_type' => 'Bearer',
-        ],
-    ]);
-}
 }
