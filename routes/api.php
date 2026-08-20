@@ -20,6 +20,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])
         ->middleware('throttle:10,1');
 });
+/**ثثل */
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/organizations', [AdminOrganizationController::class, 'index']);
