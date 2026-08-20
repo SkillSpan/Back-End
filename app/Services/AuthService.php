@@ -441,51 +441,41 @@ class AuthService
         return true;
     }
 
-    public function resetPassword(string $email, string $otp, string $newPassword): bool
+    /**
+     * الإيميل ما عاد مطلوب هون: المستخدم أصلاً أكّد الإيميل والـ OTP في
+     * خطوة forgot-password/verify السابقة، فما في داعي يدخله مرة ثانية.
+     * بدل الدوران بالـ user_id (اللي كان جاي من الإيميل)، بندور على كل
+     * الـ tokens الفعّالة (مش منتهية ومش مستهلكة) ونعمل Hash::check على
+     * كل وحدة لحد ما نلاقي المطابقة، وناخد المستخدم من الـ token نفسه.
+     */
+    public function resetPassword(string $otp, string $newPassword): bool
     {
         try {
             DB::beginTransaction();
 
-            $user = User::where('email', strtolower(trim($email)))->first();
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            $candidates = DB::table('password_reset_tokens')
+                ->whereNull('consumed_at')
+                ->where('expires_at', '>', now())
+                ->where('attempts', '<', $maxAttempts)
+                ->orderByDesc('created_at')
+                ->get();
+
+            $record = $candidates->first(
+                fn ($candidate) => Hash::check($otp, $candidate->token_hash)
+            );
+
+            if (! $record) {
+                DB::commit();
+
+                return false;
+            }
+
+            $user = User::find($record->user_id);
 
             if (! $user) {
                 DB::rollBack();
-
-                return false;
-            }
-
-            $record = DB::table('password_reset_tokens')
-                ->where('user_id', $user->id)
-                ->whereNull('consumed_at')
-                ->latest('created_at')
-                ->first();
-
-            if (! $record) {
-                DB::rollBack();
-
-                return false;
-            }
-
-            if (now()->greaterThan($record->expires_at)) {
-                DB::rollBack();
-
-                return false;
-            }
-
-            $maxAttempts = (int) config('verification.max_attempts', 5);
-
-            if ($record->attempts >= $maxAttempts) {
-                DB::rollBack();
-
-                return false;
-            }
-
-            if (! Hash::check($otp, $record->token_hash)) {
-                DB::table('password_reset_tokens')
-                    ->where('id', $record->id)
-                    ->increment('attempts');
-
-                DB::commit();
 
                 return false;
             }
@@ -501,7 +491,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: ' . $e->getMessage(), ['email' => $email]);
+            Log::error('Password reset failed: ' . $e->getMessage());
             throw $e;
         }
     }

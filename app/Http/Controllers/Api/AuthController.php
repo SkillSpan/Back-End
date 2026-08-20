@@ -362,7 +362,6 @@ class AuthController extends Controller
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
         $reset = $this->authService->resetPassword(
-            $request->input('email'),
             $request->input('otp'),
             $request->input('password')
         );

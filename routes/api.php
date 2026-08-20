@@ -17,7 +17,8 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/forgot-password/resend', [AuthController::class, 'resendPasswordReset']);
     Route::post('/forgot-password/verify', [AuthController::class, 'verifyPasswordReset']);
-    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])
+        ->middleware('throttle:10,1');
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
