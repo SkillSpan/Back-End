@@ -9,6 +9,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\RegisterOrganizationRequest;
 use App\Http\Requests\Auth\ResendOtpRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\VerifyPasswordResetRequest;
 use App\Http\Requests\Auth\VerifyRequest;
 use App\Models\User;
 use App\Services\AuthService;
@@ -324,6 +325,34 @@ class AuthController extends Controller
         $this->authService->sendPasswordResetOtp($user);
 
         return $neutralResponse();
+    }
+
+    /**
+     * POST /api/auth/forgot-password/verify
+     * Task: check the OTP is valid WITHOUT resetting the password, so the
+     * frontend can move to the "set new password" screen only when the
+     * code is actually correct. Does not consume the code — the real
+     * consumption still happens in resetPassword(). Shares the same
+     * attempts counter as resetPassword() to keep brute-force protection
+     * consistent no matter which endpoint the guesses go through.
+     */
+    public function verifyPasswordReset(VerifyPasswordResetRequest $request): JsonResponse
+    {
+        $isValid = $this->authService->verifyPasswordResetOtp(
+            $request->input('email'),
+            $request->input('otp')
+        );
+
+        if (! $isValid) {
+            throw ValidationException::withMessages([
+                'otp' => 'The reset code is invalid or has expired.',
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Code verified. You can now set a new password.',
+        ]);
     }
 
     /**

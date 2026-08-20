@@ -393,6 +393,54 @@ class AuthService
         return $availableAt->isFuture() ? $availableAt : null;
     }
 
+    /**
+     * تتحقق من صحة كود استرجاع كلمة المرور فقط، بدون استهلاكه وبدون تغيير
+     * أي كلمة مرور. مخصصة لزر "Verify code" بالفرونت إند، عشان نعرف قبل
+     * ما نعرض شاشة "كلمة مرور جديدة" إذا كان الكود صح أصلاً.
+     *
+     * بتشارك نفس عداد attempts مع resetPassword() (نفس السطر بالجدول)،
+     * فمحاولات التخمين هون بتُحسب على نفس الحد الأقصى، ومحاولات reset-password
+     * المباشرة برضه بتُحسب هون — ما في طريقة تلف على العداد.
+     */
+    public function verifyPasswordResetOtp(string $email, string $otp): bool
+    {
+        $user = User::where('email', strtolower(trim($email)))->first();
+
+        if (! $user) {
+            return false;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || now()->greaterThan($record->expires_at)) {
+            return false;
+        }
+
+        $maxAttempts = (int) config('verification.max_attempts', 5);
+
+        if ($record->attempts >= $maxAttempts) {
+            // تجاوز الحد الأقصى: نرفض حتى لو الكود صح فعليًا، لمنع
+            // brute-force. المستخدم لازم يطلب كود جديد عبر forgot-password/resend.
+            return false;
+        }
+
+        if (! Hash::check($otp, $record->token_hash)) {
+            DB::table('password_reset_tokens')
+                ->where('id', $record->id)
+                ->increment('attempts');
+
+            return false;
+        }
+
+        // الكود صح: ما بنستهلكه (consumed_at يضل null) لأن الاستهلاك
+        // الفعلي بيصير بس عند resetPassword() لما يتحدد كلمة مرور جديدة.
+        return true;
+    }
+
     public function resetPassword(string $email, string $otp, string $newPassword): bool
     {
         try {
@@ -424,8 +472,20 @@ class AuthService
                 return false;
             }
 
-            if (! Hash::check($otp, $record->token_hash)) {
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            if ($record->attempts >= $maxAttempts) {
                 DB::rollBack();
+
+                return false;
+            }
+
+            if (! Hash::check($otp, $record->token_hash)) {
+                DB::table('password_reset_tokens')
+                    ->where('id', $record->id)
+                    ->increment('attempts');
+
+                DB::commit();
 
                 return false;
             }

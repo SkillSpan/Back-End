@@ -18,7 +18,7 @@ class RegistrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('public');
+        Storage::fake('local');
         Notification::fake();
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
@@ -58,8 +58,7 @@ class RegistrationTest extends TestCase
     {
         $file = UploadedFile::fake()->image('proof.jpg');
 
-        $response = $this->postJson('/api/auth/register', [
-            'user_type' => 'organization',
+        $response = $this->postJson('/api/auth/register/organization', [
             'name' => 'أحمد المدير',
             'email' => 'admin@company.com',
             'password' => 'password123',
@@ -127,8 +126,7 @@ class RegistrationTest extends TestCase
 
     public function test_organization_registration_fails_without_proof_file(): void
     {
-        $response = $this->postJson('/api/auth/register', [
-            'user_type' => 'organization',
+        $response = $this->postJson('/api/auth/register/organization', [
             'name' => 'Test Admin',
             'email' => 'admin@company.com',
             'password' => 'password123',
