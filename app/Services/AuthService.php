@@ -53,6 +53,11 @@ class AuthService
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
      * إلزامي ويبقى الحساب/الملف بحالة pending لحين مراجعة الإدارة.
+     *
+     * ملاحظة: حسابات المؤسسات ما عاد تمر بخطوة تحقق OTP على الإيميل —
+     * البوابة الوحيدة هلق هي موافقة/رفض الأدمن على المؤسسة نفسها
+     * (verification_status)، عبر assertOrganizationIsApproved() بالكنترولر.
+     * لهيك بنفعّل الحساب مباشرة هون بدل ما ننتظر تحقق إيميل غير موجود أصلاً.
      */
     public function registerOrganization(array $validatedData): User
     {
@@ -60,12 +65,14 @@ class AuthService
             DB::beginTransaction();
 
             $user = $this->createUser($validatedData);
+            $user->update([
+                'email_verified_at' => now(),
+                'status' => 'active',
+            ]);
+
             $organization = $this->createOrganization($user, $validatedData);
             $this->uploadProofFile($user, $organization, $validatedData['proof_file']);
             $this->createOrganizationMember($user, $organization);
-
-            $otp = $this->generateOtp($user);
-            $user->notify(new AccountVerificationNotification($otp));
 
             DB::commit();
 
