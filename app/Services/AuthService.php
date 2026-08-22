@@ -52,7 +52,9 @@ class AuthService
     /**
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
-     * إلزامي ويبقى الحساب/الملف بحالة pending لحين مراجعة الإدارة.
+     * إلزامي. لا يوجد OTP لهاد الفلو — اليوزر بينعمله verify تلقائيًا،
+     * لكن تسجيل الدخول يضل ممنوع لحد ما الإدارة توافق على المؤسسة
+     * (Organization::verification_status لسا pending لحد المراجعة).
      */
     public function registerOrganization(array $validatedData): User
     {
@@ -64,8 +66,16 @@ class AuthService
             $this->uploadProofFile($user, $organization, $validatedData['proof_file']);
             $this->createOrganizationMember($user, $organization);
 
-            $otp = $this->generateOtp($user);
-            $user->notify(new AccountVerificationNotification($otp));
+            // تسجيل المؤسسات: لا يوجد إرسال OTP هون. البريد يُعتبر
+            // موثّق تلقائيًا لأنه أصلاً في-review يدوي من الإدارة عبر
+            // Organization::verification_status (pending/approved/rejected)
+            // و assertOrganizationIsApproved() بتمنع تسجيل الدخول لحد
+            // ما تتم الموافقة. طبقة الـ OTP كانت بوابة إضافية زائدة
+            // كانت عم توقف تسجيل الشركة، فتم إلغاؤها لهاد الفلو تحديدًا.
+            $user->forceFill([
+                'email_verified_at' => now(),
+                'status' => 'active',
+            ])->save();
 
             DB::commit();
 
