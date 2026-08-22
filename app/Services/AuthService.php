@@ -53,11 +53,6 @@ class AuthService
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
      * إلزامي ويبقى الحساب/الملف بحالة pending لحين مراجعة الإدارة.
-     *
-     * ملاحظة: حسابات المؤسسات ما عاد تمر بخطوة تحقق OTP على الإيميل —
-     * البوابة الوحيدة هلق هي موافقة/رفض الأدمن على المؤسسة نفسها
-     * (verification_status)، عبر assertOrganizationIsApproved() بالكنترولر.
-     * لهيك بنفعّل الحساب مباشرة هون بدل ما ننتظر تحقق إيميل غير موجود أصلاً.
      */
     public function registerOrganization(array $validatedData): User
     {
@@ -65,14 +60,12 @@ class AuthService
             DB::beginTransaction();
 
             $user = $this->createUser($validatedData);
-            $user->update([
-                'email_verified_at' => now(),
-                'status' => 'active',
-            ]);
-
             $organization = $this->createOrganization($user, $validatedData);
             $this->uploadProofFile($user, $organization, $validatedData['proof_file']);
             $this->createOrganizationMember($user, $organization);
+
+            $otp = $this->generateOtp($user);
+            $user->notify(new AccountVerificationNotification($otp));
 
             DB::commit();
 
@@ -449,40 +442,63 @@ class AuthService
     }
 
     /**
-     * الإيميل ما عاد مطلوب هون: المستخدم أصلاً أكّد الإيميل والـ OTP في
-     * خطوة forgot-password/verify السابقة، فما في داعي يدخله مرة ثانية.
-     * بدل الدوران بالـ user_id (اللي كان جاي من الإيميل)، بندور على كل
-     * الـ tokens الفعّالة (مش منتهية ومش مستهلكة) ونعمل Hash::check على
-     * كل وحدة لحد ما نلاقي المطابقة، وناخد المستخدم من الـ token نفسه.
+     * الإيميل مطلوب هون (زي verifyPasswordResetOtp تمامًا) — لأنه بدونه
+     * كنا مضطرين نمسح Hash::check على كل الـ tokens الفعّالة بالنظام
+     * كله لحد ما نلاقي تطابق. هاد كان فيه مشكلتين حقيقيتين:
+     *   1. أمان: تخمين عشوائي لكود مكون من 6 أرقام بيتفحص مقابل كل
+     *      المستخدمين الفعّالين مرة وحدة، فكل ما زاد عدد طلبات الاسترجاع
+     *      المتزامنة، زادت فرصة التخمين العرضي (بدل 1/1,000,000 لمستخدم
+     *      واحد، تصير تقريبًا N/1,000,000 لو في N طلب فعّال بنفس الوقت).
+     *   2. أداء: Hash::check (bcrypt) عملية بطيئة عمدًا؛ تكرارها على كل
+     *      سجل فعّال بكل طلب reset-password بيفتح باب DoS واضح.
+     * رجّعناها تاخد الإيميل زي الأول، فالبحث يصير مباشر على مستخدم واحد
+     * بس (نفس منطق verifyPasswordResetOtp تمامًا).
      */
-    public function resetPassword(string $otp, string $newPassword): bool
+    public function resetPassword(string $email, string $otp, string $newPassword): bool
     {
         try {
             DB::beginTransaction();
 
-            $maxAttempts = (int) config('verification.max_attempts', 5);
+            $user = User::where('email', strtolower(trim($email)))->first();
 
-            $candidates = DB::table('password_reset_tokens')
-                ->whereNull('consumed_at')
-                ->where('expires_at', '>', now())
-                ->where('attempts', '<', $maxAttempts)
-                ->orderByDesc('created_at')
-                ->get();
-
-            $record = $candidates->first(
-                fn ($candidate) => Hash::check($otp, $candidate->token_hash)
-            );
-
-            if (! $record) {
-                DB::commit();
+            if (! $user) {
+                DB::rollBack();
 
                 return false;
             }
 
-            $user = User::find($record->user_id);
+            $record = DB::table('password_reset_tokens')
+                ->where('user_id', $user->id)
+                ->whereNull('consumed_at')
+                ->latest('created_at')
+                ->first();
 
-            if (! $user) {
+            if (! $record) {
                 DB::rollBack();
+
+                return false;
+            }
+
+            if (now()->greaterThan($record->expires_at)) {
+                DB::rollBack();
+
+                return false;
+            }
+
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            if ($record->attempts >= $maxAttempts) {
+                DB::rollBack();
+
+                return false;
+            }
+
+            if (! Hash::check($otp, $record->token_hash)) {
+                DB::table('password_reset_tokens')
+                    ->where('id', $record->id)
+                    ->increment('attempts');
+
+                DB::commit();
 
                 return false;
             }

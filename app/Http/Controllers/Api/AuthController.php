@@ -51,8 +51,6 @@ class AuthController extends Controller
     /**
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب) مع ملف إثبات إلزامي.
-     * لا يوجد تحقق OTP على الإيميل هون — الحساب بينفعّل مباشرة، والبوابة
-     * الوحيدة هي موافقة/رفض الأدمن على ملف الإثبات (verification_status).
      */
     public function registerOrganization(RegisterOrganizationRequest $request): JsonResponse
     {
@@ -60,20 +58,19 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Your organization account has been created successfully. Your proof document will be reviewed by our team before you can log in.',
+            'message' => 'Your organization account has been created successfully. Your proof document will be reviewed and you need to verify your email.',
             'data' => [
                 'user_id' => $user->id,
                 'email' => $user->email,
                 'status' => $user->status,
+                'requires_verification' => true,
+                'resend_available_at' => now()
+                    ->addSeconds((int) config('verification.resend_interval_seconds', 60))
+                    ->toIso8601String(),
             ],
         ], 201);
     }
 
-    /**
-     * POST /api/auth/verify
-     * تحقق OTP خاص بحسابات الأفراد (learner) فقط. حسابات المؤسسات ما
-     * عاد تمر بهاي الخطوة إطلاقاً — بوابتهم الوحيدة هي موافقة الأدمن.
-     */
     public function verify(VerifyRequest $request): JsonResponse
     {
         $verified = $this->authService->verifyOtp(
@@ -87,9 +84,14 @@ class AuthController extends Controller
             ]);
         }
 
+        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+        $isOrganizationMember = $user && $user->organizations()->exists();
+
         return response()->json([
             'success' => true,
-            'message' => 'Your account has been activated successfully. You can now log in.',
+            'message' => $isOrganizationMember
+                ? 'Your email has been confirmed. Please wait until your account has been verified.'
+                : 'Your account has been activated successfully. You can now log in.',
             'data' => [
                 'redirect_url' => '/login',
             ],
@@ -360,6 +362,7 @@ class AuthController extends Controller
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
         $reset = $this->authService->resetPassword(
+            $request->input('email'),
             $request->input('otp'),
             $request->input('password')
         );
