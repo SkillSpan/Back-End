@@ -35,6 +35,10 @@ return [
         ],
     ],
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+    ],
+
     'data_science' => [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
         'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 10),

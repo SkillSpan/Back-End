@@ -13,6 +13,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/verify', [AuthController::class, 'verify']);
     Route::post('/resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login/google', [AuthController::class, 'loginWithGoogle']);
     Route::post('/login/organization', [AuthController::class, 'loginOrganization']);
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/forgot-password/resend', [AuthController::class, 'resendPasswordReset']);
@@ -20,7 +21,6 @@ Route::prefix('auth')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])
         ->middleware('throttle:10,1');
 });
-/**ثثل */
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/organizations', [AdminOrganizationController::class, 'index']);
