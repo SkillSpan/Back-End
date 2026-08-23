@@ -16,6 +16,8 @@ use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Google_Client;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class AuthService
@@ -52,7 +54,9 @@ class AuthService
     /**
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
-     * إلزامي ويبقى الحساب/الملف بحالة pending لحين مراجعة الإدارة.
+     * إلزامي. لا يوجد OTP لهاد الفلو — اليوزر بينعمله verify تلقائيًا،
+     * لكن تسجيل الدخول يضل ممنوع لحد ما الإدارة توافق على المؤسسة
+     * (Organization::verification_status لسا pending لحد المراجعة).
      */
     public function registerOrganization(array $validatedData): User
     {
@@ -64,8 +68,16 @@ class AuthService
             $this->uploadProofFile($user, $organization, $validatedData['proof_file']);
             $this->createOrganizationMember($user, $organization);
 
-            $otp = $this->generateOtp($user);
-            $user->notify(new AccountVerificationNotification($otp));
+            // تسجيل المؤسسات: لا يوجد إرسال OTP هون. البريد يُعتبر
+            // موثّق تلقائيًا لأنه أصلاً في-review يدوي من الإدارة عبر
+            // Organization::verification_status (pending/approved/rejected)
+            // و assertOrganizationIsApproved() بتمنع تسجيل الدخول لحد
+            // ما تتم الموافقة. طبقة الـ OTP كانت بوابة إضافية زائدة
+            // كانت عم توقف تسجيل الشركة، فتم إلغاؤها لهاد الفلو تحديدًا.
+            $user->forceFill([
+                'email_verified_at' => now(),
+                'status' => 'active',
+            ])->save();
 
             DB::commit();
 
@@ -77,6 +89,203 @@ class AuthService
                 'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * POST /api/auth/google
+     * Authenticate or register an individual user using a verified Google ID token.
+     *
+     * @return array{user: User, token: string}
+     */
+    public function loginWithGoogle(
+        string $credential,
+        bool $termsAccepted = false,
+        bool $privacyAccepted = false
+    ): array {
+        try {
+            $clientId = config('services.google.client_id');
+
+            if (! $clientId) {
+                Log::error('Google Client ID is not configured.');
+
+                throw ValidationException::withMessages([
+                    'credential' => 'Google authentication is not configured.',
+                ]);
+            }
+
+            $client = new Google_Client([
+                'client_id' => $clientId,
+            ]);
+
+            $payload = $client->verifyIdToken($credential);
+
+            if (! $payload) {
+                throw ValidationException::withMessages([
+                    'credential' => 'Invalid or expired Google credential.',
+                ]);
+            }
+
+            $googleId = $payload['sub'] ?? null;
+            $email = strtolower(trim((string) ($payload['email'] ?? '')));
+            $name = trim((string) ($payload['name'] ?? ''));
+
+            if (! $googleId || ! $email) {
+                throw ValidationException::withMessages([
+                    'credential' => 'Google account information is incomplete.',
+                ]);
+            }
+
+            if (! ($payload['email_verified'] ?? false)) {
+                throw ValidationException::withMessages([
+                    'credential' => 'Your Google email address must be verified.',
+                ]);
+            }
+
+            DB::beginTransaction();
+
+            /*
+             * First try to find the user by Google ID.
+             */
+            $user = User::where('google_id', $googleId)->first();
+
+            /*
+             * If the Google ID is not linked yet, check the email.
+             * This allows an existing SkillSpan account to link its Google account.
+             */
+            if (! $user) {
+                $user = User::where('email', $email)->first();
+            }
+
+            /*
+             * Existing SkillSpan account.
+             */
+            if ($user) {
+                if ($user->status !== 'active' || ! $user->email_verified_at) {
+                    DB::rollBack();
+
+                    throw ValidationException::withMessages([
+                        'credential' => 'You must activate your SkillSpan account first.',
+                    ]);
+                }
+
+                /*
+                 * Link Google to an existing account if it is not linked yet.
+                 */
+                if (! $user->google_id) {
+                    $user->google_id = $googleId;
+                } elseif ($user->google_id !== $googleId) {
+                    DB::rollBack();
+
+                    throw ValidationException::withMessages([
+                        'credential' => 'This Google account is not linked to this user.',
+                    ]);
+                }
+
+                $this->assertOrganizationIsApproved($user);
+
+                $user->last_login_at = now();
+                $user->save();
+
+                $token = $user->createToken('auth_token')->plainTextToken;
+
+                DB::commit();
+
+                return [
+                    'user' => $user->fresh(['roles', 'studentProfile']),
+                    'token' => $token,
+                    'created' => false,
+                ];
+            }
+
+            /*
+             * New Google user.
+             */
+            if (! $termsAccepted || ! $privacyAccepted) {
+                DB::rollBack();
+
+                throw ValidationException::withMessages([
+                    'terms_accepted' => 'You must accept the Terms and Conditions.',
+                    'privacy_accepted' => 'You must accept the Privacy Policy.',
+                ]);
+            }
+
+            /*
+             * Reuse the existing individual-user creation logic.
+             * A random password is generated because Google handles authentication.
+             */
+            $user = $this->createUser([
+                'name' => $name !== '' ? $name : str()->before($email, '@'),
+                'email' => $email,
+                'password' => str()->random(64),
+                'terms_accepted_at' => now(),
+                'privacy_accepted_at' => now(),
+            ]);
+
+            /*
+             * Google already verified the user's email.
+             * Therefore no OTP verification is required.
+             */
+            $user->update([
+                'google_id' => $googleId,
+                'status' => 'active',
+                'email_verified_at' => now(),
+                'last_login_at' => now(),
+            ]);
+
+            /*
+             * Reuse the existing SkillSpan individual-user setup.
+             */
+            $this->assignRole($user, 'individual');
+            $this->createStudentProfile($user, []);
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            DB::commit();
+
+            return [
+                'user' => $user->fresh(['roles', 'studentProfile']),
+                'token' => $token,
+                'created' => true,
+            ];
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Google login failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * يتحقق من حالة موافقة المؤسسة لأي يوزر مرتبط بمؤسسة، بنفس منطق
+     * AuthController::assertOrganizationIsApproved() — مطلوب هون كمان
+     * لأن تسجيل الدخول عبر Google لازم يمر بنفس فحص الموافقة، وإلا
+     * صار مسار bypass لحساب مؤسسة pending/rejected عبر Google بدل
+     * الـ login العادي.
+     */
+    private function assertOrganizationIsApproved(User $user): void
+    {
+        $organization = $user->organizations()->first();
+
+        if (! $organization) {
+            return;
+        }
+
+        if ($organization->verification_status === 'pending') {
+            throw ValidationException::withMessages([
+                'credential' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
+            ]);
+        }
+
+        if ($organization->verification_status === 'rejected') {
+            throw ValidationException::withMessages([
+                'credential' => 'Your organization registration was rejected. Please contact support for more information.',
+            ]);
         }
     }
 
@@ -195,10 +404,12 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/' . $organization->id, 'public');
+        $path = $file->store('proofs/' . $organization->id, 'local');
 
         UploadedFile::create([
             'user_id' => $user->id,
+            'fileable_type' => Organization::class,
+            'fileable_id' => $organization->id,
             'type' => 'certificate',
             'path' => $path,
             'mime_type' => $file->getMimeType(),
@@ -253,8 +464,21 @@ class AuthService
                 return false;
             }
 
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            if ($verification->attempts >= $maxAttempts) {
+                // تجاوز الحد الأقصى للمحاولات: نرفض الطلب بشكل نهائي حتى لو
+                // الرمز صحيح، لمنع الـ brute-force. المستخدم لازم يطلب
+                // رمز جديد عبر resend-otp.
+                $verification->update(['decision' => 'rejected', 'decided_at' => now()]);
+                DB::commit();
+
+                return false;
+            }
+
             if (! Hash::check($otp, $verification->challenge_state)) {
-                DB::rollBack();
+                $verification->increment('attempts');
+                DB::commit();
 
                 return false;
             }
@@ -378,6 +602,67 @@ class AuthService
         return $availableAt->isFuture() ? $availableAt : null;
     }
 
+    /**
+     * تتحقق من صحة كود استرجاع كلمة المرور فقط، بدون استهلاكه وبدون تغيير
+     * أي كلمة مرور. مخصصة لزر "Verify code" بالفرونت إند، عشان نعرف قبل
+     * ما نعرض شاشة "كلمة مرور جديدة" إذا كان الكود صح أصلاً.
+     *
+     * بتشارك نفس عداد attempts مع resetPassword() (نفس السطر بالجدول)،
+     * فمحاولات التخمين هون بتُحسب على نفس الحد الأقصى، ومحاولات reset-password
+     * المباشرة برضه بتُحسب هون — ما في طريقة تلف على العداد.
+     */
+    public function verifyPasswordResetOtp(string $email, string $otp): bool
+    {
+        $user = User::where('email', strtolower(trim($email)))->first();
+
+        if (! $user) {
+            return false;
+        }
+
+        $record = DB::table('password_reset_tokens')
+            ->where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->latest('created_at')
+            ->first();
+
+        if (! $record || now()->greaterThan($record->expires_at)) {
+            return false;
+        }
+
+        $maxAttempts = (int) config('verification.max_attempts', 5);
+
+        if ($record->attempts >= $maxAttempts) {
+            // تجاوز الحد الأقصى: نرفض حتى لو الكود صح فعليًا، لمنع
+            // brute-force. المستخدم لازم يطلب كود جديد عبر forgot-password/resend.
+            return false;
+        }
+
+        if (! Hash::check($otp, $record->token_hash)) {
+            DB::table('password_reset_tokens')
+                ->where('id', $record->id)
+                ->increment('attempts');
+
+            return false;
+        }
+
+        // الكود صح: ما بنستهلكه (consumed_at يضل null) لأن الاستهلاك
+        // الفعلي بيصير بس عند resetPassword() لما يتحدد كلمة مرور جديدة.
+        return true;
+    }
+
+    /**
+     * الإيميل مطلوب هون (زي verifyPasswordResetOtp تمامًا) — لأنه بدونه
+     * كنا مضطرين نمسح Hash::check على كل الـ tokens الفعّالة بالنظام
+     * كله لحد ما نلاقي تطابق. هاد كان فيه مشكلتين حقيقيتين:
+     *   1. أمان: تخمين عشوائي لكود مكون من 6 أرقام بيتفحص مقابل كل
+     *      المستخدمين الفعّالين مرة وحدة، فكل ما زاد عدد طلبات الاسترجاع
+     *      المتزامنة، زادت فرصة التخمين العرضي (بدل 1/1,000,000 لمستخدم
+     *      واحد، تصير تقريبًا N/1,000,000 لو في N طلب فعّال بنفس الوقت).
+     *   2. أداء: Hash::check (bcrypt) عملية بطيئة عمدًا؛ تكرارها على كل
+     *      سجل فعّال بكل طلب reset-password بيفتح باب DoS واضح.
+     * رجّعناها تاخد الإيميل زي الأول، فالبحث يصير مباشر على مستخدم واحد
+     * بس (نفس منطق verifyPasswordResetOtp تمامًا).
+     */
     public function resetPassword(string $email, string $otp, string $newPassword): bool
     {
         try {
@@ -409,8 +694,20 @@ class AuthService
                 return false;
             }
 
-            if (! Hash::check($otp, $record->token_hash)) {
+            $maxAttempts = (int) config('verification.max_attempts', 5);
+
+            if ($record->attempts >= $maxAttempts) {
                 DB::rollBack();
+
+                return false;
+            }
+
+            if (! Hash::check($otp, $record->token_hash)) {
+                DB::table('password_reset_tokens')
+                    ->where('id', $record->id)
+                    ->increment('attempts');
+
+                DB::commit();
 
                 return false;
             }
@@ -426,7 +723,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: ' . $e->getMessage(), ['email' => $email]);
+            Log::error('Password reset failed: ' . $e->getMessage());
             throw $e;
         }
     }

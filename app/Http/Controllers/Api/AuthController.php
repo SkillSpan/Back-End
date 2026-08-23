@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
+use App\Http\Requests\Auth\GoogleLoginRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\RegisterOrganizationRequest;
 use App\Http\Requests\Auth\ResendOtpRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\VerifyPasswordResetRequest;
 use App\Http\Requests\Auth\VerifyRequest;
 use App\Models\User;
 use App\Services\AuthService;
@@ -128,21 +130,65 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * POST /api/auth/login/google
+     * Verify Google's ID token on the backend, then login or create an
+     * individual learner account.
+     */
+    public function loginWithGoogle(GoogleLoginRequest $request): JsonResponse
+    {
+        $result = $this->authService->loginWithGoogle(
+            $request->input('credential'),
+            (bool) $request->input('terms_accepted', false),
+            (bool) $request->input('privacy_accepted', false)
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['created']
+                ? 'Account created and logged in successfully with Google.'
+                : 'Logged in successfully with Google.',
+            'data' => [
+                'user' => $result['user'],
+                'token' => $result['token'],
+                'token_type' => 'Bearer',
+                'is_new_user' => $result['created'],
+            ],
+        ]);
+    }
+
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+        $email = strtolower(trim($request->input('email')));
+        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            throw ValidationException::withMessages([
+                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ]);
+        }
+
+        $user = User::where('email', $email)->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            RateLimiter::hit($throttleKey, 300); // قفل مؤقت 5 دقائق بعد المحاولة الفاشلة
+
             throw ValidationException::withMessages([
                 'email' => 'The provided credentials are incorrect.',
             ]);
         }
+
+        RateLimiter::clear($throttleKey);
 
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
                 'email' => 'You must activate your account first. Please check your email.',
             ]);
         }
+
+        $this->assertOrganizationIsApproved($user);
 
         $user->update(['last_login_at' => now()]);
 
@@ -166,13 +212,28 @@ class AuthController extends Controller
      */
     public function loginOrganization(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
+        $email = strtolower(trim($request->input('email')));
+        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            throw ValidationException::withMessages([
+                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ]);
+        }
+
+        $user = User::where('email', $email)->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            RateLimiter::hit($throttleKey, 300);
+
             throw ValidationException::withMessages([
                 'email' => 'The provided credentials are incorrect.',
             ]);
         }
+
+        RateLimiter::clear($throttleKey);
 
         if ($user->status !== 'active' || ! $user->email_verified_at) {
             throw ValidationException::withMessages([
@@ -188,17 +249,7 @@ class AuthController extends Controller
             ]);
         }
 
-        if ($organization->verification_status === 'pending') {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
-            ]);
-        }
-
-        if ($organization->verification_status === 'rejected') {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization registration was rejected. Please contact support for more information.',
-            ]);
-        }
+        $this->assertOrganizationIsApproved($user);
 
         $user->update(['last_login_at' => now()]);
 
@@ -217,38 +268,64 @@ class AuthController extends Controller
     }
 
     /**
+     * يتحقق من حالة موافقة المؤسسة لأي يوزر مرتبط بمؤسسة، ويمنع الدخول
+     * لو كانت pending أو rejected — بغض النظر عن أي endpoint استُخدم
+     * لتسجيل الدخول (login أو login/organization). هذا يمنع الـ bypass
+     * الأمني عبر استخدام الـ generic login endpoint.
+     */
+    private function assertOrganizationIsApproved(User $user): void
+    {
+        $organization = $user->organizations()->first();
+
+        if (! $organization) {
+            return;
+        }
+
+        if ($organization->verification_status === 'pending') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
+            ]);
+        }
+
+        if ($organization->verification_status === 'rejected') {
+            throw ValidationException::withMessages([
+                'email' => 'Your organization registration was rejected. Please contact support for more information.',
+            ]);
+        }
+    }
+
+    /**
      * POST /api/auth/forgot-password
      * Task: validate email exists, generate OTP, email it, rate-limit resends.
      */
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
+        $email = strtolower(trim($request->input('email')));
+        $user = User::where('email', $email)->first();
+
+        $neutralResponse = fn () => response()->json([
+            'success' => true,
+            'message' => 'If an account with that email exists, a password reset code has been sent.',
+        ]);
+
+        if (! $user) {
+            // نفس الرد المحايد بالضبط، بدون ما نكشف إذا الإيميل مسجل أصلاً.
+            return $neutralResponse();
+        }
 
         $key = 'forgot-password:' . $user->id;
         $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
-            $seconds = RateLimiter::availableIn($key);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot resend the code right now. Please wait before trying again.',
-                'data' => [
-                    'retry_after' => $seconds,
-                ],
-            ], 429);
+            // نفس الرد المحايد أيضًا هون — منع كشف حتى عبر توقيت الاستجابة
+            // أو رسائل مختلفة بحالة rate limiting.
+            return $neutralResponse();
         }
 
         RateLimiter::hit($key, $decaySeconds);
         $this->authService->sendPasswordResetOtp($user);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'A password reset code has been sent to your email.',
-            'data' => [
-                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
-            ],
-        ]);
+        return $neutralResponse();
     }
 
     /**
@@ -257,30 +334,52 @@ class AuthController extends Controller
      */
     public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
+        $email = strtolower(trim($request->input('email')));
+        $user = User::where('email', $email)->first();
+
+        $neutralResponse = fn () => response()->json([
+            'success' => true,
+            'message' => 'If an account with that email exists, a password reset code has been sent.',
+        ]);
+
+        if (! $user) {
+            return $neutralResponse();
+        }
 
         if (! $this->authService->canResendPasswordReset($user->email)) {
-            $availableAt = $this->authService->passwordResetResendAvailableAt($user->email);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot resend the code right now. Please wait before trying again.',
-                'data' => [
-                    'retry_after' => $availableAt ? now()->diffInSeconds($availableAt) : null,
-                ],
-            ], 429);
+            return $neutralResponse();
         }
 
         $this->authService->sendPasswordResetOtp($user);
 
-        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
+        return $neutralResponse();
+    }
+
+    /**
+     * POST /api/auth/forgot-password/verify
+     * Task: check the OTP is valid WITHOUT resetting the password, so the
+     * frontend can move to the "set new password" screen only when the
+     * code is actually correct. Does not consume the code — the real
+     * consumption still happens in resetPassword(). Shares the same
+     * attempts counter as resetPassword() to keep brute-force protection
+     * consistent no matter which endpoint the guesses go through.
+     */
+    public function verifyPasswordReset(VerifyPasswordResetRequest $request): JsonResponse
+    {
+        $isValid = $this->authService->verifyPasswordResetOtp(
+            $request->input('email'),
+            $request->input('otp')
+        );
+
+        if (! $isValid) {
+            throw ValidationException::withMessages([
+                'otp' => 'The reset code is invalid or has expired.',
+            ]);
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'A password reset code has been sent to your email.',
-            'data' => [
-                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
-            ],
+            'message' => 'Code verified. You can now set a new password.',
         ]);
     }
 

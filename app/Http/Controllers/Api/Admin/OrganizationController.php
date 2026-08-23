@@ -216,6 +216,22 @@ class OrganizationController extends Controller
         ];
     }
 
+    public function downloadProofFile(Organization $organization)
+    {
+        $file = $organization->proofFile();
+
+        if (! $file || ! Storage::disk('local')->exists($file->path)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proof file not found.',
+            ], 404);
+        }
+
+        return Storage::disk('local')->response($file->path, null, [
+            'Content-Type' => $file->mime_type,
+        ]);
+    }
+
     private function transformProofFile(UploadedFile $file): array
     {
         return [
@@ -224,7 +240,7 @@ class OrganizationController extends Controller
             'mime_type' => $file->mime_type,
             'size' => $file->size,
             'uploaded_at' => $file->created_at?->toIso8601String(),
-            'url' => Storage::disk('public')->url($file->path),
+            'download_url' => route('admin.organizations.proof-file', $file->fileable_id),
         ];
     }
 
