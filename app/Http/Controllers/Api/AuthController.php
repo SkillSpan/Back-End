@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
@@ -347,9 +348,12 @@ class AuthController extends Controller
         }
 
         if (! $this->authService->canResendPasswordReset($user->email)) {
+            Log::info('Password reset resend blocked by cooldown', ['user_id' => $user->id]);
+
             return $neutralResponse();
         }
 
+        Log::info('Password reset resend: sending new OTP', ['user_id' => $user->id]);
         $this->authService->sendPasswordResetOtp($user);
 
         return $neutralResponse();
