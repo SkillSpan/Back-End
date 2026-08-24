@@ -303,10 +303,19 @@ class AuthController extends Controller
     {
         $email = strtolower(trim($request->input('email')));
         $user = User::where('email', $email)->first();
+        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
+        // التوقيت هون ثابت (الآن + المدة المحددة) بغض النظر عن وجود
+        // المستخدم من عدمه، فإرجاعه ما بيكشف أي معلومة إضافية عن الحساب —
+        // بيحافظ على الرد المحايد، وبنفس الوقت بيعطي الفرونت اند قيمة
+        // حقيقية يقدر يبني عليها عداد الانتظار (بدل ما يضل العداد صفر
+        // دايمًا لأنه data.resend_available_at كانت مفقودة من الرد).
         $neutralResponse = fn () => response()->json([
             'success' => true,
             'message' => 'If an account with that email exists, a password reset code has been sent.',
+            'data' => [
+                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
+            ],
         ]);
 
         if (! $user) {
@@ -315,7 +324,6 @@ class AuthController extends Controller
         }
 
         $key = 'forgot-password:' . $user->id;
-        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
             // نفس الرد المحايد أيضًا هون — منع كشف حتى عبر توقيت الاستجابة
@@ -337,10 +345,14 @@ class AuthController extends Controller
     {
         $email = strtolower(trim($request->input('email')));
         $user = User::where('email', $email)->first();
+        $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
         $neutralResponse = fn () => response()->json([
             'success' => true,
             'message' => 'If an account with that email exists, a password reset code has been sent.',
+            'data' => [
+                'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
+            ],
         ]);
 
         if (! $user) {
