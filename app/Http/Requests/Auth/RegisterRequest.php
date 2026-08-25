@@ -34,8 +34,9 @@ class RegisterRequest extends FormRequest
             'terms_accepted' => ['required', 'accepted'],
             'privacy_accepted' => ['required', 'accepted'],
             'locale' => ['nullable', 'string', 'max:10', 'in:en,ar'],
-            'education' => ['nullable', 'string', 'max:500'],
-            'specialization' => ['nullable', 'string', 'max:255'],
+            // Academic profile fields (university/specialization) are no
+            // longer accepted as free text here — they are normalized
+            // Foreign Keys collected via POST /api/v1/profile onboarding.
             'career_status' => ['nullable', 'string', 'max:255'],
             'academic_status' => [
                 'nullable',

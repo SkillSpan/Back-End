@@ -7,7 +7,6 @@ use App\Models\OrganizationMember;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -64,7 +63,7 @@ class OrganizationApprovalTest extends TestCase
     {
         $this->createOrgUser('pending', emailVerified: true);
 
-        $response = $this->postJson('/api/auth/login', [
+        $response = $this->postJson('/api/v1/auth/login', [
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
         ]);
@@ -77,7 +76,7 @@ class OrganizationApprovalTest extends TestCase
     {
         $this->createOrgUser('pending');
 
-        $response = $this->postJson('/api/auth/login/organization', [
+        $response = $this->postJson('/api/v1/auth/login/organization', [
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
         ]);
@@ -90,13 +89,13 @@ class OrganizationApprovalTest extends TestCase
     {
         $this->createOrgUser('rejected');
 
-        $genericLogin = $this->postJson('/api/auth/login', [
+        $genericLogin = $this->postJson('/api/v1/auth/login', [
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
         ]);
         $genericLogin->assertStatus(422);
 
-        $orgLogin = $this->postJson('/api/auth/login/organization', [
+        $orgLogin = $this->postJson('/api/v1/auth/login/organization', [
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
         ]);
@@ -107,7 +106,7 @@ class OrganizationApprovalTest extends TestCase
     {
         $this->createOrgUser('verified');
 
-        $response = $this->postJson('/api/auth/login/organization', [
+        $response = $this->postJson('/api/v1/auth/login/organization', [
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
         ]);
@@ -126,7 +125,7 @@ class OrganizationApprovalTest extends TestCase
         // of defense and not just a login-time check.
         Sanctum::actingAs($user);
 
-        $response = $this->getJson('/api/organization/profile');
+        $response = $this->getJson('/api/v1/organization/profile');
 
         $response->assertStatus(403);
     }
@@ -137,7 +136,7 @@ class OrganizationApprovalTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $response = $this->getJson('/api/organization/profile');
+        $response = $this->getJson('/api/v1/organization/profile');
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.verification_status', 'verified');

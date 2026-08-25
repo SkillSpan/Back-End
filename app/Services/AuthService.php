@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AccountVerification;
+use App\Models\AuthSession;
 use App\Models\Organization;
 use App\Models\OrganizationMember;
 use App\Models\Role;
@@ -11,13 +12,14 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
-use Carbon\Carbon;
+use Google_Client;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Google_Client;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\NewAccessToken;
 use Throwable;
 
 class AuthService
@@ -43,7 +45,7 @@ class AuthService
             return $user->fresh(['roles', 'studentProfile']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Individual registration failed: ' . $e->getMessage(), [
+            Log::error('Individual registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -84,7 +86,7 @@ class AuthService
             return $user->fresh(['roles', 'organizations']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Organization registration failed: ' . $e->getMessage(), [
+            Log::error('Organization registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -101,7 +103,8 @@ class AuthService
     public function loginWithGoogle(
         string $credential,
         bool $termsAccepted = false,
-        bool $privacyAccepted = false
+        bool $privacyAccepted = false,
+        ?Request $request = null
     ): array {
         try {
             $clientId = config('services.google.client_id');
@@ -187,13 +190,14 @@ class AuthService
                 $user->last_login_at = now();
                 $user->save();
 
-                $token = $user->createToken('auth_token')->plainTextToken;
+                $tokenResult = $user->createToken('auth_token');
+                $this->recordAuthSession($user, $tokenResult, $request);
 
                 DB::commit();
 
                 return [
                     'user' => $user->fresh(['roles', 'studentProfile']),
-                    'token' => $token,
+                    'token' => $tokenResult->plainTextToken,
                     'created' => false,
                 ];
             }
@@ -239,13 +243,14 @@ class AuthService
             $this->assignRole($user, 'individual');
             $this->createStudentProfile($user, []);
 
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $tokenResult = $user->createToken('auth_token');
+            $this->recordAuthSession($user, $tokenResult, $request);
 
             DB::commit();
 
             return [
                 'user' => $user->fresh(['roles', 'studentProfile']),
-                'token' => $token,
+                'token' => $tokenResult->plainTextToken,
                 'created' => true,
             ];
         } catch (ValidationException $e) {
@@ -253,7 +258,7 @@ class AuthService
         } catch (Throwable $e) {
             DB::rollBack();
 
-            Log::error('Google login failed: ' . $e->getMessage(), [
+            Log::error('Google login failed: '.$e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
 
@@ -338,8 +343,6 @@ class AuthService
 
         StudentProfile::create([
             'user_id' => $user->id,
-            'education' => $data['education'] ?? null,
-            'specialization' => $data['specialization'] ?? null,
             'career_status' => $careerStatus,
             'enrollment_status' => $enrollmentStatus,
             'graduation_status' => $graduationStatus,
@@ -404,7 +407,7 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/' . $organization->id, 'local');
+        $path = $file->store('proofs/'.$organization->id, 'local');
 
         UploadedFile::create([
             'user_id' => $user->id,
@@ -498,7 +501,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Verification failed: ' . $e->getMessage(), ['email' => $email]);
+            Log::error('Verification failed: '.$e->getMessage(), ['email' => $email]);
             throw $e;
         }
     }
@@ -515,21 +518,6 @@ class AuthService
 
         $otp = $this->generateOtp($user);
         $user->notify(new AccountVerificationNotification($otp));
-    }
-
-    public function canResendOtp(User $user): bool
-    {
-        $lastVerification = AccountVerification::where('user_id', $user->id)
-            ->latest()
-            ->first();
-
-        if (! $lastVerification) {
-            return true;
-        }
-
-        $resendInterval = (int) config('verification.resend_interval_seconds', 60);
-
-        return $lastVerification->created_at->diffInSeconds(now()) >= $resendInterval;
     }
 
     public function sendPasswordResetOtp(User $user): void
@@ -577,29 +565,6 @@ class AuthService
         $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
 
         return now()->diffInSeconds($record->created_at) >= $resendInterval;
-    }
-
-    public function passwordResetResendAvailableAt(string $email): ?Carbon
-    {
-        $user = User::where('email', strtolower(trim($email)))->first();
-
-        if (! $user) {
-            return null;
-        }
-
-        $record = DB::table('password_reset_tokens')
-            ->where('user_id', $user->id)
-            ->latest('created_at')
-            ->first();
-
-        if (! $record || ! $record->created_at) {
-            return null;
-        }
-
-        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
-        $availableAt = Carbon::parse($record->created_at)->addSeconds($resendInterval);
-
-        return $availableAt->isFuture() ? $availableAt : null;
     }
 
     /**
@@ -723,8 +688,55 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: ' . $e->getMessage());
+            Log::error('Password reset failed: '.$e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * US-AUTH-06 flagged that a token was being issued on login without a
+     * matching row being written to auth_sessions, which meant logout /
+     * logout-all had nothing to mark as revoked. This is the single place
+     * that closes that gap — every code path that calls
+     * $user->createToken() (login, login/organization, login/google) must
+     * also call this right after, so AuthController::logout() /
+     * logoutAll() always have a record to update.
+     *
+     * token_hash intentionally stores the exact same value Sanctum stores
+     * on personal_access_tokens.token (hash('sha256', $plainTextToken)),
+     * so a later request's $user->currentAccessToken()->token can be
+     * matched straight back to the row created here — no extra column or
+     * lookup table needed.
+     */
+    public function recordAuthSession(User $user, NewAccessToken $tokenResult, ?Request $request = null): void
+    {
+        AuthSession::create([
+            'user_id' => $user->id,
+            'token_hash' => $tokenResult->accessToken->token,
+            'device' => $this->guessDevice($request?->userAgent()),
+            'user_agent' => $request?->userAgent(),
+            'ip_address' => $request?->ip(),
+            'result' => 'success',
+            'issued_at' => now(),
+            'expires_at' => $tokenResult->accessToken->expires_at,
+        ]);
+    }
+
+    /**
+     * Best-effort device label from the User-Agent header, only used for
+     * the auth_sessions.device audit column — never for any access-control
+     * decision, so a wrong guess here has no security impact.
+     */
+    private function guessDevice(?string $userAgent): ?string
+    {
+        if (! $userAgent) {
+            return null;
+        }
+
+        return match (true) {
+            (bool) preg_match('/tablet|ipad/i', $userAgent) => 'tablet',
+            (bool) preg_match('/mobile|android|iphone/i', $userAgent) => 'mobile',
+            default => 'desktop',
+        };
     }
 }

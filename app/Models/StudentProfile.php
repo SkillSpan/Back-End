@@ -9,13 +9,23 @@ class StudentProfile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','education','specialization','career_status','interests','availability','preferred_work_type','visibility','completeness_percent','enrollment_status','graduation_status','graduation_date','primary_career_role_id','consent_given'];
+    protected $fillable = ['user_id', 'university_id', 'specialization_id', 'academic_level', 'expected_graduation', 'bio', 'career_status', 'interests', 'availability', 'preferred_work_type', 'visibility', 'completeness_percent', 'enrollment_status', 'graduation_status', 'graduation_date', 'primary_career_role_id', 'consent_given'];
 
-    protected $casts = ['interests' => 'array', 'graduation_status' => 'boolean', 'graduation_date' => 'date', 'consent_given' => 'boolean'];
+    protected $casts = ['interests' => 'array', 'graduation_status' => 'boolean', 'graduation_date' => 'date', 'expected_graduation' => 'date', 'consent_given' => 'boolean', 'university_id' => 'integer', 'specialization_id' => 'integer'];
 
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function university()
+    {
+        return $this->belongsTo(University::class);
+    }
+
+    public function specialization()
+    {
+        return $this->belongsTo(Specialization::class);
     }
 
     public function primaryCareerRole()

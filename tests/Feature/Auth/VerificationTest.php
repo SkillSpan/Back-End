@@ -8,7 +8,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class VerificationTest extends TestCase
@@ -48,7 +47,7 @@ class VerificationTest extends TestCase
     {
         $this->createPendingUser();
 
-        $response = $this->postJson('/api/auth/verify', [
+        $response = $this->postJson('/api/v1/auth/verify', [
             'email' => 'test@test.com',
             'otp' => '123456',
         ]);
@@ -69,7 +68,7 @@ class VerificationTest extends TestCase
         AccountVerification::where('user_id', User::where('email', 'test@test.com')->first()->id)
             ->update(['expires_at' => now()->subMinutes(1)]);
 
-        $response = $this->postJson('/api/auth/verify', [
+        $response = $this->postJson('/api/v1/auth/verify', [
             'email' => 'test@test.com',
             'otp' => '123456',
         ]);
@@ -82,7 +81,7 @@ class VerificationTest extends TestCase
     {
         $this->createPendingUser();
 
-        $response = $this->postJson('/api/auth/verify', [
+        $response = $this->postJson('/api/v1/auth/verify', [
             'email' => 'test@test.com',
             'otp' => '999999',
         ]);
@@ -95,7 +94,7 @@ class VerificationTest extends TestCase
     {
         $this->createPendingUser();
 
-        $response = $this->postJson('/api/auth/login', [
+        $response = $this->postJson('/api/v1/auth/login', [
             'email' => 'test@test.com',
             'password' => 'password123',
         ]);
@@ -107,8 +106,8 @@ class VerificationTest extends TestCase
     {
         $this->createPendingUser();
 
-        $this->postJson('/api/auth/resend-otp', ['email' => 'test@test.com']);
-        $response = $this->postJson('/api/auth/resend-otp', ['email' => 'test@test.com']);
+        $this->postJson('/api/v1/auth/resend-otp', ['email' => 'test@test.com']);
+        $response = $this->postJson('/api/v1/auth/resend-otp', ['email' => 'test@test.com']);
 
         $response->assertStatus(429);
         $response->assertJsonStructure([
@@ -120,12 +119,12 @@ class VerificationTest extends TestCase
     {
         $this->createPendingUser();
 
-        $this->postJson('/api/auth/verify', [
+        $this->postJson('/api/v1/auth/verify', [
             'email' => 'test@test.com',
             'otp' => '123456',
         ]);
 
-        $response = $this->postJson('/api/auth/login', [
+        $response = $this->postJson('/api/v1/auth/login', [
             'email' => 'test@test.com',
             'password' => 'password123',
         ]);

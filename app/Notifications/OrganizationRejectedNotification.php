@@ -3,18 +3,13 @@
 namespace App\Notifications;
 
 use App\Models\Organization;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class OrganizationRejectedNotification extends Notification implements ShouldQueue
+class OrganizationRejectedNotification extends Notification
 {
-    use Queueable;
-
     public function __construct(protected Organization $organization, protected ?string $reason = null)
     {
-        $this->onQueue('high');
     }
 
     public function via(object $notifiable): array

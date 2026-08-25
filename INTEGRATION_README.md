@@ -8,8 +8,8 @@ The frontend never calls FastAPI directly. Laravel remains the source of truth f
 
 ## Laravel endpoints
 
-- `POST /api/readiness/calculate`
-- `GET /api/readiness/latest`
+- `POST /api/v1/readiness/calculate`
+- `GET /api/v1/readiness/latest`
 
 Both endpoints require `Authorization: Bearer <Sanctum token>`.
 
@@ -88,6 +88,6 @@ The supplied FastAPI response does not include a career-role ID/version or an al
 2. Start the FastAPI service on port `8001`.
 3. Log in through Laravel and copy the Sanctum token.
 4. Ensure the authenticated learner has an approved career role and a latest `skill_evaluations` row for every required role skill.
-5. Call `POST /api/readiness/calculate`.
+5. Call `POST /api/v1/readiness/calculate`.
 6. Verify a row is created in `readiness_results`.
-7. Call `GET /api/readiness/latest` and verify the saved result is returned.
+7. Call `GET /api/v1/readiness/latest` and verify the saved result is returned.

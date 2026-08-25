@@ -45,4 +45,8 @@ return [
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
     ],
 
+    'admin_setup' => [
+        'secret' => env('ADMIN_SETUP_SECRET', ''),
+    ],
+
 ];

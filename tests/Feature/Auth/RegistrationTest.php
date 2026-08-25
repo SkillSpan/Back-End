@@ -27,7 +27,7 @@ class RegistrationTest extends TestCase
 
     public function test_individual_registration_success(): void
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'أحمد محمد',
             'email' => 'ahmed@test.com',
@@ -36,8 +36,9 @@ class RegistrationTest extends TestCase
             'password_confirmation' => 'password123',
             'terms_accepted' => true,
             'privacy_accepted' => true,
-            'education' => 'هندسة برمجيات',
-            'specialization' => 'تطوير الويب',
+            // Academic fields (university/specialization) are collected
+            // later via POST /api/v1/profile as Foreign Keys — the
+            // registration payload only seeds a bare profile row.
             'career_status' => 'طالب',
         ]);
 
@@ -48,7 +49,7 @@ class RegistrationTest extends TestCase
         ]);
         $this->assertDatabaseHas('student_profiles', [
             'user_id' => User::where('email', 'ahmed@test.com')->first()->id,
-            'education' => 'هندسة برمجيات',
+            'career_status' => 'طالب',
         ]);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->terms_accepted_at);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->privacy_accepted_at);
@@ -58,7 +59,7 @@ class RegistrationTest extends TestCase
     {
         $file = UploadedFile::fake()->image('proof.jpg');
 
-        $response = $this->postJson('/api/auth/register/organization', [
+        $response = $this->postJson('/api/v1/auth/register/organization', [
             'name' => 'أحمد المدير',
             'email' => 'admin@company.com',
             'password' => 'password123',
@@ -94,7 +95,7 @@ class RegistrationTest extends TestCase
             'status' => 'active',
         ]);
 
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
             'email' => 'duplicate@test.com',
@@ -110,7 +111,7 @@ class RegistrationTest extends TestCase
 
     public function test_registration_fails_missing_terms(): void
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
             'email' => 'test@test.com',
@@ -126,7 +127,7 @@ class RegistrationTest extends TestCase
 
     public function test_organization_registration_fails_without_proof_file(): void
     {
-        $response = $this->postJson('/api/auth/register/organization', [
+        $response = $this->postJson('/api/v1/auth/register/organization', [
             'name' => 'Test Admin',
             'email' => 'admin@company.com',
             'password' => 'password123',
