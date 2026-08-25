@@ -12,9 +12,11 @@ use App\Http\Requests\Auth\ResendOtpRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Http\Requests\Auth\VerifyPasswordResetRequest;
 use App\Http\Requests\Auth\VerifyRequest;
+use App\Models\AuthSession;
 use App\Models\User;
 use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
@@ -141,7 +143,8 @@ class AuthController extends Controller
         $result = $this->authService->loginWithGoogle(
             $request->input('credential'),
             (bool) $request->input('terms_accepted', false),
-            (bool) $request->input('privacy_accepted', false)
+            (bool) $request->input('privacy_accepted', false),
+            $request
         );
 
         return response()->json([
@@ -193,14 +196,15 @@ class AuthController extends Controller
 
         $user->update(['last_login_at' => now()]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $tokenResult = $user->createToken('auth_token');
+        $this->authService->recordAuthSession($user, $tokenResult, $request);
 
         return response()->json([
             'success' => true,
             'message' => 'Logged in successfully.',
             'data' => [
                 'user' => $user->load(['roles', 'studentProfile']),
-                'token' => $token,
+                'token' => $tokenResult->plainTextToken,
                 'token_type' => 'Bearer',
             ],
         ]);
@@ -254,7 +258,8 @@ class AuthController extends Controller
 
         $user->update(['last_login_at' => now()]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $tokenResult = $user->createToken('auth_token');
+        $this->authService->recordAuthSession($user, $tokenResult, $request);
 
         return response()->json([
             'success' => true,
@@ -262,7 +267,7 @@ class AuthController extends Controller
             'data' => [
                 'user' => $user->load('roles'),
                 'organizations' => [$organization],
-                'token' => $token,
+                'token' => $tokenResult->plainTextToken,
                 'token_type' => 'Bearer',
             ],
         ]);
@@ -420,6 +425,66 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Your password has been reset successfully. You can now log in.',
+            'data' => [
+                'redirect_url' => '/login',
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/v1/auth/logout
+     * US-AUTH-06 (AC-01..AC-05) / AUTH-05, AUTH-13.
+     * Revokes only the Sanctum token used to authenticate this request,
+     * and marks the matching auth_sessions row's revoked_at so the
+     * revocation is auditable per SRS §12.1 — not just removed from
+     * Sanctum's own token table.
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $currentToken = $user->currentAccessToken();
+
+        if ($currentToken) {
+            AuthSession::where('user_id', $user->id)
+                ->where('token_hash', $currentToken->token)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now()]);
+
+            $currentToken->delete();
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged out successfully.',
+            'data' => [
+                'redirect_url' => '/',
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/v1/auth/logout-all
+     * US-AUTH-06 (AC-06, AC-07) / AUTH-13.
+     * Revokes every Sanctum token belonging to the user — including the
+     * one used to make this very request, with no exception for the
+     * current device — and records revoked_at for each affected
+     * auth_sessions row. The learner ends up fully signed out everywhere
+     * and must log in again, hence the "/login" redirect (not "/",
+     * unlike the single-device logout above).
+     */
+    public function logoutAll(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        AuthSession::where('user_id', $user->id)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now()]);
+
+        $user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'You have been logged out from all devices.',
             'data' => [
                 'redirect_url' => '/login',
             ],

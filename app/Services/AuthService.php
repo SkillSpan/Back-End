@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AccountVerification;
+use App\Models\AuthSession;
 use App\Models\Organization;
 use App\Models\OrganizationMember;
 use App\Models\Role;
@@ -12,12 +13,14 @@ use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Google_Client;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\NewAccessToken;
 use Throwable;
 
 class AuthService
@@ -101,7 +104,8 @@ class AuthService
     public function loginWithGoogle(
         string $credential,
         bool $termsAccepted = false,
-        bool $privacyAccepted = false
+        bool $privacyAccepted = false,
+        ?Request $request = null
     ): array {
         try {
             $clientId = config('services.google.client_id');
@@ -187,13 +191,14 @@ class AuthService
                 $user->last_login_at = now();
                 $user->save();
 
-                $token = $user->createToken('auth_token')->plainTextToken;
+                $tokenResult = $user->createToken('auth_token');
+                $this->recordAuthSession($user, $tokenResult, $request);
 
                 DB::commit();
 
                 return [
                     'user' => $user->fresh(['roles', 'studentProfile']),
-                    'token' => $token,
+                    'token' => $tokenResult->plainTextToken,
                     'created' => false,
                 ];
             }
@@ -239,13 +244,14 @@ class AuthService
             $this->assignRole($user, 'individual');
             $this->createStudentProfile($user, []);
 
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $tokenResult = $user->createToken('auth_token');
+            $this->recordAuthSession($user, $tokenResult, $request);
 
             DB::commit();
 
             return [
                 'user' => $user->fresh(['roles', 'studentProfile']),
-                'token' => $token,
+                'token' => $tokenResult->plainTextToken,
                 'created' => true,
             ];
         } catch (ValidationException $e) {
@@ -726,5 +732,52 @@ class AuthService
             Log::error('Password reset failed: ' . $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * US-AUTH-06 flagged that a token was being issued on login without a
+     * matching row being written to auth_sessions, which meant logout /
+     * logout-all had nothing to mark as revoked. This is the single place
+     * that closes that gap — every code path that calls
+     * $user->createToken() (login, login/organization, login/google) must
+     * also call this right after, so AuthController::logout() /
+     * logoutAll() always have a record to update.
+     *
+     * token_hash intentionally stores the exact same value Sanctum stores
+     * on personal_access_tokens.token (hash('sha256', $plainTextToken)),
+     * so a later request's $user->currentAccessToken()->token can be
+     * matched straight back to the row created here — no extra column or
+     * lookup table needed.
+     */
+    public function recordAuthSession(User $user, NewAccessToken $tokenResult, ?Request $request = null): void
+    {
+        AuthSession::create([
+            'user_id' => $user->id,
+            'token_hash' => $tokenResult->accessToken->token,
+            'device' => $this->guessDevice($request?->userAgent()),
+            'user_agent' => $request?->userAgent(),
+            'ip_address' => $request?->ip(),
+            'result' => 'success',
+            'issued_at' => now(),
+            'expires_at' => $tokenResult->accessToken->expires_at,
+        ]);
+    }
+
+    /**
+     * Best-effort device label from the User-Agent header, only used for
+     * the auth_sessions.device audit column — never for any access-control
+     * decision, so a wrong guess here has no security impact.
+     */
+    private function guessDevice(?string $userAgent): ?string
+    {
+        if (! $userAgent) {
+            return null;
+        }
+
+        return match (true) {
+            (bool) preg_match('/tablet|ipad/i', $userAgent) => 'tablet',
+            (bool) preg_match('/mobile|android|iphone/i', $userAgent) => 'mobile',
+            default => 'desktop',
+        };
     }
 }

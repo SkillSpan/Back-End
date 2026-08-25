@@ -25,7 +25,7 @@ class EnsureUserHasRole
         if (! $user->hasRole($role)) {
             return response()->json([
                 'code' => 'LEARNER_ONLY',
-                'message' => 'Only learner accounts can access learner readiness.',
+                'message' => "Only {$role} accounts can access this resource.",
                 'request_id' => $requestId,
             ], 403, ['X-Request-ID' => $requestId]);
         }
