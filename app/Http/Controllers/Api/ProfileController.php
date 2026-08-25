@@ -21,14 +21,16 @@ class ProfileController extends Controller
     /**
      * Fields that count toward profile completeness. Kept in one place so
      * store()/update() and the percentage calculation can't drift apart.
+     * university/specialization are normalized Foreign Keys per the
+     * learner-profile task list (not plain text).
      */
     private const COMPLETENESS_FIELDS = [
-        'education',
-        'specialization',
+        'university_id',
+        'specialization_id',
+        'academic_level',
         'career_status',
         'interests',
         'availability',
-        'preferred_work_type',
     ];
 
     /**
@@ -52,8 +54,11 @@ class ProfileController extends Controller
 
         $profile = StudentProfile::create([
             'user_id' => $user->id,
-            'education' => $data['education'],
-            'specialization' => $data['specialization'],
+            'university_id' => $data['university_id'],
+            'specialization_id' => $data['specialization_id'],
+            'academic_level' => $data['academic_level'],
+            'expected_graduation' => $data['expected_graduation'] ?? null,
+            'bio' => $data['bio'] ?? null,
             'career_status' => $data['career_status'] ?? null,
             'interests' => $data['interests'] ?? null,
             'availability' => $data['availability'] ?? null,
@@ -145,8 +150,11 @@ class ProfileController extends Controller
     {
         return [
             'id' => $profile->id,
-            'education' => $profile->education,
-            'specialization' => $profile->specialization,
+            'university' => $profile->university?->only(['id', 'name']),
+            'specialization' => $profile->specialization?->only(['id', 'name']),
+            'academic_level' => $profile->academic_level,
+            'expected_graduation' => $profile->expected_graduation?->toDateString(),
+            'bio' => $profile->bio,
             'career_status' => $profile->career_status,
             'interests' => $profile->interests,
             'availability' => $profile->availability,

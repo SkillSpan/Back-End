@@ -141,4 +141,37 @@ class LogoutTest extends TestCase
         $this->postJson('/api/v1/auth/logout')->assertStatus(401);
         $this->postJson('/api/v1/auth/logout-all')->assertStatus(401);
     }
+
+    /**
+     * US-AUTH-06 Testing: "Test session expiration (natural token expiry,
+     * not via logout)". A token that simply outlives its 14-day lifetime
+     * (config/sanctum.php 'expiration') must be rejected on its own —
+     * without any logout call having happened.
+     */
+    public function test_naturally_expired_token_cannot_access_protected_endpoints(): void
+    {
+        config(['sanctum.expiration' => 60]); // 60 minutes for determinism.
+
+        $user = $this->createActiveLearner();
+        $token = $this->login();
+
+        // Sanity check inside the validity window: authenticated fine
+        // (404 = no profile row yet, but the token itself is accepted).
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/profile')
+            ->assertStatus(404);
+
+        // Outlive the token. Sanctum compares created_at + expiration
+        // against the current time on every request.
+        $this->travel(61)->minutes();
+
+        // Same RequestGuard memoization caveat as the revocation tests:
+        // forget the container binding so the (now stale) token is fully
+        // re-validated against its expired lifetime.
+        $this->app->forgetInstance('auth');
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/profile')
+            ->assertStatus(401);
+    }
 }

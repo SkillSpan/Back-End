@@ -36,8 +36,9 @@ class RegistrationTest extends TestCase
             'password_confirmation' => 'password123',
             'terms_accepted' => true,
             'privacy_accepted' => true,
-            'education' => 'هندسة برمجيات',
-            'specialization' => 'تطوير الويب',
+            // Academic fields (university/specialization) are collected
+            // later via POST /api/v1/profile as Foreign Keys — the
+            // registration payload only seeds a bare profile row.
             'career_status' => 'طالب',
         ]);
 
@@ -48,7 +49,7 @@ class RegistrationTest extends TestCase
         ]);
         $this->assertDatabaseHas('student_profiles', [
             'user_id' => User::where('email', 'ahmed@test.com')->first()->id,
-            'education' => 'هندسة برمجيات',
+            'career_status' => 'طالب',
         ]);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->terms_accepted_at);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->privacy_accepted_at);

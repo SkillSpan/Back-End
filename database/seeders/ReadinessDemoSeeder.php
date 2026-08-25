@@ -7,7 +7,9 @@ use App\Models\CareerRoleSkill;
 use App\Models\Role;
 use App\Models\Skill;
 use App\Models\SkillEvaluation;
+use App\Models\Specialization;
 use App\Models\StudentProfile;
+use App\Models\University;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -52,8 +54,9 @@ class ReadinessDemoSeeder extends Seeder
         $profile = StudentProfile::updateOrCreate(
             ['user_id' => $user->id],
             [
-                'education' => 'Computer Science',
-                'specialization' => 'Data Analysis',
+                'university_id' => University::firstOrCreate(['name' => 'An-Najah National University'], ['is_active' => true])->id,
+                'specialization_id' => Specialization::firstOrCreate(['name' => 'Data Science'], ['is_active' => true])->id,
+                'academic_level' => 'Fourth Year',
                 'career_status' => 'Student',
                 'availability' => '10 hours/week',
                 'preferred_work_type' => 'Remote',

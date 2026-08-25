@@ -51,14 +51,6 @@
               "value": "true"
             },
             {
-              "key": "education",
-              "value": "هندسة برمجيات"
-            },
-            {
-              "key": "specialization",
-              "value": "تطوير الويب"
-            },
-            {
               "key": "career_status",
               "value": "طالب"
             }
@@ -416,9 +408,15 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"education\": \"هندسة برمجيات\", \"specialization\": \"تطوير الويب\", \"career_status\": \"طالب\", \"interests\": [\"web development\", \"data analysis\"], \"availability\": \"full_time\", \"preferred_work_type\": \"remote\", \"visibility\": \"public\"}"
+              "raw": "{\"university_id\": 1, \"specialization_id\": 1, \"academic_level\": \"Third Year\", \"expected_graduation\": \"2027-06-30\", \"bio\": \"Aspiring backend engineer.\", \"career_status\": \"طالب\", \"interests\": [\"web development\", \"data analysis\"], \"availability\": \"full_time\", \"preferred_work_type\": \"remote\", \"visibility\": \"public\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": "{{base_url}}/api/v1/profile"
+            "url": "{{base_url}}/api/v1/profile",
+            "description": "university_id / specialization_id are Foreign Keys seeded by: php artisan db:seed --class=UniversitiesAndSpecializationsSeeder"
           }
         },
         {

@@ -343,8 +343,6 @@ class AuthService
 
         StudentProfile::create([
             'user_id' => $user->id,
-            'education' => $data['education'] ?? null,
-            'specialization' => $data['specialization'] ?? null,
             'career_status' => $careerStatus,
             'enrollment_status' => $enrollmentStatus,
             'graduation_status' => $graduationStatus,
