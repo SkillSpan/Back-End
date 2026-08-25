@@ -57,6 +57,40 @@ class PasswordResetTest extends TestCase
         return $otp;
     }
 
+    public function test_resend_sends_a_fresh_code_once_the_cooldown_passes(): void
+    {
+        $user = $this->createActiveUser();
+
+        $this->postJson('/api/v1/auth/forgot-password', ['email' => self::EMAIL])
+            ->assertOk();
+        Notification::assertSentTo($user, PasswordResetNotification::class);
+
+        // Inside the cooldown window: neutral 200, no second mail.
+        $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => self::EMAIL])
+            ->assertOk();
+        Notification::assertSentToTimes($user, PasswordResetNotification::class, 1);
+
+        // Carbon 3 made diffInSeconds signed — this guard used to stay
+        // blocked FOREVER after the first request (BUG found in live E2E).
+        $this->travel(61)->seconds();
+
+        $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => self::EMAIL])
+            ->assertOk();
+        Notification::assertSentToTimes($user, PasswordResetNotification::class, 2);
+    }
+
+    public function test_resend_is_neutral_for_unknown_emails(): void
+    {
+        $known = $this->createActiveUser();
+        $this->postJson('/api/v1/auth/forgot-password', ['email' => self::EMAIL])->assertOk();
+
+        $knownBody = $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => self::EMAIL])->assertOk()->json();
+        $unknownBody = $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => 'ghost@nowhere.io'])->assertOk()->json();
+
+        unset($knownBody['data']['resend_available_at'], $unknownBody['data']['resend_available_at']);
+        $this->assertSame($knownBody, $unknownBody);
+    }
+
     public function test_forgot_password_unknown_email_returns_neutral_success_without_sending(): void
     {
         $response = $this->postJson('/api/v1/auth/forgot-password', [

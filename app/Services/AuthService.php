@@ -15,6 +15,7 @@ use App\Notifications\PasswordResetNotification;
 use Google_Client;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -348,7 +349,11 @@ class AuthService
             'graduation_status' => $graduationStatus,
             'visibility' => 'private',
             'consent_given' => true,
-            'completeness_percent' => 15,
+            // SRS PROF-05: completeness is derived from the configured
+            // field list — an untouched profile has none filled, so 0.
+            // (A hardcoded 15 here outranked genuinely fuller profiles
+            // until the first update recomputed it.)
+            'completeness_percent' => 0,
         ]);
     }
 
@@ -454,7 +459,16 @@ class AuthService
         try {
             DB::beginTransaction();
 
-            $user = User::where('email', strtolower(trim($email)))->firstOrFail();
+            // first() + false — NOT firstOrFail(): a 404 for unknown
+            // addresses would distinguish them from wrong-OTP failures
+            // and leak which emails are registered.
+            $user = User::where('email', strtolower(trim($email)))->first();
+
+            if (! $user) {
+                DB::rollBack();
+
+                return false;
+            }
 
             $verification = AccountVerification::where('user_id', $user->id)
                 ->where('decision', 'pending')
@@ -564,7 +578,14 @@ class AuthService
 
         $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
 
-        return now()->diffInSeconds($record->created_at) >= $resendInterval;
+        // NOT now()->diffInSeconds($record->created_at): Carbon 3 made that
+        // diff SIGNED, so an older record yields a negative number and this
+        // check could never pass again — resend was silently dead forever.
+        // (DB::table rows carry raw string dates, hence the explicit parse.)
+        $cooldownEndsAt = Carbon::parse($record->created_at)
+            ->addSeconds($resendInterval);
+
+        return now()->greaterThanOrEqualTo($cooldownEndsAt);
     }
 
     /**
