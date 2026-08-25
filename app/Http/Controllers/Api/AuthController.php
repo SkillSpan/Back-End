@@ -15,6 +15,7 @@ use App\Http\Requests\Auth\VerifyRequest;
 use App\Models\AuthSession;
 use App\Models\User;
 use App\Services\AuthService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -213,10 +214,19 @@ class AuthController extends Controller
 
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
+            $message = "Too many login attempts. Please try again in {$seconds} seconds.";
 
-            throw ValidationException::withMessages([
-                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
-            ]);
+            // 429 + Retry-After, not a plain 422: clients (and standard
+            // HTTP backoff logic) must be able to tell a lockout apart
+            // from a field validation failure. The JSON shape mirrors
+            // ValidationException's rendering so existing frontends keep
+            // working unchanged.
+            throw new HttpResponseException(
+                response()->json([
+                    'message' => $message,
+                    'errors' => ['email' => [$message]],
+                ], 429, ['Retry-After' => (string) $seconds])
+            );
         }
 
         $user = User::where('email', $email)->first();

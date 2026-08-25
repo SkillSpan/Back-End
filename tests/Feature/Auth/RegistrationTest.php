@@ -50,6 +50,9 @@ class RegistrationTest extends TestCase
         $this->assertDatabaseHas('student_profiles', [
             'user_id' => User::where('email', 'ahmed@test.com')->first()->id,
             'career_status' => 'طالب',
+            // SRS PROF-05: an untouched profile has zero completeness —
+            // no hardcoded baseline outranking real progress.
+            'completeness_percent' => 0,
         ]);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->terms_accepted_at);
         $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->privacy_accepted_at);
