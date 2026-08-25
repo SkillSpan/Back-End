@@ -59,5 +59,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/profile', [OrganizationController::class, 'profile']);
     });
 
-    Route::post('/setup/create-admin', [SetupController::class, 'createAdmin']);
+    Route::post('/setup/create-admin', [SetupController::class, 'createAdmin'])
+        ->middleware('throttle:5,1');
 });

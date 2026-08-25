@@ -16,8 +16,7 @@ class ReadinessService
     public function __construct(
         private readonly DataScienceClient $dataScienceClient,
         private readonly ReadinessPayloadBuilder $payloadBuilder,
-    ) {
-    }
+    ) {}
 
     public function calculate(
         StudentProfile $studentProfile,
@@ -71,15 +70,22 @@ class ReadinessService
             );
         }
 
+        $latestEvaluationsBySkillId = SkillEvaluation::query()
+            ->where('student_profile_id', $studentProfile->id)
+            ->whereIn('skill_id', $roleSkills->pluck('skill_id'))
+            ->orderByDesc('calculated_at')
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy(
+                fn (SkillEvaluation $evaluation) => (int) $evaluation->skill_id
+            );
+
         $missingSkillIds = [];
 
         foreach ($roleSkills as $roleSkill) {
-            $latestEvaluation = SkillEvaluation::query()
-                ->where('student_profile_id', $studentProfile->id)
-                ->where('skill_id', $roleSkill->skill_id)
-                ->orderByDesc('calculated_at')
-                ->orderByDesc('id')
-                ->first();
+            $latestEvaluation = $latestEvaluationsBySkillId
+                ->get((int) $roleSkill->skill_id)
+                ?->first();
 
             $roleSkill->setAttribute(
                 'latest_evaluation',
@@ -153,8 +159,7 @@ class ReadinessService
                 'assessment_reliability_component' => null,
                 'profile_completeness_component' => null,
 
-                'critical_cap_applied' =>
-                    (bool) $result['critical_skill_cap_applied'],
+                'critical_cap_applied' => (bool) $result['critical_skill_cap_applied'],
 
                 'band' => null,
 
@@ -469,10 +474,8 @@ class ReadinessService
             [
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
-                'result_skill_count' =>
-                    count($result['skill_results']),
-                'algorithm_version' =>
-                    $result['algorithm_version'],
+                'result_skill_count' => count($result['skill_results']),
+                'algorithm_version' => $result['algorithm_version'],
             ],
         );
     }

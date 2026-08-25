@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "SkillSpan Auth API",
-    "description": "مصادقة منصة SkillSpan",
+    "description": "مصادقة منصة SkillSpan (API v1)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -64,7 +64,7 @@
             }
           ]
         },
-        "url": "{{base_url}}/api/auth/register"
+        "url": "{{base_url}}/api/v1/auth/register"
       }
     },
     {
@@ -147,7 +147,7 @@
             }
           ]
         },
-        "url": "{{base_url}}/api/auth/register/organization"
+        "url": "{{base_url}}/api/v1/auth/register/organization"
       }
     },
     {
@@ -168,7 +168,7 @@
           "mode": "raw",
           "raw": "{\"email\": \"ahmed@test.com\", \"otp\": \"123456\"}"
         },
-        "url": "{{base_url}}/api/auth/verify"
+        "url": "{{base_url}}/api/v1/auth/verify"
       }
     },
     {
@@ -189,7 +189,7 @@
           "mode": "raw",
           "raw": "{\"email\": \"ahmed@test.com\"}"
         },
-        "url": "{{base_url}}/api/auth/resend-otp"
+        "url": "{{base_url}}/api/v1/auth/resend-otp"
       }
     },
     {
@@ -210,7 +210,7 @@
           "mode": "raw",
           "raw": "{\"email\": \"ahmed@test.com\", \"password\": \"password123\"}"
         },
-        "url": "{{base_url}}/api/auth/login"
+        "url": "{{base_url}}/api/v1/auth/login"
       }
     },
     {
@@ -231,7 +231,7 @@
           "mode": "raw",
           "raw": "{\"email\": \"ahmed@example.com\"}"
         },
-        "url": "{{base_url}}/api/auth/forgot-password"
+        "url": "{{base_url}}/api/v1/auth/forgot-password"
       }
     },
     {
@@ -252,14 +252,435 @@
           "mode": "raw",
           "raw": "{\"email\": \"ahmed@example.com\", \"otp\": \"123456\", \"password\": \"NewPassword123\", \"password_confirmation\": \"NewPassword123\"}"
         },
-        "url": "{{base_url}}/api/auth/reset-password"
+        "url": "{{base_url}}/api/v1/auth/reset-password"
       }
+    },
+    {
+      "name": "الدخول بحساب Google",
+      "item": [
+        {
+          "name": "دخول Google",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"credential\": \"<GOOGLE_ID_TOKEN>\", \"terms_accepted\": true, \"privacy_accepted\": true}"
+            },
+            "url": "{{base_url}}/api/v1/auth/login/google"
+          }
+        }
+      ]
+    },
+    {
+      "name": "دخول المؤسسة",
+      "item": [
+        {
+          "name": "دخول حساب مؤسسة",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"admin@company.com\", \"password\": \"password123\"}"
+            },
+            "url": "{{base_url}}/api/v1/auth/login/organization"
+          }
+        }
+      ]
+    },
+    {
+      "name": "استعادة كلمة المرور",
+      "item": [
+        {
+          "name": "إعادة إرسال رمز استعادة كلمة المرور",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"ahmed@example.com\"}"
+            },
+            "url": "{{base_url}}/api/v1/auth/forgot-password/resend"
+          }
+        },
+        {
+          "name": "التحقق من رمز استعادة كلمة المرور",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"ahmed@example.com\", \"otp\": \"123456\"}"
+            },
+            "url": "{{base_url}}/api/v1/auth/forgot-password/verify"
+          }
+        }
+      ]
+    },
+    {
+      "name": "الجلسة (Bearer Token)",
+      "item": [
+        {
+          "name": "تسجيل الخروج",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/logout"
+          }
+        },
+        {
+          "name": "تسجيل الخروج من جميع الأجهزة",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/logout-all"
+          }
+        }
+      ]
+    },
+    {
+      "name": "الملف الشخصي للطالب (Bearer Token)",
+      "item": [
+        {
+          "name": "إنشاء الملف الشخصي",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"education\": \"هندسة برمجيات\", \"specialization\": \"تطوير الويب\", \"career_status\": \"طالب\", \"interests\": [\"web development\", \"data analysis\"], \"availability\": \"full_time\", \"preferred_work_type\": \"remote\", \"visibility\": \"public\"}"
+            },
+            "url": "{{base_url}}/api/v1/profile"
+          }
+        },
+        {
+          "name": "عرض الملف الشخصي",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/profile"
+          }
+        },
+        {
+          "name": "تحديث الملف الشخصي (جزئي)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"availability\": \"part_time\", \"preferred_work_type\": \"hybrid\", \"visibility\": \"organization_only\"}"
+            },
+            "url": "{{base_url}}/api/v1/profile"
+          }
+        }
+      ]
+    },
+    {
+      "name": "جاهزية المهارات (Bearer Token)",
+      "item": [
+        {
+          "name": "حساب الجاهزية",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"career_role_id\": 3}"
+            },
+            "url": "{{base_url}}/api/v1/readiness/calculate"
+          }
+        },
+        {
+          "name": "آخر نتيجة جاهزية",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/readiness/latest"
+          }
+        }
+      ]
+    },
+    {
+      "name": "إدارة المؤسسات (Admin)",
+      "item": [
+        {
+          "name": "قائمة المؤسسات",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/organizations"
+          }
+        },
+        {
+          "name": "تفاصيل مؤسسة",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/organizations/1"
+          }
+        },
+        {
+          "name": "تنزيل ملف إثبات المؤسسة",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/organizations/1/proof-file"
+          }
+        },
+        {
+          "name": "قبول مؤسسة",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/organizations/1/approve"
+          }
+        },
+        {
+          "name": "رفض مؤسسة",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"الوثيق المرفق غير واضح\"}"
+            },
+            "url": "{{base_url}}/api/v1/admin/organizations/1/reject"
+          }
+        }
+      ]
+    },
+    {
+      "name": "حساب المؤسسة (Bearer Token)",
+      "item": [
+        {
+          "name": "الملف الشخصي للمؤسسة",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/organization/profile"
+          }
+        }
+      ]
+    },
+    {
+      "name": "أدوات النظام",
+      "item": [
+        {
+          "name": "إنشاء حساب مدير (Setup)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"secret\": \"<ADMIN_SETUP_SECRET>\", \"name\": \"Platform Admin\", \"email\": \"admin@skillspan.test\", \"password\": \"SuperSecret123\"}"
+            },
+            "url": "{{base_url}}/api/v1/setup/create-admin"
+          }
+        },
+        {
+          "name": "فحص الصحة",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/up"
+          }
+        }
+      ]
     }
   ],
   "variable": [
     {
       "key": "base_url",
       "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
       "type": "string"
     }
   ]

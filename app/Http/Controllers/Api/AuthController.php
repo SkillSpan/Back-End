@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\GoogleLoginRequest;
 use App\Http\Requests\Auth\LoginRequest;
-use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\RegisterOrganizationRequest;
+use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResendOtpRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Http\Requests\Auth\VerifyPasswordResetRequest;
@@ -104,9 +104,18 @@ class AuthController extends Controller
 
     public function resendOtp(ResendOtpRequest $request): JsonResponse
     {
-        $user = User::where('email', strtolower(trim($request->input('email'))))->firstOrFail();
+        // رد محايد للإيميلات غير المسجلة حتى ما يصير هذا الـ endpoint
+        // أداة لاستنتاج الحسابات الموجودة — نفس أسلوب forgotPassword().
+        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
 
-        $key = 'resend-otp:' . $user->id;
+        if (! $user) {
+            return response()->json([
+                'success' => true,
+                'message' => 'If an account with that email exists, a new verification code has been sent.',
+            ]);
+        }
+
+        $key = 'resend-otp:'.$user->id;
         $decaySeconds = (int) config('verification.resend_interval_seconds', 60);
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
@@ -163,8 +172,44 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
+        [$user, $tokenResult] = $this->attemptLogin($request, 'individual');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged in successfully.',
+            'data' => [
+                'user' => $user->load(['roles', 'studentProfile']),
+                'token' => $tokenResult->plainTextToken,
+                'token_type' => 'Bearer',
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/auth/login/organization
+     * تسجيل دخول خاص بحسابات المؤسسات (شركة / جامعة / جهة تدريب) فقط.
+     * يرفض أي حساب فرد (learner) حتى لو الإيميل وكلمة السر صحيحين.
+     */
+    public function loginOrganization(LoginRequest $request): JsonResponse
+    {
+        [$user, $tokenResult, $organization] = $this->attemptLogin($request, 'organization');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged in successfully.',
+            'data' => [
+                'user' => $user->load('roles'),
+                'organizations' => [$organization],
+                'token' => $tokenResult->plainTextToken,
+                'token_type' => 'Bearer',
+            ],
+        ]);
+    }
+
+    private function attemptLogin(LoginRequest $request, string $mode): array
+    {
         $email = strtolower(trim($request->input('email')));
-        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
+        $throttleKey = 'login-attempts:'.$email.'|'.$request->ip();
 
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
@@ -192,66 +237,16 @@ class AuthController extends Controller
             ]);
         }
 
-        $this->assertOrganizationIsApproved($user);
+        $organization = null;
 
-        $user->update(['last_login_at' => now()]);
+        if ($mode === 'organization') {
+            $organization = $user->organizations()->first();
 
-        $tokenResult = $user->createToken('auth_token');
-        $this->authService->recordAuthSession($user, $tokenResult, $request);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Logged in successfully.',
-            'data' => [
-                'user' => $user->load(['roles', 'studentProfile']),
-                'token' => $tokenResult->plainTextToken,
-                'token_type' => 'Bearer',
-            ],
-        ]);
-    }
-
-    /**
-     * POST /api/auth/login/organization
-     * تسجيل دخول خاص بحسابات المؤسسات (شركة / جامعة / جهة تدريب) فقط.
-     * يرفض أي حساب فرد (learner) حتى لو الإيميل وكلمة السر صحيحين.
-     */
-    public function loginOrganization(LoginRequest $request): JsonResponse
-    {
-        $email = strtolower(trim($request->input('email')));
-        $throttleKey = 'login-attempts:' . $email . '|' . $request->ip();
-
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            $seconds = RateLimiter::availableIn($throttleKey);
-
-            throw ValidationException::withMessages([
-                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
-            ]);
-        }
-
-        $user = User::where('email', $email)->first();
-
-        if (! $user || ! Hash::check($request->input('password'), $user->password)) {
-            RateLimiter::hit($throttleKey, 300);
-
-            throw ValidationException::withMessages([
-                'email' => 'The provided credentials are incorrect.',
-            ]);
-        }
-
-        RateLimiter::clear($throttleKey);
-
-        if ($user->status !== 'active' || ! $user->email_verified_at) {
-            throw ValidationException::withMessages([
-                'email' => 'You must activate your account first. Please check your email.',
-            ]);
-        }
-
-        $organization = $user->organizations()->first();
-
-        if (! $organization) {
-            throw ValidationException::withMessages([
-                'email' => 'This account is not registered as an organization. Please use the individual login.',
-            ]);
+            if (! $organization) {
+                throw ValidationException::withMessages([
+                    'email' => 'This account is not registered as an organization. Please use the individual login.',
+                ]);
+            }
         }
 
         $this->assertOrganizationIsApproved($user);
@@ -261,16 +256,7 @@ class AuthController extends Controller
         $tokenResult = $user->createToken('auth_token');
         $this->authService->recordAuthSession($user, $tokenResult, $request);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Logged in successfully.',
-            'data' => [
-                'user' => $user->load('roles'),
-                'organizations' => [$organization],
-                'token' => $tokenResult->plainTextToken,
-                'token_type' => 'Bearer',
-            ],
-        ]);
+        return [$user, $tokenResult, $organization];
     }
 
     /**
@@ -328,7 +314,7 @@ class AuthController extends Controller
             return $neutralResponse();
         }
 
-        $key = 'forgot-password:' . $user->id;
+        $key = 'forgot-password:'.$user->id;
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
             // نفس الرد المحايد أيضًا هون — منع كشف حتى عبر توقيت الاستجابة

@@ -27,7 +27,7 @@ class RegistrationTest extends TestCase
 
     public function test_individual_registration_success(): void
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'أحمد محمد',
             'email' => 'ahmed@test.com',
@@ -58,7 +58,7 @@ class RegistrationTest extends TestCase
     {
         $file = UploadedFile::fake()->image('proof.jpg');
 
-        $response = $this->postJson('/api/auth/register/organization', [
+        $response = $this->postJson('/api/v1/auth/register/organization', [
             'name' => 'أحمد المدير',
             'email' => 'admin@company.com',
             'password' => 'password123',
@@ -94,7 +94,7 @@ class RegistrationTest extends TestCase
             'status' => 'active',
         ]);
 
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
             'email' => 'duplicate@test.com',
@@ -110,7 +110,7 @@ class RegistrationTest extends TestCase
 
     public function test_registration_fails_missing_terms(): void
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
             'email' => 'test@test.com',
@@ -126,7 +126,7 @@ class RegistrationTest extends TestCase
 
     public function test_organization_registration_fails_without_proof_file(): void
     {
-        $response = $this->postJson('/api/auth/register/organization', [
+        $response = $this->postJson('/api/v1/auth/register/organization', [
             'name' => 'Test Admin',
             'email' => 'admin@company.com',
             'password' => 'password123',

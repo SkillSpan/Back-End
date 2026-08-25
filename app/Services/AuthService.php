@@ -12,13 +12,12 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
-use Carbon\Carbon;
+use Google_Client;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Google_Client;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\NewAccessToken;
 use Throwable;
@@ -46,7 +45,7 @@ class AuthService
             return $user->fresh(['roles', 'studentProfile']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Individual registration failed: ' . $e->getMessage(), [
+            Log::error('Individual registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -87,7 +86,7 @@ class AuthService
             return $user->fresh(['roles', 'organizations']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Organization registration failed: ' . $e->getMessage(), [
+            Log::error('Organization registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -259,7 +258,7 @@ class AuthService
         } catch (Throwable $e) {
             DB::rollBack();
 
-            Log::error('Google login failed: ' . $e->getMessage(), [
+            Log::error('Google login failed: '.$e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
 
@@ -410,7 +409,7 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/' . $organization->id, 'local');
+        $path = $file->store('proofs/'.$organization->id, 'local');
 
         UploadedFile::create([
             'user_id' => $user->id,
@@ -504,7 +503,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Verification failed: ' . $e->getMessage(), ['email' => $email]);
+            Log::error('Verification failed: '.$e->getMessage(), ['email' => $email]);
             throw $e;
         }
     }
@@ -521,21 +520,6 @@ class AuthService
 
         $otp = $this->generateOtp($user);
         $user->notify(new AccountVerificationNotification($otp));
-    }
-
-    public function canResendOtp(User $user): bool
-    {
-        $lastVerification = AccountVerification::where('user_id', $user->id)
-            ->latest()
-            ->first();
-
-        if (! $lastVerification) {
-            return true;
-        }
-
-        $resendInterval = (int) config('verification.resend_interval_seconds', 60);
-
-        return $lastVerification->created_at->diffInSeconds(now()) >= $resendInterval;
     }
 
     public function sendPasswordResetOtp(User $user): void
@@ -583,29 +567,6 @@ class AuthService
         $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
 
         return now()->diffInSeconds($record->created_at) >= $resendInterval;
-    }
-
-    public function passwordResetResendAvailableAt(string $email): ?Carbon
-    {
-        $user = User::where('email', strtolower(trim($email)))->first();
-
-        if (! $user) {
-            return null;
-        }
-
-        $record = DB::table('password_reset_tokens')
-            ->where('user_id', $user->id)
-            ->latest('created_at')
-            ->first();
-
-        if (! $record || ! $record->created_at) {
-            return null;
-        }
-
-        $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
-        $availableAt = Carbon::parse($record->created_at)->addSeconds($resendInterval);
-
-        return $availableAt->isFuture() ? $availableAt : null;
     }
 
     /**
@@ -729,7 +690,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: ' . $e->getMessage());
+            Log::error('Password reset failed: '.$e->getMessage());
             throw $e;
         }
     }

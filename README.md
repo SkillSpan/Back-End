@@ -1,59 +1,85 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SkillSpan Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend for **SkillSpan**, a skills-readiness platform. Learners register, verify their email, build a student profile, evaluate their skills, and get a readiness score for a target career role. Organizations register with a proof document and gain access after admin approval.
 
-## About Laravel
+## Stack
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- **Laravel 12** (PHP ^8.2)
+- **MySQL** database
+- **Sanctum token auth** (Bearer tokens, 14-day expiry)
+- **FastAPI microservice integration** for readiness calculation — see [INTEGRATION_README.md](INTEGRATION_README.md)
+- **Gemini integration stub** (placeholder service for future AI features)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Setup
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate --seed   # seeds roles via RolesSeeder
+php artisan serve
+```
 
-## Learning Laravel
+The API is served at `http://localhost:8000` under the `/api/v1` prefix.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Authentication flow
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+1. `POST /api/v1/auth/register` — learner registers and receives an OTP by email.
+2. `POST /api/v1/auth/verify` — learner confirms the account with the OTP.
+3. `POST /api/v1/auth/login` — returns a Sanctum Bearer token (valid 14 days), sent as `Authorization: Bearer <token>`.
 
-## Laravel Sponsors
+Organization accounts (`POST /api/v1/auth/register/organization`) additionally require **admin approval** of their uploaded proof file before they can log in through `/api/v1/auth/login/organization` or access protected organization endpoints.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Route summary
 
-### Premium Partners
+### Public
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/api/v1/auth/register` | Learner registration (multipart form-data) |
+| POST | `/api/v1/auth/register/organization` | Organization registration with proof file (max 5MB pdf/jpg/png) |
+| POST | `/api/v1/auth/verify` | Email OTP verification |
+| POST | `/api/v1/auth/resend-otp` | Resend verification OTP |
+| POST | `/api/v1/auth/login` | Learner login |
+| POST | `/api/v1/auth/login/google` | Google ID-token login |
+| POST | `/api/v1/auth/login/organization` | Organization login (org accounts only) |
+| POST | `/api/v1/auth/forgot-password` | Send password-reset OTP |
+| POST | `/api/v1/auth/forgot-password/resend` | Resend password-reset OTP |
+| POST | `/api/v1/auth/forgot-password/verify` | Verify reset OTP without changing the password |
+| POST | `/api/v1/auth/reset-password` | Set new password using the OTP |
+| GET | `/up` | Health check |
 
-## Contributing
+### Authenticated (`auth:sanctum`, Bearer token)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/api/v1/auth/logout` | Revoke current token |
+| POST | `/api/v1/auth/logout-all` | Revoke all tokens |
+| POST | `/api/v1/profile` | Create learner profile (learner only) |
+| GET | `/api/v1/profile` | Show learner profile |
+| PUT | `/api/v1/profile` | Partial profile update |
+| POST | `/api/v1/readiness/calculate` | Calculate readiness via FastAPI service (learner only) |
+| GET | `/api/v1/readiness/latest` | Latest readiness result (learner only) |
+| GET | `/api/v1/organization/profile` | Organization self profile (approved orgs only) |
 
-## Code of Conduct
+### Admin (`auth:sanctum` + admin role)
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/v1/admin/organizations` | List organizations |
+| GET | `/api/v1/admin/organizations/{id}` | Organization details |
+| GET | `/api/v1/admin/organizations/{id}/proof-file` | Download proof file |
+| POST | `/api/v1/admin/organizations/{id}/approve` | Approve organization |
+| POST | `/api/v1/admin/organizations/{id}/reject` | Reject organization (optional `reason`) |
 
-## Security Vulnerabilities
+## Testing
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+php artisan test
+```
 
-## License
+Tests run against an in-memory SQLite database (`:memory:`).
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Admin bootstrap
+
+`POST /api/v1/setup/create-admin` creates an initial admin account but is gated by the **`ADMIN_SETUP_SECRET`** environment variable: the request must include the matching value in the `secret` body field, otherwise it is rejected. The endpoint is also rate-limited.

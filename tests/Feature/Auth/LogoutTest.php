@@ -19,6 +19,7 @@ class LogoutTest extends TestCase
     use RefreshDatabase;
 
     private const PASSWORD = 'password123';
+
     private const EMAIL = 'learner@test.com';
 
     protected function setUp(): void
@@ -83,7 +84,13 @@ class LogoutTest extends TestCase
             AuthSession::where('user_id', $user->id)->whereNull('revoked_at')->count()
         );
 
-        // Token A can no longer reach a protected endpoint.
+        // Token A can no longer reach a protected endpoint. Sanctum's
+        // RequestGuard memoizes its resolved user for the lifetime of the
+        // app instance, which inside one feature test spans multiple
+        // requests — forget the container binding so the revoked token is
+        // re-checked against the database like in a real request cycle.
+        $this->app->forgetInstance('auth');
+
         $this->withHeader('Authorization', "Bearer {$tokenA}")
             ->getJson('/api/v1/profile')
             ->assertStatus(401);
@@ -115,6 +122,8 @@ class LogoutTest extends TestCase
             0,
             AuthSession::where('user_id', $user->id)->whereNull('revoked_at')->count()
         );
+
+        $this->app->forgetInstance('auth');
 
         $this->withHeader('Authorization', "Bearer {$tokenA}")
             ->getJson('/api/v1/profile')

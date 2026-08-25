@@ -21,6 +21,7 @@ class ReadinessTest extends TestCase
     use RefreshDatabase;
 
     private Role $learnerRole;
+
     private Role $companyRole;
 
     protected function setUp(): void
@@ -33,7 +34,7 @@ class ReadinessTest extends TestCase
 
     public function test_unauthenticated_user_is_rejected(): void
     {
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => 1])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => 1])
             ->assertStatus(401);
     }
 
@@ -42,7 +43,7 @@ class ReadinessTest extends TestCase
         $user = $this->createUserWithRole($this->companyRole);
         Sanctum::actingAs($user);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => 1])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => 1])
             ->assertStatus(403)
             ->assertJsonPath('code', 'LEARNER_ONLY');
     }
@@ -53,12 +54,15 @@ class ReadinessTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
-            '*' => Http::response($this->successResponse($user->id, $careerRole->title, $roleSkills), 200),
+            '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
         ]);
 
-        $response = $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id]);
+        // The endpoint answers 201 Created because a readiness_results
+        // row is persisted as part of the calculation.
+        $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
 
-        $response->assertOk()->assertJsonPath('data.score', 80.0);
+        $response->assertStatus(201);
+        $this->assertEquals(80.0, $response->json('data.score'));
         $this->assertDatabaseHas('readiness_results', [
             'student_profile_id' => $profile->id,
             'career_role_id' => $careerRole->id,
@@ -71,7 +75,7 @@ class ReadinessTest extends TestCase
         [$user] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => 99999])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => 99999])
             ->assertStatus(404)
             ->assertJsonPath('code', 'CAREER_ROLE_NOT_FOUND');
     }
@@ -81,7 +85,7 @@ class ReadinessTest extends TestCase
         [$user, , $role] = $this->createScenario('draft');
         Sanctum::actingAs($user);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $role->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
             ->assertStatus(422)
             ->assertJsonPath('code', 'CAREER_ROLE_NOT_APPROVED');
     }
@@ -94,7 +98,7 @@ class ReadinessTest extends TestCase
         $profile->update(['primary_career_role_id' => $role->id]);
         Sanctum::actingAs($user);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $role->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
             ->assertStatus(422)
             ->assertJsonPath('code', 'CAREER_ROLE_NO_SKILLS');
     }
@@ -106,7 +110,7 @@ class ReadinessTest extends TestCase
         Sanctum::actingAs($user);
         Http::fake();
 
-        $response = $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id]);
+        $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
 
         $response->assertStatus(422)->assertJsonPath('code', 'ASSESSMENT_INCOMPLETE');
         Http::assertNothingSent();
@@ -135,28 +139,29 @@ class ReadinessTest extends TestCase
         ]);
 
         Sanctum::actingAs($user);
-        Http::fake(function ($request) use ($user, $careerRole, $roleSkills) {
+        Http::fake(function ($request) use ($profile, $careerRole, $roleSkills) {
             $skills = $request->data()['skills'];
             $sql = collect($skills)->firstWhere('skill_name', $roleSkills[0]->skill->name);
             self::assertSame(4.5, (float) $sql['current_level']);
 
-            return Http::response($this->successResponse($user->id, $careerRole->title, $roleSkills), 200);
+            return Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200);
         });
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])->assertOk();
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])->assertStatus(201);
     }
 
     public function test_payload_contract_matches_fastapi_scale(): void
     {
-        [$user, , $careerRole] = $this->createScenario();
+        [$user, $profile, $careerRole] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        Http::fake(['*' => Http::response($this->successResponse($user->id, $careerRole->title, $careerRole->roleSkills()->with('skill')->get()), 200)]);
+        Http::fake(['*' => Http::response($this->successResponse($profile, $careerRole, $careerRole->roleSkills()->with('skill')->get()), 200)]);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])->assertOk();
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])->assertStatus(201);
 
         Http::assertSent(function ($request) {
             $data = $request->data();
+
             return $data['user_id'] > 0
                 && $data['target_role'] === 'Data Analyst'
                 && collect($data['skills'])->pluck('importance_weight')->sort()->values()->all() === [0.25, 0.3, 0.45];
@@ -168,12 +173,12 @@ class ReadinessTest extends TestCase
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        $response = $this->successResponse($user->id, $careerRole->title, $roleSkills);
-        $response['skill_results'][1]['skill_name'] = $response['skill_results'][0]['skill_name'];
+        $response = $this->successResponse($profile, $careerRole, $roleSkills);
+        $response['skill_results'][1]['skill_id'] = 999999;
 
         Http::fake(['*' => Http::response($response, 200)]);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
             ->assertStatus(502)
             ->assertJsonPath('code', 'DATA_SCIENCE_INVALID_RESPONSE');
 
@@ -186,7 +191,7 @@ class ReadinessTest extends TestCase
         Sanctum::actingAs($user);
         Http::fake(['*' => Http::response(['detail' => 'invalid'], 422)]);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
             ->assertStatus(422)
             ->assertJsonPath('code', 'DATA_SCIENCE_VALIDATION_ERROR');
 
@@ -199,7 +204,7 @@ class ReadinessTest extends TestCase
         Sanctum::actingAs($user);
         Http::fake(['*' => Http::response(['message' => 'server error'], 500)]);
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
             ->assertStatus(503)
             ->assertJsonPath('code', 'DATA_SCIENCE_SERVICE_ERROR');
 
@@ -214,7 +219,7 @@ class ReadinessTest extends TestCase
             throw new ConnectionException('cURL error 28: Operation timed out');
         });
 
-        $this->postJson('/api/readiness/calculate', ['career_role_id' => $careerRole->id])
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
             ->assertStatus(503)
             ->assertJsonPath('code', 'DATA_SCIENCE_UNAVAILABLE');
 
@@ -257,9 +262,9 @@ class ReadinessTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->getJson('/api/readiness/latest?career_role_id='.$careerRole->id)
-            ->assertOk()
-            ->assertJsonPath('data.score', 82.0);
+        $response = $this->getJson('/api/v1/readiness/latest?career_role_id='.$careerRole->id);
+        $response->assertOk();
+        $this->assertEquals(82.0, $response->json('data.score'));
     }
 
     private function createScenario(string $status = 'approved'): array
@@ -322,29 +327,58 @@ class ReadinessTest extends TestCase
         return $user;
     }
 
-    private function successResponse(int $userId, string $title, $roleSkills): array
+    private function successResponse($profile, $careerRole, $roleSkills): array
     {
+        $metSkills = 0;
+        $skillsWithGap = 0;
+
+        // Mirror the validator exactly: it cross-checks every skill_result
+        // against the payload built from the learner's LATEST evaluation
+        // per skill (calculated_at desc, id desc), so the fixture has to
+        // derive current_level/gap/status from the same source.
+        $skillResults = $roleSkills->map(function ($roleSkill) use ($profile, &$metSkills, &$skillsWithGap) {
+            $currentLevel = (float) SkillEvaluation::query()
+                ->where('student_profile_id', $profile->id)
+                ->where('skill_id', $roleSkill->skill_id)
+                ->orderByDesc('calculated_at')
+                ->orderByDesc('id')
+                ->first()
+                ->level;
+
+            $gap = max((float) $roleSkill->required_level - $currentLevel, 0.0);
+            $status = $gap == 0.0 ? 'met' : 'gap';
+
+            $status === 'met' ? $metSkills++ : $skillsWithGap++;
+
+            return [
+                'skill_id' => (int) $roleSkill->skill_id,
+                'skill_name' => (string) $roleSkill->skill->name,
+                'current_level' => $currentLevel,
+                'required_level' => (float) $roleSkill->required_level,
+                'importance_weight' => (float) $roleSkill->importance_weight,
+                'is_critical' => (bool) $roleSkill->is_critical,
+                'gap' => $gap,
+                'status' => $status,
+            ];
+        })->values()->all();
+
         return [
-            'user_id' => $userId,
-            'target_role' => $title,
+            'student_profile_id' => (int) $profile->id,
+            'career_role_id' => (int) $careerRole->id,
+            'career_role_version' => (int) $careerRole->version,
+            'user_id' => (int) $profile->user_id,
+            'target_role' => (string) $careerRole->title,
+            'algorithm_version' => 'test-v1',
             'base_readiness_score' => 80.0,
             'readiness_score' => 80.0,
             'critical_skill_cap_applied' => false,
             'critical_skill_readiness_cap' => null,
-            'critical_skill_gap_count' => 0,
+            'critical_skill_gap_count' => $skillsWithGap,
             'critical_skill_names' => [],
-            'total_skills' => $roleSkills->count(),
-            'met_skills' => 1,
-            'skills_with_gap' => 2,
-            'skill_results' => $roleSkills->map(fn ($roleSkill) => [
-                'skill_name' => $roleSkill->skill->name,
-                'current_level' => 3.0,
-                'required_level' => (float) $roleSkill->required_level,
-                'importance_weight' => (float) $roleSkill->importance_weight,
-                'is_critical' => (bool) $roleSkill->is_critical,
-                'gap' => 1.0,
-                'status' => 'gap',
-            ])->values()->all(),
+            'total_skills' => count($skillResults),
+            'met_skills' => $metSkills,
+            'skills_with_gap' => $skillsWithGap,
+            'skill_results' => $skillResults,
         ];
     }
 }
