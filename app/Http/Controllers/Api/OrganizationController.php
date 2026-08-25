@@ -22,6 +22,17 @@ class OrganizationController extends Controller
     {
         $organization = $request->user()->organizations()->first();
 
+        // The organization.approved middleware lets accounts WITHOUT any
+        // organization through (nothing to gate), so a plain learner could
+        // reach this endpoint and crash the controller on a null org.
+        // Fail gracefully instead of fatally.
+        if (! $organization) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account is not linked to any organization.',
+            ], 403);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Organization profile retrieved successfully.',
