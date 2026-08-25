@@ -134,4 +134,46 @@ class VerificationTest extends TestCase
             'data' => ['user', 'token'],
         ]);
     }
+
+    /**
+     * Anti-enumeration: an unknown address must receive the same neutral
+     * success shape as a known one on resend, and the same generic
+     * "invalid code" failure as a wrong OTP on verify — with NO
+     * validation error pointing at the email field itself.
+     */
+    public function test_resend_otp_returns_neutral_success_for_unknown_email(): void
+    {
+        Notification::fake();
+
+        $this->postJson('/api/v1/auth/resend-otp', [
+            'email' => 'ghost@example.com',
+        ])->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'If an account with that email exists, a new verification code has been sent.');
+
+        Notification::assertNothingSent();
+    }
+
+    public function test_verify_unknown_email_is_indistinguishable_from_wrong_otp(): void
+    {
+        $unknown = $this->postJson('/api/v1/auth/verify', [
+            'email' => 'ghost@example.com',
+            'otp' => '123456',
+        ])->assertStatus(422);
+
+        $this->createPendingUser();
+        $wrongOtp = $this->postJson('/api/v1/auth/verify', [
+            'email' => 'test@test.com',
+            'otp' => '999999',
+        ])->assertStatus(422);
+
+        // Same failing field, no email-specific leak in either case.
+        $unknown->assertJsonValidationErrors(['otp']);
+        $unknown->assertJsonMissingValidationErrors(['email']);
+        $wrongOtp->assertJsonValidationErrors(['otp']);
+        $this->assertSame(
+            $unknown->json('message'),
+            $wrongOtp->json('message'),
+        );
+    }
 }

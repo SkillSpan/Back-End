@@ -454,7 +454,16 @@ class AuthService
         try {
             DB::beginTransaction();
 
-            $user = User::where('email', strtolower(trim($email)))->firstOrFail();
+            // first() + false — NOT firstOrFail(): a 404 for unknown
+            // addresses would distinguish them from wrong-OTP failures
+            // and leak which emails are registered.
+            $user = User::where('email', strtolower(trim($email)))->first();
+
+            if (! $user) {
+                DB::rollBack();
+
+                return false;
+            }
 
             $verification = AccountVerification::where('user_id', $user->id)
                 ->where('decision', 'pending')
