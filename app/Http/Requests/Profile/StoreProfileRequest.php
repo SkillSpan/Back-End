@@ -3,23 +3,19 @@
 namespace App\Http\Requests\Profile;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * POST /api/v1/profile
  *
- * Creates the learner's student profile (SRS PROF-01). In practice a
- * StudentProfile row already exists for every learner right after
- * registration (see AuthService::createStudentProfile()), so this
- * endpoint is meant for completing that profile during onboarding
- * (UC-02) rather than a bare "first write". The controller still
- * rejects the call with 409 if a profile row already exists, so this
- * request only needs to validate the shape of the data itself.
+ * Saves the learner's student profile (SRS PROF-01). A StudentProfile row
+ * is created at registration (AuthService::createStudentProfile()), so
+ * POST acts as an upsert: it fills the existing row (completing it during
+ * onboarding, UC-02) or creates one if missing. It never rejects an
+ * existing profile, so the frontend can always POST the full data.
  *
- * Per the learner-profile task list, university and specialization are
- * normalized Foreign Keys (universities / specializations tables) —
- * NOT free text — and academic_level / expected_graduation / bio were
- * added alongside them.
+ * Per the learner-profile task: university and specialization are
+ * stored as free text (the learner types the university name and picks
+ * the specialization from an autocomplete list), not as Foreign Keys.
  */
 class StoreProfileRequest extends FormRequest
 {
@@ -31,10 +27,11 @@ class StoreProfileRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'university_id' => ['required', 'integer', Rule::exists('universities', 'id')->where('is_active', true)],
-            'specialization_id' => ['required', 'integer', Rule::exists('specializations', 'id')->where('is_active', true)],
+            'university_name' => ['required', 'string', 'max:191'],
+            'student_university_number' => ['required', 'string', 'max:64'],
+            'specialization' => ['required', 'string', 'max:191'],
             'academic_level' => ['required', 'string', 'max:100'],
-            'expected_graduation' => ['nullable', 'date', 'after_or_equal:today'],
+            'expected_graduation' => ['nullable', 'integer', 'min:2024', 'max:2150'],
             'bio' => ['nullable', 'string', 'max:2000'],
             'career_status' => ['nullable', 'string', 'max:100'],
             'interests' => ['nullable', 'array'],
