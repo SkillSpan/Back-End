@@ -47,7 +47,7 @@ class ProfileTest extends TestCase
             'student_university_number' => '202312345',
             'specialization' => 'Computer Science',
             'academic_level' => 'Third Year',
-            'expected_graduation' => now()->addYear()->toDateString(),
+            'expected_graduation' => (int) now()->addYear()->format('Y'),
             'bio' => 'Aspiring backend engineer.',
             'availability' => '10h/week',
         ];
@@ -111,12 +111,12 @@ class ProfileTest extends TestCase
         ]);
     }
 
-    public function test_store_validates_expected_graduation_is_not_in_the_past(): void
+    public function test_store_rejects_expected_graduation_year_out_of_range(): void
     {
         Sanctum::actingAs($this->learner());
 
         $payload = $this->validPayload();
-        $payload['expected_graduation'] = now()->subYear()->toDateString();
+        $payload['expected_graduation'] = 1999;
 
         $this->postJson('/api/v1/profile', $payload)
             ->assertStatus(422)
@@ -214,7 +214,7 @@ class ProfileTest extends TestCase
 
         $this->putJson('/api/v1/profile', [
             'bio' => 'Updated bio.',
-            'expected_graduation' => now()->addMonths(18)->toDateString(),
+            'expected_graduation' => (int) now()->addYears(2)->format('Y'),
         ])->assertOk()
             ->assertJsonPath('data.bio', 'Updated bio.');
 

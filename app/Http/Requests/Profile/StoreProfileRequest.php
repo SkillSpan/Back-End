@@ -31,7 +31,7 @@ class StoreProfileRequest extends FormRequest
             'student_university_number' => ['required', 'string', 'max:64'],
             'specialization' => ['required', 'string', 'max:191'],
             'academic_level' => ['required', 'string', 'max:100'],
-            'expected_graduation' => ['nullable', 'date', 'after_or_equal:today'],
+            'expected_graduation' => ['nullable', 'integer', 'min:2024', 'max:2150'],
             'bio' => ['nullable', 'string', 'max:2000'],
             'career_status' => ['nullable', 'string', 'max:100'],
             'interests' => ['nullable', 'array'],

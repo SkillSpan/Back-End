@@ -163,7 +163,7 @@ class ProfileController extends Controller
             'student_university_number' => $profile->student_university_number,
             'specialization' => $profile->specialization,
             'academic_level' => $profile->academic_level,
-            'expected_graduation' => $profile->expected_graduation?->toDateString(),
+            'expected_graduation' => $profile->expected_graduation !== null ? (int) $profile->expected_graduation : null,
             'bio' => $profile->bio,
             'career_status' => $profile->career_status,
             'interests' => $profile->interests,
