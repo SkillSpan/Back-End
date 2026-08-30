@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\SetupController;
 use Illuminate\Support\Facades\Route;
 
-Route::group('/v1', function () {
+Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/register/organization', [AuthController::class, 'registerOrganization']);
