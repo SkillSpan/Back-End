@@ -108,27 +108,7 @@ class AuthService
         ?Request $request = null
     ): array {
         try {
-            $clientId = config('services.google.client_id');
-
-            if (! $clientId) {
-                Log::error('Google Client ID is not configured.');
-
-                throw ValidationException::withMessages([
-                    'credential' => 'Google authentication is not configured.',
-                ]);
-            }
-
-            $client = new Google_Client([
-                'client_id' => $clientId,
-            ]);
-
-            $payload = $client->verifyIdToken($credential);
-
-            if (! $payload) {
-                throw ValidationException::withMessages([
-                    'credential' => 'Invalid or expired Google credential.',
-                ]);
-            }
+            $payload = $this->verifyGoogleIdToken($credential);
 
             $googleId = $payload['sub'] ?? null;
             $email = strtolower(trim((string) ($payload['email'] ?? '')));
@@ -265,6 +245,51 @@ class AuthService
 
             throw $e;
         }
+    }
+
+    /**
+     * Verify a Google ID token (never an access token) with google/apiclient.
+     *
+     * Firebase/JWT (used internally by Google_Client::verifyIdToken) throws
+     * typed exceptions for every invalid-token condition — unknown key ID,
+     * bad signature, expired token, wrong audience/issuer… Without this
+     * wrapper those bubble up as HTTP 500. Clients only ever get a 422 on
+     * the credential field; the underlying exception is never exposed.
+     *
+     * @return array<string, mixed> verified payload (iss/aud/sub/email…)
+     */
+    protected function verifyGoogleIdToken(string $credential): array
+    {
+        $clientId = config('services.google.client_id');
+        if (! $clientId) {
+            Log::error('Google Client ID is not configured.');
+
+            throw ValidationException::withMessages([
+                'credential' => 'Google authentication is not configured.',
+            ]);
+        }
+
+        try {
+            $client = new Google_Client([
+                'client_id' => $clientId,
+            ]);
+
+            $payload = $client->verifyIdToken($credential);
+        } catch (Throwable $e) {
+            Log::warning('Google ID token verification failed: '.$e->getMessage());
+
+            throw ValidationException::withMessages([
+                'credential' => 'Invalid or expired Google credential.',
+            ]);
+        }
+
+        if (! $payload) {
+            throw ValidationException::withMessages([
+                'credential' => 'Invalid or expired Google credential.',
+            ]);
+        }
+
+        return $payload;
     }
 
     /**

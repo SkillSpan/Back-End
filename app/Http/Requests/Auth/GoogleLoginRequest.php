@@ -15,8 +15,13 @@ class GoogleLoginRequest extends FormRequest
     {
         return [
             'credential' => ['required', 'string'],
-            'terms_accepted' => ['nullable', 'accepted'],
-            'privacy_accepted' => ['nullable', 'accepted'],
+            // Shape-only checks on purpose: whether consent is REQUIRED is
+            // decided after the ID token resolves the account — existing
+            // users must be able to log in without re-consenting, and the
+            // hard gate (both flags true) lives only on the account-creation
+            // path in AuthService::loginWithGoogle().
+            'terms_accepted' => ['nullable', 'boolean'],
+            'privacy_accepted' => ['nullable', 'boolean'],
         ];
     }
 
@@ -24,8 +29,6 @@ class GoogleLoginRequest extends FormRequest
     {
         return [
             'credential.required' => 'Google authentication credential is required.',
-            'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
-            'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
         ];
     }
 }

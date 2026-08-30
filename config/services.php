@@ -43,6 +43,11 @@ return [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
         'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 10),
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
+        'baseline' => [
+            'path' => env('DATA_SCIENCE_BASELINE_PATH', 'api/v1/baseline'),
+            'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
+            'enabled' => (bool) env('DATA_SCIENCE_BASELINE_ENABLED', false),
+        ],
     ],
 
     'admin_setup' => [
