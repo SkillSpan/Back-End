@@ -23,12 +23,19 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interactio
 # Copy the rest of the application
 COPY . .
 
-# Finish composer setup now that all files are present
-RUN composer dump-autoload --optimize \
+# Finish composer setup now that all files are present.
+# --no-scripts avoids running `php artisan package:discover` during the build,
+# which would boot Laravel before APP_KEY exists in the build environment.
+RUN composer dump-autoload --optimize --no-scripts \
     && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 10000
 
-# Render sets $PORT; run migrations then start the server on that port
-CMD php artisan migrate --force && php artisan config:cache && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+# Render sets $PORT; run migrations, seed the reference data (universities,
+# specializations, roles) so validation against those tables works, then
+# start the server on that port.
+CMD php artisan migrate --force \
+    && php artisan db:seed --class=UniversitiesAndSpecializationsSeeder --force \
+    && php artisan config:cache \
+    && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}

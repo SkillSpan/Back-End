@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReadinessController;
+use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +50,19 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
+    });
+
+    Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
+        Route::post('/baseline-assessments', [BaselineAssessmentController::class, 'start']);
+        Route::get('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'show']);
+        Route::patch('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'progress']);
+        Route::post('/baseline-assessments/{assessment}/submit', [BaselineAssessmentController::class, 'submit']);
+    });
+
+    // Public reference data for onboarding dropdowns (no auth needed).
+    Route::prefix('reference')->group(function () {
+        Route::get('/universities', [ReferenceController::class, 'universities']);
+        Route::get('/specializations', [ReferenceController::class, 'specializations']);
     });
 
     // Self-service organization APIs. 'organization.approved' is the second,
