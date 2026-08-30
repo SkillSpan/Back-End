@@ -32,8 +32,8 @@ RUN composer dump-autoload --optimize --no-scripts \
 
 EXPOSE 10000
 
-# Render sets $PORT; run migrations, seed the reference data (universities,
-# specializations, roles) so validation against those tables works, then
+# Render sets $PORT; run migrations, seed the reference lists (universities,
+# specializations) so the frontend autocomplete dropdowns are populated, then
 # start the server on that port.
 CMD php artisan migrate --force \
     && php artisan db:seed --class=UniversitiesAndSpecializationsSeeder --force \

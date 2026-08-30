@@ -3,9 +3,7 @@
 namespace Tests\Feature\Profile;
 
 use App\Models\Role;
-use App\Models\Specialization;
 use App\Models\StudentProfile;
-use App\Models\University;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -37,25 +35,17 @@ class ProfileTest extends TestCase
         return $user;
     }
 
-    private function university(): University
-    {
-        return University::create(['name' => 'An-Najah National University']);
-    }
-
-    private function specialization(): Specialization
-    {
-        return Specialization::create(['name' => 'Software Engineering']);
-    }
-
     /**
-     * university_id + specialization_id + academic_level are required by
-     * the store contract; availability is an optional completeness field.
+     * university_name + student_university_number + specialization +
+     * academic_level are required by the store contract; the rest are
+     * optional completeness fields.
      */
     private function validPayload(): array
     {
         return [
-            'university_id' => $this->university()->id,
-            'specialization_id' => $this->specialization()->id,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
             'academic_level' => 'Third Year',
             'expected_graduation' => now()->addYear()->toDateString(),
             'bio' => 'Aspiring backend engineer.',
@@ -90,12 +80,10 @@ class ProfileTest extends TestCase
     {
         Sanctum::actingAs($this->learner());
 
-        $universityId = $this->university()->id;
-        $specializationId = $this->specialization()->id;
-
         $response = $this->postJson('/api/v1/profile', [
-            'university_id' => $universityId,
-            'specialization_id' => $specializationId,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
             'academic_level' => 'Third Year',
             'availability' => '10h/week',
             'visibility' => 'organization_only',
@@ -103,42 +91,24 @@ class ProfileTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.university.id', $universityId)
-            ->assertJsonPath('data.university.name', 'An-Najah National University')
-            ->assertJsonPath('data.specialization.id', $specializationId)
+            ->assertJsonPath('data.university_name', 'An-Najah National University')
+            ->assertJsonPath('data.student_university_number', '202312345')
+            ->assertJsonPath('data.specialization', 'Computer Science')
             ->assertJsonPath('data.academic_level', 'Third Year')
             ->assertJsonPath('data.visibility', 'organization_only');
 
-        // 4 of 6 completeness fields filled (university, specialization,
-        // academic_level, availability) = 67%.
-        $response->assertJsonPath('data.completeness_percent', 67);
+        // 5 of 7 completeness fields filled (university_name,
+        // student_university_number, specialization, academic_level,
+        // availability) = 71%.
+        $response->assertJsonPath('data.completeness_percent', 71);
 
         $this->assertDatabaseHas('student_profiles', [
-            'university_id' => $universityId,
-            'specialization_id' => $specializationId,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
             'academic_level' => 'Third Year',
             'visibility' => 'organization_only',
         ]);
-    }
-
-    public function test_store_rejects_unknown_or_inactive_university_and_specialization(): void
-    {
-        Sanctum::actingAs($this->learner());
-        $inactive = University::create(['name' => 'Closed University', 'is_active' => false]);
-        $specializationId = $this->specialization()->id;
-
-        $this->postJson('/api/v1/profile', [
-            'university_id' => 999999,
-            'specialization_id' => $specializationId,
-            'academic_level' => 'First Year',
-        ])->assertStatus(422)->assertJsonValidationErrors(['university_id']);
-
-        // Soft-blocked (is_active = false) references behave like unknown ones.
-        $this->postJson('/api/v1/profile', [
-            'university_id' => $inactive->id,
-            'specialization_id' => $specializationId,
-            'academic_level' => 'First Year',
-        ])->assertStatus(422)->assertJsonValidationErrors(['university_id']);
     }
 
     public function test_store_validates_expected_graduation_is_not_in_the_past(): void
@@ -185,7 +155,7 @@ class ProfileTest extends TestCase
 
         $this->postJson('/api/v1/profile', [])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['university_id', 'specialization_id', 'academic_level']);
+            ->assertJsonValidationErrors(['university_name', 'student_university_number', 'specialization', 'academic_level']);
     }
 
     public function test_update_only_touches_submitted_fields(): void
@@ -193,8 +163,9 @@ class ProfileTest extends TestCase
         $user = $this->learner();
         StudentProfile::create([
             'user_id' => $user->id,
-            'university_id' => $this->university()->id,
-            'specialization_id' => $this->specialization()->id,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
             'academic_level' => 'Second Year',
             'availability' => '5h/week',
             'visibility' => 'private',
@@ -210,7 +181,7 @@ class ProfileTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.visibility', 'public')
             // untouched fields survive the partial update.
-            ->assertJsonPath('data.university.name', 'An-Najah National University')
+            ->assertJsonPath('data.university_name', 'An-Najah National University')
             ->assertJsonPath('data.availability', '5h/week');
     }
 
@@ -219,8 +190,9 @@ class ProfileTest extends TestCase
         $user = $this->learner();
         StudentProfile::create([
             'user_id' => $user->id,
-            'university_id' => $this->university()->id,
-            'specialization_id' => $this->specialization()->id,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
             'academic_level' => 'Second Year',
             'visibility' => 'private',
             'consent_given' => true,
@@ -241,6 +213,31 @@ class ProfileTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.bio', null)
             ->assertJsonPath('data.expected_graduation', null);
+    }
+
+    public function test_update_can_update_text_academic_fields(): void
+    {
+        $user = $this->learner();
+        StudentProfile::create([
+            'user_id' => $user->id,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
+            'academic_level' => 'Second Year',
+            'visibility' => 'private',
+            'consent_given' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/v1/profile', [
+            'university_name' => 'Birzeit University',
+            'student_university_number' => '202398765',
+            'specialization' => 'Software Engineering',
+        ])->assertOk()
+            ->assertJsonPath('data.university_name', 'Birzeit University')
+            ->assertJsonPath('data.student_university_number', '202398765')
+            ->assertJsonPath('data.specialization', 'Software Engineering');
     }
 
     public function test_update_rejects_an_invalid_visibility_value(): void

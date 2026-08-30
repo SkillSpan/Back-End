@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Profile;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * PUT /api/v1/profile
@@ -27,8 +26,9 @@ class UpdateProfileRequest extends FormRequest
         return [
             // Nullable here means "explicitly clear this field"; omitting
             // the key entirely leaves it untouched ('sometimes').
-            'university_id' => ['sometimes', 'nullable', 'integer', Rule::exists('universities', 'id')->where('is_active', true)],
-            'specialization_id' => ['sometimes', 'nullable', 'integer', Rule::exists('specializations', 'id')->where('is_active', true)],
+            'university_name' => ['sometimes', 'nullable', 'string', 'max:191'],
+            'student_university_number' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'specialization' => ['sometimes', 'nullable', 'string', 'max:191'],
             'academic_level' => ['sometimes', 'nullable', 'string', 'max:100'],
             'expected_graduation' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
             'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],

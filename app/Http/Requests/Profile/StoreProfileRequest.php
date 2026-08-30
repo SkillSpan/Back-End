@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Profile;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * POST /api/v1/profile
@@ -16,10 +15,9 @@ use Illuminate\Validation\Rule;
  * rejects the call with 409 if a profile row already exists, so this
  * request only needs to validate the shape of the data itself.
  *
- * Per the learner-profile task list, university and specialization are
- * normalized Foreign Keys (universities / specializations tables) —
- * NOT free text — and academic_level / expected_graduation / bio were
- * added alongside them.
+ * Per the learner-profile task: university and specialization are
+ * stored as free text (the learner types the university name and picks
+ * the specialization from an autocomplete list), not as Foreign Keys.
  */
 class StoreProfileRequest extends FormRequest
 {
@@ -31,8 +29,9 @@ class StoreProfileRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'university_id' => ['required', 'integer', Rule::exists('universities', 'id')->where('is_active', true)],
-            'specialization_id' => ['required', 'integer', Rule::exists('specializations', 'id')->where('is_active', true)],
+            'university_name' => ['required', 'string', 'max:191'],
+            'student_university_number' => ['required', 'string', 'max:64'],
+            'specialization' => ['required', 'string', 'max:191'],
             'academic_level' => ['required', 'string', 'max:100'],
             'expected_graduation' => ['nullable', 'date', 'after_or_equal:today'],
             'bio' => ['nullable', 'string', 'max:2000'],

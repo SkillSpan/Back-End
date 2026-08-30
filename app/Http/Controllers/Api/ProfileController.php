@@ -25,8 +25,9 @@ class ProfileController extends Controller
      * learner-profile task list (not plain text).
      */
     private const COMPLETENESS_FIELDS = [
-        'university_id',
-        'specialization_id',
+        'university_name',
+        'student_university_number',
+        'specialization',
         'academic_level',
         'career_status',
         'interests',
@@ -54,8 +55,9 @@ class ProfileController extends Controller
 
         $profile = StudentProfile::create([
             'user_id' => $user->id,
-            'university_id' => $data['university_id'],
-            'specialization_id' => $data['specialization_id'],
+            'university_name' => $data['university_name'],
+            'student_university_number' => $data['student_university_number'],
+            'specialization' => $data['specialization'],
             'academic_level' => $data['academic_level'],
             'expected_graduation' => $data['expected_graduation'] ?? null,
             'bio' => $data['bio'] ?? null,
@@ -150,8 +152,9 @@ class ProfileController extends Controller
     {
         return [
             'id' => $profile->id,
-            'university' => $profile->university?->only(['id', 'name']),
-            'specialization' => $profile->specialization?->only(['id', 'name']),
+            'university_name' => $profile->university_name,
+            'student_university_number' => $profile->student_university_number,
+            'specialization' => $profile->specialization,
             'academic_level' => $profile->academic_level,
             'expected_graduation' => $profile->expected_graduation?->toDateString(),
             'bio' => $profile->bio,
