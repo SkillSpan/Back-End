@@ -135,7 +135,7 @@ class ProfileTest extends TestCase
             ->assertJsonValidationErrors(['bio']);
     }
 
-    public function test_store_rejects_creating_a_second_profile(): void
+    public function test_store_updates_existing_profile_when_posted(): void
     {
         $user = $this->learner();
         StudentProfile::create([
@@ -146,7 +146,19 @@ class ProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->postJson('/api/v1/profile', $this->validPayload())->assertStatus(409);
+        $this->postJson('/api/v1/profile', $this->validPayload())
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Learner profile saved successfully.')
+            ->assertJsonPath('data.university_name', 'An-Najah National University')
+            ->assertJsonPath('data.specialization', 'Computer Science');
+
+        $this->assertDatabaseHas('student_profiles', [
+            'user_id' => $user->id,
+            'university_name' => 'An-Najah National University',
+            'student_university_number' => '202312345',
+            'specialization' => 'Computer Science',
+        ]);
     }
 
     public function test_store_requires_university_specialization_and_academic_level(): void

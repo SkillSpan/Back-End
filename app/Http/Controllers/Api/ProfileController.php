@@ -40,18 +40,25 @@ class ProfileController extends Controller
     public function store(StoreProfileRequest $request): JsonResponse
     {
         $user = $request->user();
-
-        if ($user->studentProfile) {
-            // A profile already exists (created at registration — see
-            // AuthService::createStudentProfile()). POST only creates;
-            // point the caller at PUT instead of silently overwriting it.
-            return response()->json([
-                'success' => false,
-                'message' => 'A profile already exists for this account. Use PUT /api/v1/profile to update it.',
-            ], 409);
-        }
-
         $data = $request->validated();
+
+        // A StudentProfile row is created at registration (see
+        // AuthService::createStudentProfile()), so POST behaves as an
+        // upsert: create when missing, otherwise update in place instead
+        // of rejecting with a confusing conflict error.
+        $existing = $user->studentProfile;
+
+        if ($existing) {
+            $existing->fill($data);
+            $existing->completeness_percent = $this->calculateCompleteness($existing);
+            $existing->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Learner profile saved successfully.',
+                'data' => $this->present($existing->fresh()),
+            ], 200);
+        }
 
         $profile = StudentProfile::create([
             'user_id' => $user->id,
@@ -73,7 +80,7 @@ class ProfileController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Learner profile created successfully.',
+            'message' => 'Learner profile saved successfully.',
             'data' => $this->present($profile->fresh()),
         ], 201);
     }
