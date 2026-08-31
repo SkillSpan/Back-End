@@ -15,7 +15,7 @@ return new class extends Migration
             $table->decimal('minimum_level', 3, 2)->default(0);
             $table->boolean('is_critical_entry')->default(false);
             $table->timestamps();
-            $table->unique(['project_id','skill_id']);
+            $table->unique(['project_id', 'skill_id']);
         });
     }
 

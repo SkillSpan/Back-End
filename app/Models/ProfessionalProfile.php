@@ -9,7 +9,7 @@ class ProfessionalProfile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','type','expertise','affiliation','availability','verification_status'];
+    protected $fillable = ['user_id', 'type', 'expertise', 'affiliation', 'availability'];
 
     public function user()
     {

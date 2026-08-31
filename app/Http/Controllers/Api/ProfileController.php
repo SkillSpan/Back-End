@@ -8,6 +8,7 @@ use App\Http\Requests\Profile\UpdateProfileRequest;
 use App\Models\StudentProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 
 /**
  * Learner profile endpoints (SRS PROF-01, PROF-04, PROF-05 / UC-02).
@@ -50,6 +51,9 @@ class ProfileController extends Controller
 
         if ($existing) {
             $existing->fill($data);
+            if ($existing->visibility === null) {
+                $existing->visibility = 'private';
+            }
             $existing->completeness_percent = $this->calculateCompleteness($existing);
             $existing->save();
 
@@ -60,7 +64,7 @@ class ProfileController extends Controller
             ], 200);
         }
 
-        $profile = StudentProfile::create([
+        $profile = StudentProfile::forceCreate([
             'user_id' => $user->id,
             'university_name' => $data['university_name'],
             'student_university_number' => $data['student_university_number'],
@@ -76,7 +80,7 @@ class ProfileController extends Controller
             'consent_given' => true,
         ]);
 
-        $profile->update(['completeness_percent' => $this->calculateCompleteness($profile)]);
+        $profile->forceFill(['completeness_percent' => $this->calculateCompleteness($profile)])->save();
 
         return response()->json([
             'success' => true,
@@ -120,9 +124,18 @@ class ProfileController extends Controller
             ], 404);
         }
 
-        $profile->fill($request->validated());
-        $profile->completeness_percent = $this->calculateCompleteness($profile);
-        $profile->save();
+        $validated = $request->validated();
+        $visibility = Arr::pull($validated, 'visibility');
+
+        $profile->fill($validated);
+
+        if ($visibility !== null) {
+            $profile->forceFill(['visibility' => $visibility]);
+        }
+        if ($profile->visibility === null) {
+            $profile->forceFill(['visibility' => 'private']);
+        }
+        $profile->forceFill(['completeness_percent' => $this->calculateCompleteness($profile)])->save();
 
         return response()->json([
             'success' => true,

@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('password');
             $table->string('phone')->nullable();
             $table->string('locale', 10)->default('en');
-            $table->enum('status', ['active','suspended','pending','deleted'])->default('active');
+            $table->enum('status', ['active', 'suspended', 'pending', 'deleted'])->default('active');
             $table->timestamp('last_login_at')->nullable();
             $table->rememberToken();
             $table->timestamps();

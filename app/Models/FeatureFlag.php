@@ -9,7 +9,7 @@ class FeatureFlag extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['key','name','description','is_enabled','environment','updated_by'];
+    protected $fillable = ['key', 'name', 'description', 'environment'];
 
     protected $casts = ['is_enabled' => 'boolean'];
 

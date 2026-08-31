@@ -9,7 +9,7 @@ class AuditEvent extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['actor_id','action','entity_type','entity_id','before','after','purpose','request_id','ip_address','user_agent','occurred_at'];
+    protected $fillable = ['actor_id', 'action', 'entity_type', 'entity_id', 'before', 'after', 'purpose', 'request_id'];
 
     protected $casts = ['before' => 'array', 'after' => 'array', 'occurred_at' => 'datetime'];
 

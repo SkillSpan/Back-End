@@ -20,7 +20,7 @@ return new class extends Migration
             $table->decimal('cost', 8, 2)->nullable();
             $table->foreignId('skill_id')->nullable()->constrained('skills')->nullOnDelete();
             $table->text('prerequisites')->nullable();
-            $table->enum('status', ['active','inactive','flagged'])->default('active');
+            $table->enum('status', ['active', 'inactive', 'flagged'])->default('active');
             $table->timestamp('validated_at')->nullable();
             $table->foreignId('added_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();

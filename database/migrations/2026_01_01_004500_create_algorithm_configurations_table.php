@@ -12,12 +12,12 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->unsignedInteger('version')->default(1);
-            $table->enum('status', ['draft','active','retired'])->default('draft');
+            $table->enum('status', ['draft', 'active', 'retired'])->default('draft');
             $table->json('config');
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('activated_at')->nullable();
             $table->timestamps();
-            $table->unique(['name','version']);
+            $table->unique(['name', 'version']);
         });
     }
 

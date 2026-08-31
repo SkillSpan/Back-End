@@ -38,7 +38,7 @@ class AdminOrganizationTest extends TestCase
 
     private function admin(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Platform Admin',
             'email' => 'admin@test.com',
             'password' => 'password123',
@@ -52,7 +52,7 @@ class AdminOrganizationTest extends TestCase
 
     private function learner(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Plain Learner',
             'email' => uniqid().'@test.com',
             'password' => 'password123',
@@ -66,7 +66,7 @@ class AdminOrganizationTest extends TestCase
 
     private function organization(string $status = 'pending'): Organization
     {
-        return Organization::create([
+        return Organization::forceCreate([
             'name' => 'Test Company',
             'type' => 'company',
             'verification_status' => $status,
@@ -81,7 +81,7 @@ class AdminOrganizationTest extends TestCase
      */
     private function attachOrgAdmin(Organization $organization): User
     {
-        $member = User::create([
+        $member = User::forceCreate([
             'name' => 'Company Admin',
             'email' => uniqid().'@company.com',
             'password' => 'password123',
@@ -98,7 +98,7 @@ class AdminOrganizationTest extends TestCase
     {
         Storage::disk('local')->put('proofs/proof.pdf', '%PDF-1.4 fake proof');
 
-        return UploadedFile::create([
+        return UploadedFile::forceCreate([
             'fileable_type' => Organization::class,
             'fileable_id' => $organization->id,
             'type' => 'certificate', // proofFile() resolves through type=certificate
@@ -159,7 +159,7 @@ class AdminOrganizationTest extends TestCase
     {
         $adminUser = $this->admin();
         $org = $this->organization('verified');
-        $org->update(['verified_by' => $adminUser->id]);
+        $org->forceFill(['verified_by' => $adminUser->id])->save();
         $this->proofFile($org, 'approved');
 
         Sanctum::actingAs($adminUser);

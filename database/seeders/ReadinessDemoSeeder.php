@@ -16,6 +16,12 @@ class ReadinessDemoSeeder extends Seeder
 {
     public function run(): void
     {
+        // This seeder creates demo accounts with a well-known weak password
+        // and pollutes the database — never run it against production.
+        if (app()->environment('production')) {
+            return;
+        }
+
         $learnerRole = Role::firstOrCreate(
             ['slug' => 'learner'],
             ['name' => 'Learner', 'description' => 'Student or Graduate']
@@ -25,23 +31,27 @@ class ReadinessDemoSeeder extends Seeder
             ['email' => 'readiness.demo@skillspan.local'],
             [
                 'name' => 'Readiness Demo User',
-                'password' => Hash::make('password123'),
-                'status' => 'active',
-                'email_verified_at' => now(),
             ]
         );
+
+        $user->forceFill([
+            'password' => Hash::make('password123'),
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ])->save();
 
         $user->roles()->syncWithoutDetaching([$learnerRole->id]);
 
         $role = CareerRole::firstOrCreate(
-            ['slug' => 'data-analyst-demo', 'version' => 1],
-            [
-                'title' => 'Data Analyst',
-                'status' => 'approved',
-                'effective_date' => now()->toDateString(),
-                'description' => 'Demo role for readiness integration testing.',
-            ]
+            ['slug' => 'data-analyst-demo', 'version' => 1]
         );
+
+        $role->forceFill([
+            'title' => 'Data Analyst',
+            'status' => 'approved',
+            'effective_date' => now()->toDateString(),
+            'description' => 'Demo role for readiness integration testing.',
+        ])->save();
 
         $skillData = [
             ['name' => 'SQL', 'required_level' => 4, 'importance_weight' => 0.45, 'is_critical' => true, 'current_level' => 2.5],
@@ -79,19 +89,20 @@ class ReadinessDemoSeeder extends Seeder
                 ]
             );
 
-            SkillEvaluation::updateOrCreate(
+            $evaluation = SkillEvaluation::firstOrCreate(
                 [
                     'student_profile_id' => $profile->id,
                     'skill_id' => $skill->id,
                     'algorithm_version' => 'demo-v1',
-                ],
-                [
-                    'level' => $item['current_level'],
-                    'confidence' => 90,
-                    'calculated_at' => now(),
-                    'snapshot' => ['source' => 'ReadinessDemoSeeder'],
                 ]
             );
+
+            $evaluation->forceFill([
+                'level' => $item['current_level'],
+                'confidence' => 90,
+                'calculated_at' => now(),
+                'snapshot' => ['source' => 'ReadinessDemoSeeder'],
+            ])->save();
         }
     }
 }

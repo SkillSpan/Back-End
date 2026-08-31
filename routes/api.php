@@ -12,16 +12,16 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
-        Route::post('/register', [AuthController::class, 'register']);
-        Route::post('/register/organization', [AuthController::class, 'registerOrganization']);
-        Route::post('/verify', [AuthController::class, 'verify']);
-        Route::post('/resend-otp', [AuthController::class, 'resendOtp']);
-        Route::post('/login', [AuthController::class, 'login']);
-        Route::post('/login/google', [AuthController::class, 'loginWithGoogle']);
-        Route::post('/login/organization', [AuthController::class, 'loginOrganization']);
-        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-        Route::post('/forgot-password/resend', [AuthController::class, 'resendPasswordReset']);
-        Route::post('/forgot-password/verify', [AuthController::class, 'verifyPasswordReset']);
+        Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
+        Route::post('/register/organization', [AuthController::class, 'registerOrganization'])->middleware('throttle:10,1');
+        Route::post('/verify', [AuthController::class, 'verify'])->middleware('throttle:10,1');
+        Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:10,1');
+        Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:20,1');
+        Route::post('/login/google', [AuthController::class, 'loginWithGoogle'])->middleware('throttle:20,1');
+        Route::post('/login/organization', [AuthController::class, 'loginOrganization'])->middleware('throttle:20,1');
+        Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:10,1');
+        Route::post('/forgot-password/resend', [AuthController::class, 'resendPasswordReset'])->middleware('throttle:10,1');
+        Route::post('/forgot-password/verify', [AuthController::class, 'verifyPasswordReset'])->middleware('throttle:10,1');
         Route::post('/reset-password', [AuthController::class, 'resetPassword'])
             ->middleware('throttle:10,1');
     });

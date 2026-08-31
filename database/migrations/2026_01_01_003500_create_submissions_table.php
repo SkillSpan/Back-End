@@ -17,7 +17,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->string('file_path')->nullable();
             $table->string('link_url')->nullable();
-            $table->enum('status', ['submitted','superseded','under_review','accepted'])->default('submitted');
+            $table->enum('status', ['submitted', 'superseded', 'under_review', 'accepted'])->default('submitted');
             $table->timestamp('submitted_at');
             $table->timestamps();
         });

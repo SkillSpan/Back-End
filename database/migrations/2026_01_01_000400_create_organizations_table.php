@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('organizations', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->enum('type', ['company','university','training_partner']);
-            $table->enum('verification_status', ['pending','verified','rejected'])->default('pending');
+            $table->enum('type', ['company', 'university', 'training_partner']);
+            $table->enum('verification_status', ['pending', 'verified', 'rejected'])->default('pending');
             $table->timestamp('verified_at')->nullable();
             $table->foreignId('verified_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('contact_email')->nullable();

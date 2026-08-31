@@ -89,7 +89,7 @@ class SetupCreateAdminTest extends TestCase
 
     public function test_validates_admin_input(): void
     {
-        $existing = User::create([
+        $existing = User::forceCreate([
             'name' => 'Taken Email',
             'email' => 'taken@test.com',
             'password' => 'password123',

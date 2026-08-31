@@ -15,7 +15,7 @@ return new class extends Migration
             $table->foreignId('evaluator_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('rubric_id')->constrained()->restrictOnDelete();
             $table->unsignedInteger('rubric_version');
-            $table->enum('status', ['draft','finalized','moderated','voided'])->default('draft');
+            $table->enum('status', ['draft', 'finalized', 'moderated', 'voided'])->default('draft');
             $table->decimal('overall_score', 5, 2)->nullable();
             $table->text('self_reflection')->nullable();
             $table->timestamp('finalized_at')->nullable();

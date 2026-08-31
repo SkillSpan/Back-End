@@ -9,7 +9,7 @@ class LearningActivity extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','roadmap_action_id','learning_resource_id','status','progress_value','completion_evidence','source','verification_state','occurred_at'];
+    protected $fillable = ['user_id', 'roadmap_action_id', 'learning_resource_id', 'progress_value', 'completion_evidence', 'source'];
 
     protected $casts = ['occurred_at' => 'datetime'];
 

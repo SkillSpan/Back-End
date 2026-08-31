@@ -9,7 +9,7 @@ class Recommendation extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','type','candidate_type','candidate_id','score','factors','reasons','algorithm_version','eligibility_state','generated_at'];
+    protected $fillable = ['user_id', 'type', 'candidate_type', 'candidate_id', 'score', 'factors', 'reasons', 'algorithm_version', 'eligibility_state'];
 
     protected $casts = ['factors' => 'array', 'generated_at' => 'datetime'];
 

@@ -78,21 +78,31 @@ class OrganizationController extends Controller
             ], 422);
         }
 
+        // ADM: never approve an organization that has no submitted proof
+        // document — approving "verified" without evidence would be a
+        // false trust signal.
+        if (! $organization->proofFile()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This organization has no proof document to review. It cannot be approved.',
+            ], 422);
+        }
+
         try {
             DB::beginTransaction();
 
             $before = $organization->only(['verification_status', 'verified_at', 'verified_by']);
 
-            $organization->update([
+            $organization->forceFill([
                 'verification_status' => 'verified',
                 'verified_at' => now(),
                 'verified_by' => $request->user()->id,
-            ]);
+            ])->save();
 
             $proofFile = $organization->proofFile();
-            $proofFile?->update(['status' => 'approved']);
+            $proofFile?->forceFill(['status' => 'approved'])->save();
 
-            AuditEvent::create([
+            AuditEvent::forceCreate([
                 'actor_id' => $request->user()->id,
                 'action' => 'organization.approved',
                 'entity_type' => Organization::class,
@@ -153,16 +163,16 @@ class OrganizationController extends Controller
 
             $before = $organization->only(['verification_status', 'verified_at', 'verified_by']);
 
-            $organization->update([
+            $organization->forceFill([
                 'verification_status' => 'rejected',
                 'verified_at' => null,
                 'verified_by' => $request->user()->id,
-            ]);
+            ])->save();
 
             $proofFile = $organization->proofFile();
-            $proofFile?->update(['status' => 'rejected']);
+            $proofFile?->forceFill(['status' => 'rejected'])->save();
 
-            AuditEvent::create([
+            AuditEvent::forceCreate([
                 'actor_id' => $request->user()->id,
                 'action' => 'organization.rejected',
                 'entity_type' => Organization::class,

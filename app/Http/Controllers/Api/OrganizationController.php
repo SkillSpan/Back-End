@@ -33,6 +33,20 @@ class OrganizationController extends Controller
             ], 403);
         }
 
+        // Only the linked account's own admin (role_in_org = 'admin') may
+        // read the organization profile — a regular member should not see
+        // the organization's full data.
+        $isAdmin = $request->user()->organizations()
+            ->wherePivot('role_in_org', 'admin')
+            ->exists();
+
+        if (! $isAdmin) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only an organization admin can view this profile.',
+            ], 403);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Organization profile retrieved successfully.',

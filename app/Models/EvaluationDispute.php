@@ -9,7 +9,7 @@ class EvaluationDispute extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['evaluation_id','submitted_by','grounds','status','resolution_notes','resolved_by','resolved_at'];
+    protected $fillable = ['evaluation_id', 'submitted_by', 'grounds'];
 
     protected $casts = ['resolved_at' => 'datetime'];
 

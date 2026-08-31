@@ -22,6 +22,16 @@ class EnsureUserHasRole
             ], 401, ['X-Request-ID' => $requestId]);
         }
 
+        // A soft-deleted account must not be able to keep using a token it
+        // obtained before deletion.
+        if ($user->trashed()) {
+            return response()->json([
+                'code' => 'ACCOUNT_DISABLED',
+                'message' => 'This account is no longer active.',
+                'request_id' => $requestId,
+            ], 403, ['X-Request-ID' => $requestId]);
+        }
+
         if (! $user->hasRole($role)) {
             return response()->json([
                 'code' => 'LEARNER_ONLY',

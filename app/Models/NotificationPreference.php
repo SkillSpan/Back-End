@@ -9,7 +9,7 @@ class NotificationPreference extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','category','channel','enabled'];
+    protected $fillable = ['user_id', 'category', 'channel', 'enabled'];
 
     protected $casts = ['enabled' => 'boolean'];
 

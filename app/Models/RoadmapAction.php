@@ -9,7 +9,7 @@ class RoadmapAction extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['roadmap_id','phase','type','target_skill_id','title','description','priority_score','estimated_hours','order_index','status','completion_criteria','skip_reason','completed_at'];
+    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'title', 'description', 'priority_score', 'estimated_hours', 'order_index', 'completion_criteria'];
 
     protected $casts = ['completed_at' => 'datetime'];
 

@@ -71,7 +71,7 @@ return new class extends Migration
         DB::table($table)->orderBy('id')->each(function ($profile) use ($column) {
             if (filled($profile->{$column})) {
                 DB::table($table)->where('id', $profile->id)->update([
-                    $column => $profile->{$column}.'-01-01',
+                    $column => $profile->{$column} . '-01-01',
                 ]);
             }
         });

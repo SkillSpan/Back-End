@@ -9,7 +9,7 @@ class Application extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id','applicant_id','status','decision_reason','decided_by','decided_at'];
+    protected $fillable = ['project_id', 'applicant_id'];
 
     protected $casts = ['decided_at' => 'datetime'];
 

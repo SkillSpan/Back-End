@@ -40,7 +40,7 @@ class BaselineAssessmentService
             );
         }
 
-        return BaselineAssessment::create([
+        return BaselineAssessment::forceCreate([
             'student_profile_id' => $studentProfile->id,
             'assessment_type' => self::ASSESSMENT_TYPE,
             'assessment_version' => $version,
@@ -255,7 +255,7 @@ class BaselineAssessmentService
         $evidenceDate = now()->toDateString();
 
         foreach ($normalizedSkills as $skill) {
-            SkillEvidence::create([
+            SkillEvidence::forceCreate([
                 'student_profile_id' => $studentProfileId,
                 'skill_id' => $skill['skill_id'],
                 'source' => 'assessment_test',
@@ -271,7 +271,7 @@ class BaselineAssessmentService
                 'source_record_id' => $assessment->id,
             ]);
 
-            SkillEvaluation::create([
+            SkillEvaluation::forceCreate([
                 'student_profile_id' => $studentProfileId,
                 'skill_id' => $skill['skill_id'],
                 'level' => $skill['level'],

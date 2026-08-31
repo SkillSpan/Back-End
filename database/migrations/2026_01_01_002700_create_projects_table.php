@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('organization_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('owner_id')->constrained('users')->cascadeOnDelete();
-            $table->enum('type', ['simulation','company_sponsored']);
+            $table->enum('type', ['simulation', 'company_sponsored']);
             $table->string('domain')->nullable();
             $table->string('title');
             $table->text('description')->nullable();
@@ -27,8 +27,8 @@ return new class extends Migration
             $table->date('application_deadline')->nullable();
             $table->date('start_date')->nullable();
             $table->date('end_date')->nullable();
-            $table->enum('status', ['draft','pending_review','open','closed','in_progress','completed','archived'])->default('draft');
-            $table->enum('confidentiality', ['public','restricted'])->default('public');
+            $table->enum('status', ['draft', 'pending_review', 'open', 'closed', 'in_progress', 'completed', 'archived'])->default('draft');
+            $table->enum('confidentiality', ['public', 'restricted'])->default('public');
             $table->foreignId('rubric_id')->nullable()->constrained('rubrics')->nullOnDelete();
             $table->foreignId('cloned_from_project_id')->nullable()->constrained('projects')->nullOnDelete();
             $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();

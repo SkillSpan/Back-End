@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('rubric_dimensions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('rubric_id')->constrained()->cascadeOnDelete();
-            $table->enum('name', ['quality','commitment','communication','collaboration','creativity','problem_solving','delivery']);
+            $table->enum('name', ['quality', 'commitment', 'communication', 'collaboration', 'creativity', 'problem_solving', 'delivery']);
             $table->decimal('weight', 4, 3)->default(0);
             $table->foreignId('skill_id')->nullable()->constrained('skills')->nullOnDelete();
             $table->timestamps();

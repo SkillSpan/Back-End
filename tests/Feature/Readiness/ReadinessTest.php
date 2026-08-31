@@ -93,8 +93,8 @@ class ReadinessTest extends TestCase
     public function test_career_role_without_skills_uses_custom_error_code(): void
     {
         $user = $this->createUserWithRole($this->learnerRole);
-        $profile = StudentProfile::create(['user_id' => $user->id]);
-        $role = CareerRole::create(['title' => 'Empty Role', 'slug' => 'empty-role-'.uniqid(), 'version' => 1, 'status' => 'approved']);
+        $profile = StudentProfile::forceCreate(['user_id' => $user->id]);
+        $role = CareerRole::forceCreate(['title' => 'Empty Role', 'slug' => 'empty-role-'.uniqid(), 'version' => 1, 'status' => 'approved']);
         $profile->update(['primary_career_role_id' => $role->id]);
         Sanctum::actingAs($user);
 
@@ -121,7 +121,7 @@ class ReadinessTest extends TestCase
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
         $skillId = $roleSkills[0]->skill_id;
 
-        SkillEvaluation::create([
+        SkillEvaluation::forceCreate([
             'student_profile_id' => $profile->id,
             'skill_id' => $skillId,
             'level' => 1.0,
@@ -129,7 +129,7 @@ class ReadinessTest extends TestCase
             'algorithm_version' => 'old',
             'calculated_at' => now()->subDay(),
         ]);
-        SkillEvaluation::create([
+        SkillEvaluation::forceCreate([
             'student_profile_id' => $profile->id,
             'skill_id' => $skillId,
             'level' => 4.5,
@@ -270,14 +270,14 @@ class ReadinessTest extends TestCase
     private function createScenario(string $status = 'approved'): array
     {
         $user = $this->createUserWithRole($this->learnerRole);
-        $role = CareerRole::create([
+        $role = CareerRole::forceCreate([
             'title' => 'Data Analyst',
             'slug' => 'data-analyst-'.uniqid(),
             'version' => 1,
             'status' => $status,
         ]);
 
-        $profile = StudentProfile::create([
+        $profile = StudentProfile::forceCreate([
             'user_id' => $user->id,
             'primary_career_role_id' => $role->id,
         ]);
@@ -299,7 +299,7 @@ class ReadinessTest extends TestCase
                 'importance_weight' => $weight,
                 'is_critical' => $critical,
             ]);
-            SkillEvaluation::create([
+            SkillEvaluation::forceCreate([
                 'student_profile_id' => $profile->id,
                 'skill_id' => $skill->id,
                 'level' => $current,
@@ -315,7 +315,7 @@ class ReadinessTest extends TestCase
 
     private function createUserWithRole(Role $role): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Test User',
             'email' => uniqid().'@test.com',
             'password' => 'password123',

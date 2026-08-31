@@ -25,7 +25,7 @@ class LoginThrottleTest extends TestCase
 
     private function createActiveLearner(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Learner One',
             'email' => 'lock@test.com',
             'password' => 'password123',
@@ -68,7 +68,7 @@ class LoginThrottleTest extends TestCase
         );
 
         // The lock is keyed per email: nobody else is affected.
-        $other = User::create([
+        $other = User::forceCreate([
             'name' => 'Other User',
             'email' => 'other-lock@test.com',
             'password' => 'password123',

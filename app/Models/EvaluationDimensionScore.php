@@ -9,7 +9,7 @@ class EvaluationDimensionScore extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['evaluation_id','rubric_dimension_id','score','comment'];
+    protected $fillable = ['evaluation_id', 'rubric_dimension_id', 'score', 'comment'];
 
     public function evaluation()
     {

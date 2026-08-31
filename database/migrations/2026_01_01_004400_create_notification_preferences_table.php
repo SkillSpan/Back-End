@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('channel');
             $table->boolean('enabled')->default(true);
             $table->timestamps();
-            $table->unique(['user_id','category','channel']);
+            $table->unique(['user_id', 'category', 'channel']);
         });
     }
 

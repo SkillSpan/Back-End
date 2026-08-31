@@ -9,7 +9,7 @@ class Roadmap extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['student_profile_id','career_role_id','career_role_version','version','status','generated_at'];
+    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'version'];
 
     protected $casts = ['generated_at' => 'datetime'];
 

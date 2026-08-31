@@ -23,7 +23,7 @@ class VerificationTest extends TestCase
 
     private function createPendingUser(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Test User',
             'email' => 'test@test.com',
             'password' => 'password123',
@@ -31,7 +31,7 @@ class VerificationTest extends TestCase
             'email_verified_at' => null,
         ]);
 
-        AccountVerification::create([
+        AccountVerification::forceCreate([
             'user_id' => $user->id,
             'organization_id' => null,
             'channel' => 'email',

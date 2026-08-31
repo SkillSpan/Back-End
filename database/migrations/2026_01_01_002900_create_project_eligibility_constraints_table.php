@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('project_eligibility_constraints', function (Blueprint $table) {
             $table->id();
             $table->foreignId('project_id')->constrained()->cascadeOnDelete();
-            $table->enum('constraint_type', ['location','language','schedule','work_mode']);
+            $table->enum('constraint_type', ['location', 'language', 'schedule', 'work_mode']);
             $table->string('value');
             $table->timestamps();
         });

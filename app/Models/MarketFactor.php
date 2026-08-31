@@ -9,7 +9,7 @@ class MarketFactor extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['career_role_id','skill_id','demand_value','source','geography','segment','collection_date'];
+    protected $fillable = ['career_role_id', 'skill_id', 'demand_value', 'source', 'geography', 'segment', 'collection_date'];
 
     protected $casts = ['collection_date' => 'date'];
 

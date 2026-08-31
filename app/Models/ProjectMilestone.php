@@ -9,7 +9,7 @@ class ProjectMilestone extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id','title','description','required_deliverables','due_date','effective_deadline','status','order_index'];
+    protected $fillable = ['project_id', 'title', 'description', 'required_deliverables', 'due_date', 'effective_deadline', 'order_index'];
 
     protected $casts = ['required_deliverables' => 'array', 'due_date' => 'date', 'effective_deadline' => 'date'];
 

@@ -2,10 +2,10 @@
 
 namespace App\Services\Readiness;
 
+use App\Exceptions\ReadinessException;
 use App\Models\CareerRole;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
-use App\Exceptions\ReadinessException;
 
 class ReadinessPayloadBuilder
 {

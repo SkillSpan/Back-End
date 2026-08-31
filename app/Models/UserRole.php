@@ -9,7 +9,7 @@ class UserRole extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','role_id','organization_id'];
+    protected $fillable = [];
 
     public function user()
     {

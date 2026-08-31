@@ -46,9 +46,8 @@ class AuthService
             return $user->fresh(['roles', 'studentProfile']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Individual registration failed: '.$e->getMessage(), [
+            Log::error('Individual registration failed: ' . $e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
-                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -87,9 +86,8 @@ class AuthService
             return $user->fresh(['roles', 'organizations']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Organization registration failed: '.$e->getMessage(), [
+            Log::error('Organization registration failed: ' . $e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
-                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -122,9 +120,29 @@ class AuthService
                 'client_id' => $clientId,
             ]);
 
-            $payload = $client->verifyIdToken($credential);
+            // TEMP DEBUG (remove once the real failure reason is confirmed):
+            // google/apiclient's Verify::verifyIdToken() swallows
+            // ExpiredException|SignatureInvalidException|DomainException
+            // internally and just returns false, so we had zero visibility
+            // into *why* a fresh, audience-matching token was still being
+            // rejected. This try/catch — placed around the call, not inside
+            // the library — surfaces the real exception class + message in
+            // the logs instead of guessing.
+            try {
+                $payload = $client->verifyIdToken($credential);
+            } catch (Throwable $e) {
+                Log::error('Google verifyIdToken threw an exception', [
+                    'exception_class' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]);
+                $payload = false;
+            }
 
             if (! $payload) {
+                Log::error('Google verifyIdToken returned falsy without throwing', [
+                    'client_id_configured' => $clientId,
+                ]);
+
                 throw ValidationException::withMessages([
                     'credential' => 'Invalid or expired Google credential.',
                 ]);
@@ -231,12 +249,12 @@ class AuthService
              * Google already verified the user's email.
              * Therefore no OTP verification is required.
              */
-            $user->update([
+            $user->forceFill([
                 'google_id' => $googleId,
                 'status' => 'active',
                 'email_verified_at' => now(),
                 'last_login_at' => now(),
-            ]);
+            ])->save();
 
             /*
              * Reuse the existing SkillSpan individual-user setup.
@@ -259,9 +277,7 @@ class AuthService
         } catch (Throwable $e) {
             DB::rollBack();
 
-            Log::error('Google login failed: '.$e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-            ]);
+            Log::error('Google login failed: ' . $e->getMessage());
 
             throw $e;
         }
@@ -297,7 +313,7 @@ class AuthService
 
     private function createUser(array $data): User
     {
-        return User::create([
+        return User::forceCreate([
             'name' => $data['name'],
             'email' => $data['email'],
             'phone' => $data['phone'] ?? null,
@@ -342,7 +358,7 @@ class AuthService
             [$enrollmentStatus, $careerStatus, $graduationStatus] = $this->mapAcademicStatus($data['academic_status']);
         }
 
-        StudentProfile::create([
+        StudentProfile::forceCreate([
             'user_id' => $user->id,
             'career_status' => $careerStatus,
             'enrollment_status' => $enrollmentStatus,
@@ -374,7 +390,7 @@ class AuthService
 
     private function createOrganization(User $user, array $data): Organization
     {
-        $organization = Organization::create([
+        $organization = Organization::forceCreate([
             'name' => $data['organization_name'],
             'type' => $data['organization_type'],
             'verification_status' => 'pending',
@@ -412,9 +428,9 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/'.$organization->id, 'local');
+        $path = $file->store('proofs/' . $organization->id, 'local');
 
-        UploadedFile::create([
+        UploadedFile::forceCreate([
             'user_id' => $user->id,
             'fileable_type' => Organization::class,
             'fileable_id' => $organization->id,
@@ -428,7 +444,7 @@ class AuthService
 
     private function createOrganizationMember(User $user, Organization $organization): void
     {
-        OrganizationMember::create([
+        OrganizationMember::forceCreate([
             'organization_id' => $organization->id,
             'user_id' => $user->id,
             'role_in_org' => 'admin',
@@ -442,7 +458,7 @@ class AuthService
         $max = (10 ** $digits) - 1;
         $otp = str_pad((string) random_int(0, $max), $digits, '0', STR_PAD_LEFT);
 
-        AccountVerification::create([
+        AccountVerification::forceCreate([
             'user_id' => $user->id,
             'organization_id' => null,
             'channel' => 'email',
@@ -487,7 +503,7 @@ class AuthService
                 // تجاوز الحد الأقصى للمحاولات: نرفض الطلب بشكل نهائي حتى لو
                 // الرمز صحيح، لمنع الـ brute-force. المستخدم لازم يطلب
                 // رمز جديد عبر resend-otp.
-                $verification->update(['decision' => 'rejected', 'decided_at' => now()]);
+                $verification->forceFill(['decision' => 'rejected', 'decided_at' => now()])->save();
                 DB::commit();
 
                 return false;
@@ -500,22 +516,22 @@ class AuthService
                 return false;
             }
 
-            $verification->update([
+            $verification->forceFill([
                 'decision' => 'approved',
                 'decided_at' => now(),
-            ]);
+            ])->save();
 
-            $user->update([
+            $user->forceFill([
                 'email_verified_at' => now(),
                 'status' => 'active',
-            ]);
+            ])->save();
 
             DB::commit();
 
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Verification failed: '.$e->getMessage(), ['email' => $email]);
+            Log::error('Verification failed: ' . $e->getMessage(), ['email' => $email]);
             throw $e;
         }
     }
@@ -700,6 +716,19 @@ class AuthService
 
             $user->update(['password' => $newPassword]);
 
+            // AUTH-SEC: changing the password must invalidate every existing
+            // session — a token leaked before the password change stays valid
+            // otherwise. This revokes the Sanctum tokens (forcing re-login
+            // everywhere) and marks the matching auth_sessions rows so the
+            // revocation stays auditable. This is NOT a periodic expiry, so it
+            // does not nag the user: it only logs the account out when their
+            // password actually changes, which is the desired security behavior.
+            $user->tokens()->delete();
+
+            AuthSession::where('user_id', $user->id)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now()]);
+
             DB::table('password_reset_tokens')
                 ->where('id', $record->id)
                 ->update(['consumed_at' => now()]);
@@ -709,7 +738,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: '.$e->getMessage());
+            Log::error('Password reset failed: ' . $e->getMessage());
             throw $e;
         }
     }
@@ -731,7 +760,7 @@ class AuthService
      */
     public function recordAuthSession(User $user, NewAccessToken $tokenResult, ?Request $request = null): void
     {
-        AuthSession::create([
+        AuthSession::forceCreate([
             'user_id' => $user->id,
             'token_hash' => $tokenResult->accessToken->token,
             'device' => $this->guessDevice($request?->userAgent()),

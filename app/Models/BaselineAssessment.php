@@ -13,12 +13,8 @@ class BaselineAssessment extends Model
         'student_profile_id',
         'assessment_type',
         'assessment_version',
-        'status',
         'progress',
         'responses',
-        'result',
-        'normalized_skills',
-        'completed_at',
     ];
 
     protected $casts = [

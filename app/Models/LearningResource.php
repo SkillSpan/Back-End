@@ -9,7 +9,7 @@ class LearningResource extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title','provider','url','type','level','language','effort_hours','cost','skill_id','prerequisites','status','validated_at','added_by'];
+    protected $fillable = ['title', 'provider', 'url', 'type', 'level', 'language', 'effort_hours', 'cost', 'skill_id', 'prerequisites'];
 
     protected $casts = ['validated_at' => 'datetime'];
 

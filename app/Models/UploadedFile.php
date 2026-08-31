@@ -9,7 +9,7 @@ class UploadedFile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','fileable_type','fileable_id','type','path','mime_type','size','status'];
+    protected $fillable = ['type', 'mime_type', 'size'];
 
     public function user()
     {

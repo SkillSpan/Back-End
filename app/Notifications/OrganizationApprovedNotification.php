@@ -8,9 +8,7 @@ use Illuminate\Notifications\Notification;
 
 class OrganizationApprovedNotification extends Notification
 {
-    public function __construct(protected Organization $organization)
-    {
-    }
+    public function __construct(protected Organization $organization) {}
 
     public function via(object $notifiable): array
     {

@@ -19,6 +19,4 @@ use OpenApi\Attributes as OA;
     scheme: 'bearer',
     bearerFormat: 'Sanctum'
 )]
-class OpenApiSpec
-{
-}
+class OpenApiSpec {}

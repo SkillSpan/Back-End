@@ -9,7 +9,7 @@ class OrganizationMember extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['organization_id','user_id','role_in_org','status'];
+    protected $fillable = ['organization_id', 'user_id'];
 
     public function organization()
     {

@@ -29,7 +29,7 @@ class OrganizationProfileTest extends TestCase
 
     private function user(string $role = 'learner'): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Test User',
             'email' => uniqid().'@test.com',
             'password' => 'password123',
@@ -45,7 +45,7 @@ class OrganizationProfileTest extends TestCase
     {
         $member = $this->user();
 
-        $org = Organization::create([
+        $org = Organization::forceCreate([
             'name' => 'SkillUp Ltd',
             'type' => 'company',
             'verification_status' => 'verified',

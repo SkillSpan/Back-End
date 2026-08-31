@@ -9,7 +9,7 @@ class ProjectEligibilityConstraint extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id','constraint_type','value'];
+    protected $fillable = ['project_id', 'constraint_type', 'value'];
 
     public function project()
     {

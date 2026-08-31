@@ -13,7 +13,7 @@ return new class extends Migration
             $table->foreignId('evaluation_id')->constrained()->cascadeOnDelete();
             $table->foreignId('submitted_by')->constrained('users')->cascadeOnDelete();
             $table->text('grounds');
-            $table->enum('status', ['pending','under_review','resolved','rejected'])->default('pending');
+            $table->enum('status', ['pending', 'under_review', 'resolved', 'rejected'])->default('pending');
             $table->text('resolution_notes')->nullable();
             $table->foreignId('resolved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('resolved_at')->nullable();

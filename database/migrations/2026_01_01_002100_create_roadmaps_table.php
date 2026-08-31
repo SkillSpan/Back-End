@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('career_role_id')->constrained()->cascadeOnDelete();
             $table->unsignedInteger('career_role_version');
             $table->unsignedInteger('version')->default(1);
-            $table->enum('status', ['active','superseded'])->default('active');
+            $table->enum('status', ['active', 'superseded'])->default('active');
             $table->timestamp('generated_at');
             $table->timestamps();
         });
