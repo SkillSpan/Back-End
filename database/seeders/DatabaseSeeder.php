@@ -11,9 +11,13 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        // Order matters: universities reference countries, so countries
+        // must exist before the university import runs.
         $this->call([
             RolesSeeder::class,
-            UniversitiesAndSpecializationsSeeder::class,
+            CountrySeeder::class,
+            UniversitySeeder::class,
+            SpecializationsSeeder::class,
         ]);
     }
 }
