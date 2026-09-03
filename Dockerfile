@@ -32,10 +32,10 @@ RUN composer dump-autoload --optimize --no-scripts \
 
 EXPOSE 10000
 
-# Render sets $PORT; run migrations, seed the reference lists (universities,
-# specializations) so the frontend autocomplete dropdowns are populated, then
-# start the server on that port.
+# Render sets $PORT; run migrations, seed the reference data (roles,
+# countries, universities, specializations — in dependency order) so the
+# frontend dropdowns are populated, then start the server on that port.
 CMD php artisan migrate --force \
-    && php artisan db:seed --class=UniversitiesAndSpecializationsSeeder --force \
+    && php artisan db:seed --force \
     && php artisan config:cache \
     && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}

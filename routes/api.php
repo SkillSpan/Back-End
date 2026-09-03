@@ -63,6 +63,8 @@ Route::prefix('v1')->group(function () {
     Route::prefix('reference')->group(function () {
         Route::get('/universities', [ReferenceController::class, 'universities']);
         Route::get('/specializations', [ReferenceController::class, 'specializations']);
+        Route::get('/countries', [ReferenceController::class, 'countries']);
+        Route::get('/countries/{country}/universities', [ReferenceController::class, 'countryUniversities']);
     });
 
     // Self-service organization APIs. 'organization.approved' is the second,
