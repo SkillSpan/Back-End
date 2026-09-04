@@ -416,7 +416,7 @@
               }
             },
             "url": "{{base_url}}/api/v1/profile",
-            "description": "university_id / specialization_id are Foreign Keys seeded by: php artisan db:seed --class=UniversitiesAndSpecializationsSeeder"
+            "description": "university_name / specialization are free-text profile fields. Reference dropdowns (countries, universities, specializations) are populated by: php artisan db:seed (CountrySeeder → UniversitySeeder → SpecializationsSeeder)"
           }
         },
         {
