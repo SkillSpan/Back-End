@@ -32,10 +32,13 @@ RUN composer dump-autoload --optimize --no-scripts \
 
 EXPOSE 10000
 
-# Render sets $PORT; run migrations, seed the reference data (roles,
-# countries, universities, specializations — in dependency order) so the
-# frontend dropdowns are populated, then start the server on that port.
+# Render سيت $PORT؛ لازم البورت ينفتح فورًا وإلا Render بيعتبر الديبلوي
+# فشل (port-scan timeout) حتى لو التطبيق شغال صح جواه. الـ migrations
+# سريعة فعلاً (ثواني) فتضل قبل السيرفر، بس الـ seeding (بيانات مرجعية:
+# دول، جامعات، عشرات آلاف السطور) منشغّله بالخلفية (&) *بعد* ما السيرفر
+# يبلش يستمع، مش قبله — هيك Render بيشوف البورت مفتوح فورًا، والسيدينج
+# بيكمل بهدوء بدون ما يوقف أي شي.
 CMD php artisan migrate --force \
-    && php artisan db:seed --force \
     && php artisan config:cache \
+    && (php artisan db:seed --force > /var/log/seed.log 2>&1 &) \
     && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}

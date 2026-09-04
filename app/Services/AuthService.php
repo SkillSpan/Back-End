@@ -116,27 +116,7 @@ class AuthService
                 ]);
             }
 
-            $client = new Google_Client([
-                'client_id' => $clientId,
-            ]);
-
-            // TEMP DEBUG (remove once the real failure reason is confirmed):
-            // google/apiclient's Verify::verifyIdToken() swallows
-            // ExpiredException|SignatureInvalidException|DomainException
-            // internally and just returns false, so we had zero visibility
-            // into *why* a fresh, audience-matching token was still being
-            // rejected. This try/catch — placed around the call, not inside
-            // the library — surfaces the real exception class + message in
-            // the logs instead of guessing.
-            try {
-                $payload = $client->verifyIdToken($credential);
-            } catch (Throwable $e) {
-                Log::error('Google verifyIdToken threw an exception', [
-                    'exception_class' => get_class($e),
-                    'message' => $e->getMessage(),
-                ]);
-                $payload = false;
-            }
+            $payload = $this->verifyGoogleIdToken($credential, $clientId);
 
             if (! $payload) {
                 Log::error('Google verifyIdToken returned falsy without throwing', [
@@ -280,6 +260,40 @@ class AuthService
             Log::error('Google login failed: ' . $e->getMessage());
 
             throw $e;
+        }
+    }
+
+    /**
+     * Network boundary for Google ID token verification — kept as its own
+     * method (instead of inlined in loginWithGoogle()) so tests can stub
+     * it directly instead of hitting Google's real servers with a fake
+     * token (see tests/Feature/Auth/GoogleLoginTest.php::mockVerifiedToken()).
+     *
+     * google/apiclient's Verify::verifyIdToken() swallows
+     * ExpiredException|SignatureInvalidException|DomainException
+     * internally and just returns false, so we had zero visibility into
+     * *why* a fresh, audience-matching token was still being rejected.
+     * This try/catch — placed around the call, not inside the library —
+     * surfaces the real exception class + message in the logs instead of
+     * guessing.
+     *
+     * @return array<string, mixed>|false
+     */
+    protected function verifyGoogleIdToken(string $credential, string $clientId): array|false
+    {
+        $client = new Google_Client([
+            'client_id' => $clientId,
+        ]);
+
+        try {
+            return $client->verifyIdToken($credential);
+        } catch (Throwable $e) {
+            Log::error('Google verifyIdToken threw an exception', [
+                'exception_class' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+
+            return false;
         }
     }
 
