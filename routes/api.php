@@ -65,6 +65,14 @@ Route::prefix('v1')->group(function () {
         Route::get('/specializations', [ReferenceController::class, 'specializations']);
     });
 
+    // Skills API
+    Route::middleware('auth:sanctum')->prefix('skills')->group(function () {
+        Route::get('/taxonomy', [SkillsController::class, 'taxonomy']);
+        Route::get('/matrix', [SkillsController::class, 'matrix']);
+        Route::post('/matrix', [SkillsController::class, 'store']);
+        Route::put('/matrix/{id}', [SkillsController::class, 'update']);
+    });
+
     // Self-service organization APIs. 'organization.approved' is the second,
     // independent line of defense against a pending/rejected organization
     // account reaching protected data — even if it somehow obtains a valid
