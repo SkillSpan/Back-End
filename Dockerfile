@@ -38,7 +38,13 @@ EXPOSE 10000
 # دول، جامعات، عشرات آلاف السطور) منشغّله بالخلفية (&) *بعد* ما السيرفر
 # يبلش يستمع، مش قبله — هيك Render بيشوف البورت مفتوح فورًا، والسيدينج
 # بيكمل بهدوء بدون ما يوقف أي شي.
+#
+# DEBUG (temporary): seed output used to be redirected to
+# /var/log/seed.log, which is invisible on Render's free tier (no Shell
+# access to read it). Left un-redirected here on purpose so success/error
+# output flows into the same stdout Render's Logs tab already captures —
+# this does not change timing or behavior, only visibility.
 CMD php artisan migrate --force \
     && php artisan config:cache \
-    && (php artisan db:seed --force > /var/log/seed.log 2>&1 &) \
+    && (php artisan db:seed --force &) \
     && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
