@@ -10,9 +10,17 @@ use Illuminate\Database\Seeder;
  * of github.com/mledoze/countries (database/data/countries.json — name,
  * name_ar, iso2, iso3 only). iso2 is the external identifier, so re-runs
  * update in place instead of duplicating rows.
+ *
+ * PERFORMANCE: this used to call Country::updateOrCreate() once per
+ * record inside a foreach loop — one round trip per row. Against a
+ * remote database (Render), that turned 250 rows into 250 sequential
+ * network round trips (~70s in production). upsert() does the same
+ * "insert or update on conflict" in a handful of batched queries instead.
  */
 class CountrySeeder extends Seeder
 {
+    private const CHUNK_SIZE = 500;
+
     public function run(): void
     {
         $path = database_path('data/countries.json');
@@ -31,9 +39,9 @@ class CountrySeeder extends Seeder
             return;
         }
 
-        $created = 0;
-        $updated = 0;
+        $rows = [];
         $skipped = 0;
+        $now = now();
 
         foreach ($records as $record) {
             $name = trim((string) ($record['name'] ?? ''));
@@ -48,16 +56,37 @@ class CountrySeeder extends Seeder
                 continue;
             }
 
-            $country = Country::updateOrCreate(
-                ['iso2' => $iso2],
-                [
-                    'name' => $name,
-                    'name_ar' => $nameAr !== '' ? $nameAr : null,
-                    'iso3' => $iso3,
-                ]
-            );
+            $rows[] = [
+                'name' => $name,
+                'name_ar' => $nameAr !== '' ? $nameAr : null,
+                'iso2' => $iso2,
+                'iso3' => $iso3,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
 
-            $country->wasRecentlyCreated ? $created++ : $updated++;
+        // Figure out created vs. updated ahead of time (one cheap query)
+        // instead of relying on per-row wasRecentlyCreated, which upsert()
+        // does not report.
+        $existingIso2 = array_fill_keys(
+            Country::query()->pluck('iso2')->all(),
+            true
+        );
+
+        $created = 0;
+        $updated = 0;
+
+        foreach ($rows as $row) {
+            isset($existingIso2[$row['iso2']]) ? $updated++ : $created++;
+        }
+
+        foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
+            Country::query()->upsert(
+                $chunk,
+                ['iso2'],
+                ['name', 'name_ar', 'iso3', 'updated_at']
+            );
         }
 
         $this->command?->info(

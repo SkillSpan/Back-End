@@ -23,12 +23,21 @@ use Illuminate\Support\Facades\Log;
  * gracefully: the row is skipped and counted, the seeder never aborts.
  *
  * Idempotency: (country_id, name) is the uniqueness key in the schema, so
- * re-runs use updateOrCreate on that pair and cannot duplicate rows.
+ * re-runs upsert on that pair and cannot duplicate rows.
+ *
+ * PERFORMANCE: this used to call University::updateOrCreate() once per
+ * record inside a foreach loop — one round trip per row. Against a
+ * remote database (Render) with 10,000+ rows, that took upwards of an
+ * hour and made the reference-data endpoints look permanently empty
+ * while it was still running. Batched upsert() does the same "insert or
+ * update on conflict" semantics in a handful of queries instead of one
+ * per row.
  */
 class UniversitySeeder extends Seeder
 {
     private const SNAPSHOT_PATH = 'database/data/universities.json';
     private const HIPOLABS_URL = 'http://universities.hipolabs.com/search?name=';
+    private const CHUNK_SIZE = 500;
 
     public function run(): void
     {
@@ -46,11 +55,11 @@ class UniversitySeeder extends Seeder
             return;
         }
 
-        $created = 0;
-        $updated = 0;
+        $rows = [];
         $skippedMalformed = 0;
         $skippedUnmatched = 0;
         $seen = [];
+        $now = now();
 
         foreach ($records as $record) {
             $name = trim((string) ($record['name'] ?? ''));
@@ -77,13 +86,31 @@ class UniversitySeeder extends Seeder
 
             $seen[$key] = true;
 
-            $university = University::updateOrCreate(
-                ['country_id' => $countryId, 'name' => $name],
-                ['is_active' => true]
-            );
-
-            $university->wasRecentlyCreated ? $created++ : $updated++;
+            $rows[] = [
+                'country_id' => $countryId,
+                'name' => $name,
+                'is_active' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
+
+        // Cheap "how many already exist" check up front, so we can report
+        // created/updated counts without needing per-row wasRecentlyCreated
+        // (which upsert() does not give us).
+        $beforeCount = University::query()->count();
+
+        foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
+            University::query()->upsert(
+                $chunk,
+                ['country_id', 'name'],
+                ['is_active', 'updated_at']
+            );
+        }
+
+        $afterCount = University::query()->count();
+        $created = max(0, $afterCount - $beforeCount);
+        $updated = max(0, count($rows) - $created);
 
         $backfilled = $this->backfillExistingRows($countriesByIso2);
 
@@ -185,6 +212,11 @@ class UniversitySeeder extends Seeder
      * Rows that existed before the country_id column was added (the old
      * fixed Palestinian list) get their country backfilled by matching
      * Hipolabs names against the imported dataset.
+     *
+     * Kept as a small per-row loop (unlike run()'s bulk upsert above)
+     * because in practice this only ever touches a handful of leftover
+     * rows (the old hardcoded list), not thousands — batching it would
+     * add complexity for no measurable benefit.
      *
      * @param array<string, int> $countriesByIso2
      */
