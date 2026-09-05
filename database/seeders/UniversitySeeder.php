@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Country;
 use App\Models\University;
 use Illuminate\Database\Seeder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -88,8 +89,8 @@ class UniversitySeeder extends Seeder
 
         $this->command?->info(
             "UniversitySeeder: {$created} created, {$updated} updated, "
-            . "{$skippedMalformed} malformed, {$skippedUnmatched} unmatched-country, "
-            . "{$backfilled} backfilled."
+                . "{$skippedMalformed} malformed, {$skippedUnmatched} unmatched-country, "
+                . "{$backfilled} backfilled."
         );
     }
 
@@ -203,10 +204,32 @@ class UniversitySeeder extends Seeder
             }
         }
 
+        $backfilled = 0;
+        $conflicts = 0;
+
         foreach ($backfill as $id => $countryId) {
-            University::whereKey($id)->update(['country_id' => $countryId]);
+            try {
+                University::whereKey($id)->update(['country_id' => $countryId]);
+                $backfilled++;
+            } catch (UniqueConstraintViolationException $e) {
+                // The null-country_id row is a leftover duplicate: a row
+                // with this exact (country_id, name) pair already exists
+                // (created earlier in run(), from the Hipolabs import).
+                // Nothing to backfill here — the canonical row already
+                // exists — so we log and skip instead of crashing the
+                // whole seeder over a redundant leftover row.
+                $conflicts++;
+                Log::warning('UniversitySeeder: skipped duplicate row during backfill', [
+                    'university_id' => $id,
+                    'attempted_country_id' => $countryId,
+                ]);
+            }
         }
 
-        return count($backfill);
+        if ($conflicts > 0) {
+            $this->command?->warn("UniversitySeeder: {$conflicts} duplicate row(s) skipped during backfill.");
+        }
+
+        return $backfilled;
     }
 }
