@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Skill;
@@ -69,8 +69,8 @@ class SkillsController extends Controller
         $request->validate([
             'learner_id' => 'required|exists:users,id',
             'skill_id' => 'required|exists:skills,id',
-            'level' => 'required|numeric|between:0.00|5.00',
-            'confidence_score' => 'required|numeric|between:0.00|100.00',
+            'level' => 'required|numeric|between:0.00,5.00',
+            'confidence_score' => 'required|numeric|between:0.00,100.00',
             'source_type' => 'sometimes|required|string',
             'algorithm_version' => 'sometimes|required|string',
             'configuration_version' => 'sometimes|required|string',
@@ -106,8 +106,8 @@ class SkillsController extends Controller
         $learnerSkill = LearnerSkill::findOrFail($id);
 
         $request->validate([
-            'level' => 'sometimes|numeric|between:0.00|5.00',
-            'confidence_score' => 'sometimes|numeric|between:0.00|100.00',
+            'level' => 'sometimes|numeric|between:0.00,5.00',
+            'confidence_score' => 'sometimes|numeric|between:0.00,100.00',
             'source_type' => 'sometimes|string',
             'algorithm_version' => 'sometimes|string',
             'configuration_version' => 'sometimes|string',
@@ -131,10 +131,3 @@ class SkillsController extends Controller
         ]);
     }
 }
-```
-
-Now let me register the routes:
-<tool_call>
-<function=bash>
-<parameter=timeout>
-30000

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
+use App\Http\Controllers\Api\SkillsController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
