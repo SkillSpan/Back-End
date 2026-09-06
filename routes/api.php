@@ -76,6 +76,17 @@ Route::prefix('v1')->group(function () {
         Route::put('/matrix/{id}', [SkillsController::class, 'update']);
     });
 
+    // Evidence Submission API
+    Route::middleware('auth:sanctum')->prefix('evidence')->group(function () {
+        Route::post('/', [EvidenceController::class, 'store'])
+            ->middleware('role:learner');
+        Route::get('/', [EvidenceController::class, 'index'])
+            ->middleware('role:learner');
+        Route::get('/{id}', [EvidenceController::class, 'show']);
+        Route::put('/{id}/review', [EvidenceController::class, 'review'])
+            ->middleware('role:admin');
+    });
+
     // Self-service organization APIs. 'organization.approved' is the second,
     // independent line of defense against a pending/rejected organization
     // account reaching protected data — even if it somehow obtains a valid
