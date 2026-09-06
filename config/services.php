@@ -50,6 +50,23 @@ return [
         ],
     ],
 
+    // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
+    // calculation from evidence. Configurable and versioned per the
+    // "Configurability" algorithm design principle (Table 46).
+    'evidence' => [
+        'source_weights' => [
+            'self_assessment' => (float) env('EVIDENCE_WEIGHT_SELF_ASSESSMENT', 0.10),
+            'assessment_test' => (float) env('EVIDENCE_WEIGHT_ASSESSMENT_TEST', 0.30),
+            'project_performance' => (float) env('EVIDENCE_WEIGHT_PROJECT_PERFORMANCE', 0.35),
+            'expert_evaluation' => (float) env('EVIDENCE_WEIGHT_EXPERT_EVALUATION', 0.20),
+            'certificate' => (float) env('EVIDENCE_WEIGHT_CERTIFICATE', 0.05),
+        ],
+        // verified_i for pending evidence in the confidence formula.
+        // Agreed with Data Science as a configurable v1 default — see
+        // SRS 10.3.2 (Confidence Score).
+        'pending_verified_factor' => (float) env('EVIDENCE_PENDING_VERIFIED_FACTOR', 0.5),
+    ],
+
     'admin_setup' => [
         'secret' => env('ADMIN_SETUP_SECRET', ''),
     ],

@@ -9,7 +9,15 @@ class SkillEvaluation extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['student_profile_id', 'skill_id', 'level', 'confidence'];
+    protected $fillable = [
+        'student_profile_id',
+        'skill_id',
+        'level',
+        'confidence',
+        'algorithm_version',
+        'calculated_at',
+        'snapshot',
+    ];
 
     protected $casts = ['calculated_at' => 'datetime', 'snapshot' => 'array'];
 

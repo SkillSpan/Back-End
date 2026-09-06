@@ -3,12 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Skill;
 use App\Models\SkillEvidence;
+use App\Services\Skills\SkillEvaluationService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class EvidenceController extends Controller
 {
+    public function __construct(
+        private readonly SkillEvaluationService $skillEvaluationService,
+    ) {}
+
     /**
      * POST /api/v1/evidence
      * Submit new evidence for a skill (self-submitted certificate/link,
@@ -74,6 +80,14 @@ class EvidenceController extends Controller
             'verification_status' => 'pending',
             'recency_factor' => 1.00,
         ]);
+
+        // SRS 10.3.2: pending evidence already contributes to the confidence
+        // score (via the configured partial verified_i), so recalculate
+        // immediately rather than waiting for review.
+        $skill = Skill::find($skillId);
+        if ($skill) {
+            $this->skillEvaluationService->recalculate($studentProfile, $skill);
+        }
 
         return response()->json([
             'success' => true,
@@ -166,6 +180,13 @@ class EvidenceController extends Controller
             'reviewer_id' => $request->user()->id,
             'reviewer_notes' => $request->reviewer_notes,
         ]);
+
+        // SKL-06: recalculate the skill's level and confidence from all
+        // available evidence now that this record's status has changed.
+        $this->skillEvaluationService->recalculate(
+            $evidence->studentProfile,
+            $evidence->skill,
+        );
 
         return response()->json([
             'success' => true,

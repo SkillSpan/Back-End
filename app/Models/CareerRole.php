@@ -9,7 +9,7 @@ class CareerRole extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'slug', 'version', 'effective_date', 'description'];
+    protected $fillable = ['title', 'slug', 'version', 'status', 'effective_date', 'description'];
 
     protected $casts = ['effective_date' => 'date'];
 
