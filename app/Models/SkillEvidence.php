@@ -12,26 +12,28 @@ class SkillEvidence extends Model
     protected $table = 'skill_evidences';
 
     protected $fillable = [
-        'learner_id',
+        'student_profile_id',
         'skill_id',
-        'evidence_url',
-        'evidence_file',
-        'description',
+        'source',
+        'value',
+        'normalized_value',
+        'reference',
         'evidence_date',
-        'status',
+        'verification_status',
         'reviewer_id',
-        'review_notes',
-        'reviewed_at',
+        'reviewer_notes',
+        'recency_factor',
+        'source_record_type',
+        'source_record_id',
     ];
 
     protected $casts = [
         'evidence_date' => 'date',
-        'reviewed_at' => 'datetime',
     ];
 
-    public function learner()
+    public function studentProfile()
     {
-        return $this->belongsTo(User::class, 'learner_id');
+        return $this->belongsTo(StudentProfile::class);
     }
 
     public function skill()
@@ -42,5 +44,10 @@ class SkillEvidence extends Model
     public function reviewer()
     {
         return $this->belongsTo(User::class, 'reviewer_id');
+    }
+
+    public function sourceRecord()
+    {
+        return $this->morphTo(__FUNCTION__, 'source_record_type', 'source_record_id');
     }
 }

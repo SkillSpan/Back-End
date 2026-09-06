@@ -1,57 +1,57 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SkillEvidence;
-use App\Models\Skill;
-use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class EvidenceController extends Controller
 {
     /**
-     * POST /api/v1/skills/evidence
-     * Submit new evidence for a skill.
+     * POST /api/v1/evidence
+     * Submit new evidence for a skill (self-submitted certificate/link,
+     * pending admin review). Stored in the same skill_evidences table
+     * used by the baseline/assessment pipeline, source = 'certificate'.
      */
     public function store(Request $request)
     {
         $request->validate([
-            'learner_id' => 'required|exists:users,id',
             'skill_id' => ['required', 'exists:skills,id',
                 Rule::where(function ($query) {
                     $query->where('status', 'active');
                 }),
             ],
             'evidence_url' => 'sometimes|required_without:evidence_file|url',
-            'evidence_file' => 'sometimes|required_without:evidence_file|file|max:10000',
+            'evidence_file' => 'sometimes|required_without:evidence_url|file|max:10000',
             'description' => 'sometimes|string|max:500',
             'evidence_date' => 'sometimes|date',
         ]);
 
-        $learnerId = $request->learner_id;
-        $skillId = $request->skill_id;
+        $studentProfile = $request->user()->studentProfile;
 
-        // Validate learner ownership (must match authenticated user)
-        $authUserId = auth()->id();
-        if ($authUserId && $learnerId !== $authUserId) {
+        if (! $studentProfile) {
             return response()->json([
                 'success' => false,
-                'message' => 'You can only submit evidence for your own account.',
-            ], 403);
+                'message' => 'You must complete your student profile before submitting evidence.',
+            ], 422);
         }
 
-        // Check for duplicate evidence (same URL or same file path)
-        $duplicate = SkillEvidence::where('learner_id', $learnerId)
+        $skillId = $request->skill_id;
+
+        $reference = $request->filled('evidence_url')
+            ? $request->evidence_url
+            : ($request->hasFile('evidence_file')
+                ? $request->file('evidence_file')->store('evidence')
+                : null);
+
+        // Check for duplicate evidence (same student, skill, source, reference —
+        // matches SKL-07 duplicate-detection requirement).
+        $duplicate = SkillEvidence::where('student_profile_id', $studentProfile->id)
             ->where('skill_id', $skillId)
-            ->when($request->filled('evidence_url'), function ($query) use ($request) {
-                $query->where('evidence_url', $request->evidence_url);
-            })
-            ->when($request->filled('evidence_file'), function ($query) use ($request) {
-                $query->where('evidence_file', $request->evidence_file);
-            })
+            ->where('source', 'certificate')
+            ->where('reference', $reference)
             ->exists();
 
         if ($duplicate) {
@@ -62,13 +62,15 @@ class EvidenceController extends Controller
         }
 
         $evidence = SkillEvidence::create([
-            'learner_id' => $learnerId,
+            'student_profile_id' => $studentProfile->id,
             'skill_id' => $skillId,
-            'evidence_url' => $request->filled('evidence_url') ? $request->evidence_url : null,
-            'evidence_file' => $request->filled('evidence_file') ? $request->file('evidence_file')->store('evidence') : null,
-            'description' => $request->filled('description') ? $request->description : null,
+            'source' => 'certificate',
+            'value' => 0,
+            'normalized_value' => 0,
+            'reference' => $reference,
             'evidence_date' => $request->filled('evidence_date') ? $request->evidence_date : now()->toDateString(),
-            'status' => 'pending',
+            'verification_status' => 'pending',
+            'recency_factor' => 1.00,
         ]);
 
         return response()->json([
@@ -79,23 +81,24 @@ class EvidenceController extends Controller
     }
 
     /**
-     * GET /api/v1/skills/evidence
-     * Retrieve evidence for a learner.
+     * GET /api/v1/evidence
+     * Retrieve evidence for the authenticated learner.
      */
     public function index(Request $request)
     {
-        $learnerId = $request->query('learner_id');
+        $studentProfile = $request->user()->studentProfile;
 
-        if ($learnerId) {
-            $evidence = SkillEvidence::where('learner_id', $learnerId)
-                ->where('status', 'approved')
-                ->with(['skill', 'reviewer'])
-                ->get();
-        } else {
-            $evidence = SkillEvidence::where('status', 'approved')
-                ->with(['skill', 'reviewer'])
-                ->get();
+        if (! $studentProfile) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You must complete your student profile first.',
+            ], 422);
         }
+
+        $evidence = SkillEvidence::where('student_profile_id', $studentProfile->id)
+            ->where('verification_status', 'verified')
+            ->with(['skill', 'reviewer'])
+            ->get();
 
         return response()->json([
             'success' => true,
@@ -105,8 +108,8 @@ class EvidenceController extends Controller
     }
 
     /**
-     * GET /api/v1/skills/evidence/{id}
-     * Retrieve specific evidence record.
+     * GET /api/v1/evidence/{id}
+     * Retrieve a specific evidence record.
      */
     public function show($id)
     {
@@ -120,36 +123,34 @@ class EvidenceController extends Controller
     }
 
     /**
-     * PUT /api/v1/skills/evidence/{id}/review
-     * Review and approve/reject evidence.
+     * PUT /api/v1/evidence/{id}/review
+     * Review and verify/reject evidence (admin only).
      */
     public function review(Request $request, $id)
     {
         $request->validate([
-            'status' => ['required', Rule::in(['approved', 'rejected'])],
-            'review_notes' => 'sometimes|string|max:500',
+            'verification_status' => ['required', Rule::in(['verified', 'rejected'])],
+            'reviewer_notes' => 'sometimes|string|max:500',
         ]);
 
-        $evidence = SkillEvidence::findOrFail($id);
-
-        // Validate reviewer authorization (admin only)
-        if (auth()->user()->role !== 'admin' && auth()->user()->role !== 'company_admin') {
+        if (! $request->user()->hasRole('admin')) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthorized to review evidence.',
             ], 403);
         }
 
+        $evidence = SkillEvidence::findOrFail($id);
+
         $evidence->update([
-            'status' => $request->status,
-            'reviewer_id' => auth()->id(),
-            'review_notes' => $request->review_notes,
-            'reviewed_at' => now(),
+            'verification_status' => $request->verification_status,
+            'reviewer_id' => $request->user()->id,
+            'reviewer_notes' => $request->reviewer_notes,
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Evidence ' . strtolower($request->status) . ' successfully.',
+            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
             'data' => $evidence,
         ]);
     }
