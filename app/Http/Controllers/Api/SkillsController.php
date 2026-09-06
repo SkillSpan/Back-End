@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Skill;
 use App\Models\LearnerSkill;
+use App\Models\Skill;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,13 +30,26 @@ class SkillsController extends Controller
 
     /**
      * GET /api/v1/skills/matrix
-     * Retrieve the skill matrix for a specific learner or career role.
+     * Retrieve the skill matrix for a learner.
      *
-     * @param int|string $learnerId Optional learner ID. If not provided, returns general matrix.
-     * @param int|string $careerRoleId Optional career role ID.
+     * FIX: this previously ignored the current user entirely — the route has
+     * no {learnerId} segment, so the old $learnerId/$careerRoleId method
+     * arguments were never populated and every call returned the full
+     * learner_skills table for every learner. Non-admins now always get
+     * their own matrix; only admins may query another learner's matrix via
+     * ?learner_id=.
      */
-    public function matrix($learnerId = null, $careerRoleId = null)
+    public function matrix(Request $request)
     {
+        $user = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        $learnerId = $isAdmin
+            ? $request->query('learner_id')
+            : $user->id;
+
+        $careerRoleId = $request->query('career_role_id');
+
         $query = LearnerSkill::with(['skill']);
 
         if ($learnerId) {

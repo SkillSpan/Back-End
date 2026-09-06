@@ -18,7 +18,9 @@ class EvidenceController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'skill_id' => ['required', 'exists:skills,id',
+            'skill_id' => [
+                'required',
+                'exists:skills,id',
                 Rule::where(function ($query) {
                     $query->where('status', 'active');
                 }),
@@ -110,10 +112,27 @@ class EvidenceController extends Controller
     /**
      * GET /api/v1/evidence/{id}
      * Retrieve a specific evidence record.
+     *
+     * FIX: this previously had no ownership or role check at all — any
+     * authenticated user could fetch any evidence record by id. Now only
+     * an admin, or the learner who owns the record (via their own
+     * student_profile_id), may retrieve it.
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $evidence = SkillEvidence::with(['skill', 'reviewer'])->findOrFail($id);
+
+        $user = $request->user();
+        $studentProfile = $user->studentProfile;
+
+        $owns = $studentProfile && $evidence->student_profile_id === $studentProfile->id;
+
+        if (! $user->hasRole('admin') && ! $owns) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized to view this evidence record.',
+            ], 403);
+        }
 
         return response()->json([
             'success' => true,
@@ -150,7 +169,7 @@ class EvidenceController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
+            'message' => 'Evidence ' . strtolower($request->verification_status) . ' successfully.',
             'data' => $evidence,
         ]);
     }
