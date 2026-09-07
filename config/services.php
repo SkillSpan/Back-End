@@ -71,4 +71,11 @@ return [
         'secret' => env('ADMIN_SETUP_SECRET', ''),
     ],
 
+    // Shared secret for server-to-server calls from the Data Science
+    // FastAPI service (GET /api/v1/internal/baseline-items). Not a user
+    // token — Sanctum auth doesn't apply to this route.
+    'internal' => [
+        'baseline_items_secret' => env('INTERNAL_BASELINE_ITEMS_SECRET', ''),
+    ],
+
 ];

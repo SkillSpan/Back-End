@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationCo
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\EvidenceController;
+use App\Http\Controllers\Api\Internal\BaselineItemsController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReadinessController;
@@ -98,4 +99,12 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/setup/create-admin', [SetupController::class, 'createAdmin'])
         ->middleware('throttle:5,1');
+
+    // Server-to-server: called by the Data Science FastAPI service, not by
+    // logged-in users. Auth is a shared secret checked inside the
+    // controller (X-Internal-Secret), not Sanctum.
+    Route::prefix('internal')->group(function () {
+        Route::get('/baseline-items', [BaselineItemsController::class, 'index'])
+            ->middleware('throttle:60,1');
+    });
 });

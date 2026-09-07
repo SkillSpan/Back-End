@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             SpecializationsSeeder::class,
             SkillSeeder::class,
             CareerRoleSeeder::class,
+            BaselineAssessmentItemSeeder::class,
         ]);
     }
 }
