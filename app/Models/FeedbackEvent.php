@@ -9,7 +9,7 @@ class FeedbackEvent extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['recommendation_id','user_id','event_type','rating_value','reason','occurred_at'];
+    protected $fillable = ['recommendation_id', 'user_id', 'event_type', 'rating_value', 'reason'];
 
     protected $casts = ['occurred_at' => 'datetime'];
 

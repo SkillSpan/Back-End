@@ -31,7 +31,7 @@ class OrganizationApprovalTest extends TestCase
 
     private function createOrgUser(string $verificationStatus, bool $emailVerified = true): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Org Admin',
             'email' => 'orgadmin@test.com',
             'password' => self::PASSWORD,
@@ -39,7 +39,7 @@ class OrganizationApprovalTest extends TestCase
             'email_verified_at' => $emailVerified ? now() : null,
         ]);
 
-        $organization = Organization::create([
+        $organization = Organization::forceCreate([
             'name' => 'Test Org',
             'type' => 'company',
             'verification_status' => $verificationStatus,
@@ -49,7 +49,7 @@ class OrganizationApprovalTest extends TestCase
         $role = Role::where('slug', 'company_admin')->first();
         $user->roles()->attach($role->id, ['organization_id' => $organization->id]);
 
-        OrganizationMember::create([
+        OrganizationMember::forceCreate([
             'organization_id' => $organization->id,
             'user_id' => $user->id,
             'role_in_org' => 'admin',

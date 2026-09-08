@@ -23,7 +23,7 @@ class DataScienceClient
             10
         );
 
-        $endpoint = $baseUrl . '/api/v1/skill-gap';
+        $endpoint = $baseUrl.'/api/v1/skill-gap';
         $startedAt = microtime(true);
 
         if ($baseUrl === '') {
@@ -167,14 +167,10 @@ class DataScienceClient
             'Data Science readiness request completed.',
             [
                 'request_id' => $requestId,
-                'student_profile_id' =>
-                    $payload['student_profile_id'] ?? null,
-                'career_role_id' =>
-                    $payload['career_role_id'] ?? null,
-                'career_role_version' =>
-                    $payload['career_role_version'] ?? null,
-                'algorithm_version' =>
-                    $data['algorithm_version'] ?? null,
+                'student_profile_id' => $payload['student_profile_id'] ?? null,
+                'career_role_id' => $payload['career_role_id'] ?? null,
+                'career_role_version' => $payload['career_role_version'] ?? null,
+                'algorithm_version' => $data['algorithm_version'] ?? null,
                 'http_status' => $status,
                 'duration_ms' => $durationMs,
             ],
@@ -201,14 +197,10 @@ class DataScienceClient
             'Data Science readiness request failed.',
             [
                 'request_id' => $requestId,
-                'student_profile_id' =>
-                    $payload['student_profile_id'] ?? null,
-                'career_role_id' =>
-                    $payload['career_role_id'] ?? null,
-                'career_role_version' =>
-                    $payload['career_role_version'] ?? null,
-                'algorithm_version' =>
-                    $payload['algorithm_version'] ?? null,
+                'student_profile_id' => $payload['student_profile_id'] ?? null,
+                'career_role_id' => $payload['career_role_id'] ?? null,
+                'career_role_version' => $payload['career_role_version'] ?? null,
+                'algorithm_version' => $payload['algorithm_version'] ?? null,
                 'http_status' => $status,
                 'duration_ms' => (int) round(
                     (microtime(true) - $startedAt) * 1000

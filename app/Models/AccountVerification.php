@@ -9,7 +9,7 @@ class AccountVerification extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','organization_id','channel','challenge_state','attempts','expires_at','decision','reviewer_id','reason','decided_at'];
+    protected $fillable = ['user_id', 'organization_id', 'channel', 'expires_at'];
 
     protected $casts = ['expires_at' => 'datetime', 'decided_at' => 'datetime'];
 

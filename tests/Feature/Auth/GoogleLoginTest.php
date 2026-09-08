@@ -56,7 +56,15 @@ class GoogleLoginTest extends TestCase
 
     private function createActiveUser(string $email): User
     {
-        return User::create([
+        // forceCreate(), not create(): 'status' and 'email_verified_at'
+        // are intentionally NOT in User::$fillable (mass-assignment
+        // protection), so a plain create() would silently drop them and
+        // the user would be persisted as 'pending' / unverified — which
+        // made AuthService::loginWithGoogle() correctly reject it with
+        // "You must activate your SkillSpan account first." The rest of
+        // the app already sidesteps this the same way (see
+        // AuthService::createUser()).
+        return User::forceCreate([
             'name' => 'Existing Learner',
             'email' => $email,
             'password' => 'password',

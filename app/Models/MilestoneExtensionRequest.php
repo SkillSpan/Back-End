@@ -9,7 +9,7 @@ class MilestoneExtensionRequest extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_milestone_id','requested_by','reason','new_due_date','status','decided_by','decided_at'];
+    protected $fillable = ['project_milestone_id', 'requested_by', 'reason', 'new_due_date'];
 
     protected $casts = ['new_due_date' => 'date', 'decided_at' => 'datetime'];
 

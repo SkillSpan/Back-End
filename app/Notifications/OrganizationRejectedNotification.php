@@ -8,9 +8,7 @@ use Illuminate\Notifications\Notification;
 
 class OrganizationRejectedNotification extends Notification
 {
-    public function __construct(protected Organization $organization, protected ?string $reason = null)
-    {
-    }
+    public function __construct(protected Organization $organization, protected ?string $reason = null) {}
 
     public function via(object $notifiable): array
     {

@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('device')->nullable();
             $table->string('user_agent')->nullable();
             $table->string('ip_address', 45)->nullable();
-            $table->enum('result', ['success','failed'])->default('success');
+            $table->enum('result', ['success', 'failed'])->default('success');
             $table->timestamp('issued_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamp('revoked_at')->nullable();

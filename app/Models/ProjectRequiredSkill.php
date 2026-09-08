@@ -9,7 +9,7 @@ class ProjectRequiredSkill extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id','skill_id','minimum_level','is_critical_entry'];
+    protected $fillable = ['project_id', 'skill_id', 'minimum_level', 'is_critical_entry'];
 
     protected $casts = ['is_critical_entry' => 'boolean'];
 

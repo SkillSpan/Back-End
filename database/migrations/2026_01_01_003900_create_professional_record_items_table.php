@@ -15,11 +15,11 @@ return new class extends Migration
             $table->unsignedBigInteger('source_id')->nullable();
             $table->string('title');
             $table->text('description')->nullable();
-            $table->enum('verification_state', ['self_declared','verified'])->default('self_declared');
-            $table->enum('visibility', ['public','organization_only','private'])->default('private');
+            $table->enum('verification_state', ['self_declared', 'verified'])->default('self_declared');
+            $table->enum('visibility', ['public', 'organization_only', 'private'])->default('private');
             $table->date('achieved_at')->nullable();
             $table->timestamps();
-            $table->index(['source_type','source_id']);
+            $table->index(['source_type', 'source_id']);
         });
     }
 

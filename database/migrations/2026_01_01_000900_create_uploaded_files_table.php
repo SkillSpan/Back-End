@@ -11,11 +11,11 @@ return new class extends Migration
         Schema::create('uploaded_files', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->enum('type', ['cv','certificate','portfolio','other']);
+            $table->enum('type', ['cv', 'certificate', 'portfolio', 'other']);
             $table->string('path');
             $table->string('mime_type')->nullable();
             $table->unsignedBigInteger('size')->nullable();
-            $table->enum('status', ['pending','approved','rejected'])->default('pending');
+            $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
             $table->timestamps();
         });
     }

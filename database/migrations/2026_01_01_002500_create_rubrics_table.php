@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->unsignedInteger('version')->default(1);
-            $table->enum('status', ['draft','published','retired'])->default('draft');
+            $table->enum('status', ['draft', 'published', 'retired'])->default('draft');
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('published_at')->nullable();
             $table->timestamps();

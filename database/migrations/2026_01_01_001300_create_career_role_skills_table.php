@@ -17,7 +17,7 @@ return new class extends Migration
             $table->boolean('is_critical')->default(false);
             $table->foreignId('prerequisite_skill_id')->nullable()->constrained('skills')->nullOnDelete();
             $table->timestamps();
-            $table->unique(['career_role_id','skill_id']);
+            $table->unique(['career_role_id', 'skill_id']);
         });
     }
 

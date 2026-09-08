@@ -15,9 +15,13 @@ class DatabaseSeeder extends Seeder
         // must exist before the university import runs.
         $this->call([
             RolesSeeder::class,
+            PermissionSeeder::class,
             CountrySeeder::class,
             UniversitySeeder::class,
             SpecializationsSeeder::class,
+            SkillSeeder::class,
+            CareerRoleSeeder::class,
+            BaselineAssessmentItemSeeder::class,
         ]);
     }
 }

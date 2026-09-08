@@ -9,7 +9,7 @@ class Skill extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name','slug','category','description','status','version','parent_skill_id'];
+    protected $fillable = ['name', 'slug', 'category', 'description', 'version', 'parent_skill_id'];
 
     public function aliases()
     {

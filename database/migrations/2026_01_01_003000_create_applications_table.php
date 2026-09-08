@@ -12,12 +12,12 @@ return new class extends Migration
             $table->id();
             $table->foreignId('project_id')->constrained()->cascadeOnDelete();
             $table->foreignId('applicant_id')->constrained('users')->cascadeOnDelete();
-            $table->enum('status', ['submitted','shortlisted','accepted','rejected','waitlisted','withdrawn'])->default('submitted');
+            $table->enum('status', ['submitted', 'shortlisted', 'accepted', 'rejected', 'waitlisted', 'withdrawn'])->default('submitted');
             $table->text('decision_reason')->nullable();
             $table->foreignId('decided_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('decided_at')->nullable();
             $table->timestamps();
-            $table->unique(['project_id','applicant_id']);
+            $table->unique(['project_id', 'applicant_id']);
         });
     }
 

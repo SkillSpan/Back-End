@@ -12,19 +12,19 @@ return new class extends Migration
             $table->id();
             $table->foreignId('student_profile_id')->constrained()->cascadeOnDelete();
             $table->foreignId('skill_id')->constrained()->cascadeOnDelete();
-            $table->enum('source', ['self_assessment','assessment_test','project_performance','expert_evaluation','certificate']);
+            $table->enum('source', ['self_assessment', 'assessment_test', 'project_performance', 'expert_evaluation', 'certificate']);
             $table->decimal('value', 4, 2);
             $table->decimal('normalized_value', 4, 2);
             $table->string('reference')->nullable();
             $table->date('evidence_date');
-            $table->enum('verification_status', ['pending','verified','rejected','expired'])->default('pending');
+            $table->enum('verification_status', ['pending', 'verified', 'rejected', 'expired'])->default('pending');
             $table->foreignId('reviewer_id')->nullable()->constrained('users')->nullOnDelete();
             $table->text('reviewer_notes')->nullable();
             $table->decimal('recency_factor', 3, 2)->default(1.00);
             $table->string('source_record_type')->nullable();
             $table->unsignedBigInteger('source_record_id')->nullable();
             $table->timestamps();
-            $table->index(['source_record_type','source_record_id']);
+            $table->index(['source_record_type', 'source_record_id']);
         });
     }
 

@@ -9,7 +9,7 @@ class RubricDimension extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['rubric_id','name','weight','skill_id'];
+    protected $fillable = ['rubric_id', 'name', 'weight', 'skill_id'];
 
     public function rubric()
     {

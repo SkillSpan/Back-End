@@ -11,9 +11,25 @@ class SkillEvidence extends Model
 
     protected $table = 'skill_evidences';
 
-    protected $fillable = ['student_profile_id','skill_id','source','value','normalized_value','reference','evidence_date','verification_status','reviewer_id','reviewer_notes','recency_factor','source_record_type','source_record_id'];
+    protected $fillable = [
+        'student_profile_id',
+        'skill_id',
+        'source',
+        'value',
+        'normalized_value',
+        'reference',
+        'evidence_date',
+        'verification_status',
+        'reviewer_id',
+        'reviewer_notes',
+        'recency_factor',
+        'source_record_type',
+        'source_record_id',
+    ];
 
-    protected $casts = ['evidence_date' => 'date'];
+    protected $casts = [
+        'evidence_date' => 'date',
+    ];
 
     public function studentProfile()
     {

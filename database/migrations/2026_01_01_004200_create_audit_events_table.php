@@ -22,7 +22,7 @@ return new class extends Migration
             $table->string('user_agent')->nullable();
             $table->timestamp('occurred_at');
             $table->timestamps();
-            $table->index(['entity_type','entity_id']);
+            $table->index(['entity_type', 'entity_id']);
         });
     }
 

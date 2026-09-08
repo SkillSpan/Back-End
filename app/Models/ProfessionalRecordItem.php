@@ -9,7 +9,7 @@ class ProfessionalRecordItem extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['student_profile_id','source_type','source_id','title','description','verification_state','visibility','achieved_at'];
+    protected $fillable = ['student_profile_id', 'source_type', 'source_id', 'title', 'description', 'visibility', 'achieved_at'];
 
     protected $casts = ['achieved_at' => 'date'];
 

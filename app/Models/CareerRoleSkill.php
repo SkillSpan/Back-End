@@ -9,7 +9,7 @@ class CareerRoleSkill extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['career_role_id','skill_id','required_level','importance_weight','is_critical','prerequisite_skill_id'];
+    protected $fillable = ['career_role_id', 'skill_id', 'required_level', 'importance_weight', 'is_critical', 'prerequisite_skill_id'];
 
     protected $casts = ['is_critical' => 'boolean'];
 

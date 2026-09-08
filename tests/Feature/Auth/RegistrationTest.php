@@ -91,7 +91,7 @@ class RegistrationTest extends TestCase
 
     public function test_registration_fails_duplicate_email(): void
     {
-        User::create([
+        User::forceCreate([
             'name' => 'Test User',
             'email' => 'duplicate@test.com',
             'password' => Hash::make('password123'),

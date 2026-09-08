@@ -11,11 +11,11 @@ return new class extends Migration
         Schema::create('professional_profiles', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->unique()->constrained()->cascadeOnDelete();
-            $table->enum('type', ['mentor','reviewer','partner_representative']);
+            $table->enum('type', ['mentor', 'reviewer', 'partner_representative']);
             $table->text('expertise')->nullable();
             $table->string('affiliation')->nullable();
             $table->string('availability')->nullable();
-            $table->enum('verification_status', ['pending','verified','rejected'])->default('pending');
+            $table->enum('verification_status', ['pending', 'verified', 'rejected'])->default('pending');
             $table->timestamps();
         });
     }

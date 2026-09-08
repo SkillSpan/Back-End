@@ -7,9 +7,7 @@ use Illuminate\Notifications\Notification;
 
 class PasswordResetNotification extends Notification
 {
-    public function __construct(protected string $otp)
-    {
-    }
+    public function __construct(protected string $otp) {}
 
     public function via(object $notifiable): array
     {

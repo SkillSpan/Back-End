@@ -30,7 +30,7 @@ class LogoutTest extends TestCase
 
     private function createActiveLearner(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Learner One',
             'email' => self::EMAIL,
             'password' => self::PASSWORD,

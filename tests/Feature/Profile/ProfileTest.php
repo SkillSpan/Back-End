@@ -22,7 +22,7 @@ class ProfileTest extends TestCase
 
     private function learner(): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Learner One',
             'email' => 'learner@test.com',
             'password' => 'password123',
@@ -55,7 +55,7 @@ class ProfileTest extends TestCase
 
     public function test_non_learner_cannot_access_profile_endpoints(): void
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Company Rep',
             'email' => 'company@test.com',
             'password' => 'password123',
@@ -138,7 +138,7 @@ class ProfileTest extends TestCase
     public function test_store_updates_existing_profile_when_posted(): void
     {
         $user = $this->learner();
-        StudentProfile::create([
+        StudentProfile::forceCreate([
             'user_id' => $user->id,
             'visibility' => 'private',
             'consent_given' => true,
@@ -173,7 +173,7 @@ class ProfileTest extends TestCase
     public function test_update_only_touches_submitted_fields(): void
     {
         $user = $this->learner();
-        StudentProfile::create([
+        StudentProfile::forceCreate([
             'user_id' => $user->id,
             'university_name' => 'An-Najah National University',
             'student_university_number' => '202312345',
@@ -200,7 +200,7 @@ class ProfileTest extends TestCase
     public function test_update_can_set_and_clear_nullable_academic_fields(): void
     {
         $user = $this->learner();
-        StudentProfile::create([
+        StudentProfile::forceCreate([
             'user_id' => $user->id,
             'university_name' => 'An-Najah National University',
             'student_university_number' => '202312345',
@@ -230,7 +230,7 @@ class ProfileTest extends TestCase
     public function test_update_can_update_text_academic_fields(): void
     {
         $user = $this->learner();
-        StudentProfile::create([
+        StudentProfile::forceCreate([
             'user_id' => $user->id,
             'university_name' => 'An-Najah National University',
             'student_university_number' => '202312345',
@@ -255,7 +255,7 @@ class ProfileTest extends TestCase
     public function test_update_rejects_an_invalid_visibility_value(): void
     {
         $user = $this->learner();
-        StudentProfile::create(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
 
         Sanctum::actingAs($user);
 

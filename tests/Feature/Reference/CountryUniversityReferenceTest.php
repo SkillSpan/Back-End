@@ -172,7 +172,7 @@ class CountryUniversityReferenceTest extends TestCase
         config(['database.data.snapshot_path' => null]);
 
         $snapshotPath = database_path('data/universities.json');
-        $backup = $snapshotPath . '.test-backup';
+        $backup = $snapshotPath.'.test-backup';
 
         $this->assertTrue(copy($snapshotPath, $backup) || ! file_exists($snapshotPath));
 

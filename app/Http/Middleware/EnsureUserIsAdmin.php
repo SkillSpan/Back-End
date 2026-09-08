@@ -16,7 +16,7 @@ class EnsureUserIsAdmin
     {
         $user = $request->user();
 
-        if (! $user || ! $user->hasRole('admin')) {
+        if (! $user || $user->trashed() || ! $user->hasRole('admin')) {
             return response()->json([
                 'success' => false,
                 'message' => 'You are not authorized to perform this action.',

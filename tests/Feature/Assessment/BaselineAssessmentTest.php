@@ -97,7 +97,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -117,7 +117,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -137,7 +137,7 @@ class BaselineAssessmentTest extends TestCase
         [$otherUser] = $this->createLearner();
         Sanctum::actingAs($otherUser);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $profile->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -156,10 +156,10 @@ class BaselineAssessmentTest extends TestCase
         [$user, $profile] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $python = Skill::create(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
-        $sql = Skill::create(['name' => 'SQL', 'slug' => 'sql', 'status' => 'active']);
+        $python = Skill::forceCreate(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
+        $sql = Skill::forceCreate(['name' => 'SQL', 'slug' => 'sql', 'status' => 'active']);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $profile->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -227,7 +227,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -245,7 +245,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -269,7 +269,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -297,7 +297,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -324,9 +324,9 @@ class BaselineAssessmentTest extends TestCase
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
-        $python = Skill::create(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
+        $python = Skill::forceCreate(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -353,9 +353,9 @@ class BaselineAssessmentTest extends TestCase
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
-        $python = Skill::create(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
+        $python = Skill::forceCreate(['name' => 'Python', 'slug' => 'python', 'status' => 'active']);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -386,7 +386,7 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        $assessment = BaselineAssessment::create([
+        $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $this->learnerProfile($user)->id,
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
@@ -403,7 +403,7 @@ class BaselineAssessmentTest extends TestCase
     {
         $user = $this->createUserWithRole($this->learnerRole);
 
-        $profile = StudentProfile::create([
+        $profile = StudentProfile::forceCreate([
             'user_id' => $user->id,
         ]);
 
@@ -417,7 +417,7 @@ class BaselineAssessmentTest extends TestCase
 
     private function createUserWithRole(Role $role): User
     {
-        $user = User::create([
+        $user = User::forceCreate([
             'name' => 'Test User',
             'email' => uniqid().'@test.com',
             'password' => 'password123',

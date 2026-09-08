@@ -9,7 +9,7 @@ class ProjectTeamMember extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_team_id','user_id','project_role','assignment_state','joined_at','left_at'];
+    protected $fillable = ['project_team_id', 'user_id', 'project_role'];
 
     protected $casts = ['joined_at' => 'datetime', 'left_at' => 'datetime'];
 

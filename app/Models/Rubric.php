@@ -9,7 +9,7 @@ class Rubric extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title','version','status','created_by','published_at'];
+    protected $fillable = ['title', 'version', 'created_by'];
 
     protected $casts = ['published_at' => 'datetime'];
 

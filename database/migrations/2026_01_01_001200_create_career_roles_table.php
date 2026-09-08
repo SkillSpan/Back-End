@@ -13,11 +13,11 @@ return new class extends Migration
             $table->string('title');
             $table->string('slug');
             $table->unsignedInteger('version')->default(1);
-            $table->enum('status', ['draft','approved','retired'])->default('draft');
+            $table->enum('status', ['draft', 'approved', 'retired'])->default('draft');
             $table->date('effective_date')->nullable();
             $table->text('description')->nullable();
             $table->timestamps();
-            $table->unique(['slug','version']);
+            $table->unique(['slug', 'version']);
         });
     }
 

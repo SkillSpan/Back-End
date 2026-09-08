@@ -23,7 +23,7 @@ class PasswordResetTest extends TestCase
 
     private function createActiveUser(string $password = 'password123'): User
     {
-        return User::create([
+        return User::forceCreate([
             'name' => 'Test User',
             'email' => self::EMAIL,
             'password' => $password,

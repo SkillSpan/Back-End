@@ -13,9 +13,9 @@ return new class extends Migration
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('role_in_org')->default('member');
-            $table->enum('status', ['active','invited','removed'])->default('active');
+            $table->enum('status', ['active', 'invited', 'removed'])->default('active');
             $table->timestamps();
-            $table->unique(['organization_id','user_id']);
+            $table->unique(['organization_id', 'user_id']);
         });
     }
 

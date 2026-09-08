@@ -19,7 +19,7 @@ return new class extends Migration
             $table->decimal('assessment_reliability_component', 5, 2)->nullable();
             $table->decimal('profile_completeness_component', 5, 2)->nullable();
             $table->boolean('critical_cap_applied')->default(false);
-            $table->enum('band', ['foundation_needed','developing','moderate_readiness','near_ready','highly_ready']);
+            $table->enum('band', ['foundation_needed', 'developing', 'moderate_readiness', 'near_ready', 'highly_ready']);
             $table->string('algorithm_version');
             $table->timestamp('calculated_at');
             $table->json('snapshot')->nullable();

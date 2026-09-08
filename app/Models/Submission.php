@@ -9,7 +9,7 @@ class Submission extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id','project_milestone_id','contributor_id','version','notes','file_path','link_url','status','submitted_at'];
+    protected $fillable = ['project_id', 'project_milestone_id', 'contributor_id', 'version', 'notes', 'file_path', 'link_url'];
 
     protected $casts = ['submitted_at' => 'datetime'];
 

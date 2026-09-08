@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('slug')->unique();
             $table->string('category')->nullable();
             $table->text('description')->nullable();
-            $table->enum('status', ['active','retired'])->default('active');
+            $table->enum('status', ['active', 'retired'])->default('active');
             $table->unsignedInteger('version')->default(1);
             $table->foreignId('parent_skill_id')->nullable()->constrained('skills')->nullOnDelete();
             $table->timestamps();

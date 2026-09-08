@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('event_key');
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
-            $table->unique(['user_id','event_key']);
+            $table->unique(['user_id', 'event_key']);
         });
     }
 

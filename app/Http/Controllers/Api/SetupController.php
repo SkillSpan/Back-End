@@ -9,6 +9,7 @@ use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class SetupController extends Controller
@@ -34,6 +35,10 @@ class SetupController extends Controller
         }
 
         if (! hash_equals($configuredSecret, (string) $request->input('secret'))) {
+            Log::warning('Admin setup rejected: invalid secret.', [
+                'ip' => $request->ip(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid setup secret.',
@@ -56,7 +61,7 @@ class SetupController extends Controller
 
         $data = $validator->validated();
 
-        $admin = User::create([
+        $admin = User::forceCreate([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),

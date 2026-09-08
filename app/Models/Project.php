@@ -9,7 +9,7 @@ class Project extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['organization_id','owner_id','type','domain','title','description','objectives','learning_outcomes','difficulty','work_mode','role','schedule','capacity','min_team_size','application_deadline','start_date','end_date','status','confidentiality','rubric_id','cloned_from_project_id','approved_by','approved_at'];
+    protected $fillable = ['organization_id', 'owner_id', 'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes', 'difficulty', 'work_mode', 'role', 'schedule', 'capacity', 'min_team_size', 'application_deadline', 'start_date', 'end_date', 'confidentiality', 'rubric_id'];
 
     protected $casts = ['learning_outcomes' => 'array', 'application_deadline' => 'date', 'start_date' => 'date', 'end_date' => 'date', 'approved_at' => 'datetime'];
 

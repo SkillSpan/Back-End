@@ -261,7 +261,7 @@ class AuthController extends Controller
 
         $this->assertOrganizationIsApproved($user);
 
-        $user->update(['last_login_at' => now()]);
+        $user->forceFill(['last_login_at' => now()])->save();
 
         $tokenResult = $user->createToken('auth_token');
         $this->authService->recordAuthSession($user, $tokenResult, $request);

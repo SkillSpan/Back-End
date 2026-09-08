@@ -16,9 +16,7 @@ use Throwable;
 
 class ReadinessController extends Controller
 {
-    public function __construct(private readonly ReadinessService $readinessService)
-    {
-    }
+    public function __construct(private readonly ReadinessService $readinessService) {}
 
     public function calculate(CalculateReadinessRequest $request): ReadinessResultResource|JsonResponse
     {
