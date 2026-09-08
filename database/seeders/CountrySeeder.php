@@ -53,6 +53,7 @@ class CountrySeeder extends Seeder
             // cannot be matched reliably, so it is skipped, never guessed.
             if ($name === '' || strlen($iso2) !== 2 || strlen($iso3) !== 3) {
                 $skipped++;
+
                 continue;
             }
 

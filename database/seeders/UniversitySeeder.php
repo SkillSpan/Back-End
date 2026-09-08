@@ -36,7 +36,9 @@ use Illuminate\Support\Facades\Log;
 class UniversitySeeder extends Seeder
 {
     private const SNAPSHOT_PATH = 'database/data/universities.json';
+
     private const HIPOLABS_URL = 'http://universities.hipolabs.com/search?name=';
+
     private const CHUNK_SIZE = 500;
 
     public function run(): void
@@ -67,6 +69,7 @@ class UniversitySeeder extends Seeder
 
             if ($name === '' || strlen($name) > 191) {
                 $skippedMalformed++;
+
                 continue;
             }
 
@@ -75,10 +78,11 @@ class UniversitySeeder extends Seeder
             // Unknown country code: skip the record, never invent a country.
             if ($countryId === null) {
                 $skippedUnmatched++;
+
                 continue;
             }
 
-            $key = $countryId . '|' . mb_strtolower($name);
+            $key = $countryId.'|'.mb_strtolower($name);
 
             if (isset($seen[$key])) {
                 continue;
@@ -116,8 +120,8 @@ class UniversitySeeder extends Seeder
 
         $this->command?->info(
             "UniversitySeeder: {$created} created, {$updated} updated, "
-                . "{$skippedMalformed} malformed, {$skippedUnmatched} unmatched-country, "
-                . "{$backfilled} backfilled."
+                ."{$skippedMalformed} malformed, {$skippedUnmatched} unmatched-country, "
+                ."{$backfilled} backfilled."
         );
     }
 
@@ -158,8 +162,8 @@ class UniversitySeeder extends Seeder
         try {
             $response = Http::timeout(60)->retry(2, 500)->get(self::HIPOLABS_URL);
         } catch (\Throwable $e) {
-            $this->command?->error('Hipolabs unreachable: ' . $e->getMessage());
-            Log::warning('UniversitySeeder: Hipolabs download failed: ' . $e->getMessage());
+            $this->command?->error('Hipolabs unreachable: '.$e->getMessage());
+            Log::warning('UniversitySeeder: Hipolabs download failed: '.$e->getMessage());
 
             return null;
         }
@@ -188,7 +192,7 @@ class UniversitySeeder extends Seeder
                 continue;
             }
 
-            $key = $code . '|' . mb_strtolower($name);
+            $key = $code.'|'.mb_strtolower($name);
 
             if (isset($seen[$key])) {
                 continue;
@@ -203,7 +207,7 @@ class UniversitySeeder extends Seeder
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         ));
 
-        $this->command?->info('Snapshot persisted: ' . count($records) . ' universities.');
+        $this->command?->info('Snapshot persisted: '.count($records).' universities.');
 
         return $records;
     }
@@ -218,7 +222,7 @@ class UniversitySeeder extends Seeder
      * rows (the old hardcoded list), not thousands — batching it would
      * add complexity for no measurable benefit.
      *
-     * @param array<string, int> $countriesByIso2
+     * @param  array<string, int>  $countriesByIso2
      */
     private function backfillExistingRows(array $countriesByIso2): int
     {

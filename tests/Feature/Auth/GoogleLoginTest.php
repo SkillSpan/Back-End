@@ -101,7 +101,7 @@ class GoogleLoginTest extends TestCase
             'credential' => 'some-id-token',
         ])->assertStatus(422)
             ->assertJsonValidationErrors(['credential'])
-            ->assertJsonPath('errors.credential.0', fn($message) => str_contains($message, 'not configured'));
+            ->assertJsonPath('errors.credential.0', fn ($message) => str_contains($message, 'not configured'));
     }
 
     public function test_existing_email_account_logs_in_links_google_and_needs_no_consents(): void

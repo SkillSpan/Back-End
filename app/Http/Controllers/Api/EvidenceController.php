@@ -190,7 +190,7 @@ class EvidenceController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Evidence ' . strtolower($request->verification_status) . ' successfully.',
+            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
             'data' => $evidence,
         ]);
     }

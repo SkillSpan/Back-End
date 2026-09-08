@@ -2,10 +2,10 @@
 
 namespace Database\Seeders;
 
+use App\Models\Skill;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
-use App\Models\Skill;
 
 class SkillSeeder extends Seeder
 {

@@ -46,7 +46,7 @@ class AuthService
             return $user->fresh(['roles', 'studentProfile']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Individual registration failed: ' . $e->getMessage(), [
+            Log::error('Individual registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
             ]);
             throw $e;
@@ -86,7 +86,7 @@ class AuthService
             return $user->fresh(['roles', 'organizations']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Organization registration failed: ' . $e->getMessage(), [
+            Log::error('Organization registration failed: '.$e->getMessage(), [
                 'email' => $validatedData['email'] ?? 'unknown',
             ]);
             throw $e;
@@ -257,7 +257,7 @@ class AuthService
         } catch (Throwable $e) {
             DB::rollBack();
 
-            Log::error('Google login failed: ' . $e->getMessage());
+            Log::error('Google login failed: '.$e->getMessage());
 
             throw $e;
         }
@@ -442,7 +442,7 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/' . $organization->id, 'local');
+        $path = $file->store('proofs/'.$organization->id, 'local');
 
         UploadedFile::forceCreate([
             'user_id' => $user->id,
@@ -545,7 +545,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Verification failed: ' . $e->getMessage(), ['email' => $email]);
+            Log::error('Verification failed: '.$e->getMessage(), ['email' => $email]);
             throw $e;
         }
     }
@@ -752,7 +752,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: ' . $e->getMessage());
+            Log::error('Password reset failed: '.$e->getMessage());
             throw $e;
         }
     }
