@@ -20,15 +20,15 @@ class CareerRoleSeeder extends Seeder
                 'title' => 'Frontend Developer',
                 'skills' => [
                     'JavaScript' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true],
-                    'React' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true],
+                    'React' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true, 'prerequisites' => ['JavaScript']],
                     'CSS / Tailwind' => ['required_level' => 2.5, 'importance_weight' => 0.6, 'is_critical' => false],
-                    'TypeScript' => ['required_level' => 2.0, 'importance_weight' => 0.5, 'is_critical' => false],
+                    'TypeScript' => ['required_level' => 2.0, 'importance_weight' => 0.5, 'is_critical' => false, 'prerequisites' => ['JavaScript']],
                 ],
             ],
             [
                 'title' => 'Backend Developer',
                 'skills' => [
-                    'Node.js' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true],
+                    'Node.js' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true, 'prerequisites' => ['JavaScript']],
                     'SQL' => ['required_level' => 3.0, 'importance_weight' => 0.8, 'is_critical' => true],
                     'REST APIs' => ['required_level' => 3.0, 'importance_weight' => 0.7, 'is_critical' => false],
                 ],
@@ -37,9 +37,9 @@ class CareerRoleSeeder extends Seeder
                 'title' => 'Data Analyst',
                 'skills' => [
                     'Python' => ['required_level' => 3.0, 'importance_weight' => 0.9, 'is_critical' => true],
-                    'Pandas' => ['required_level' => 3.0, 'importance_weight' => 0.8, 'is_critical' => true],
+                    'Pandas' => ['required_level' => 3.0, 'importance_weight' => 0.8, 'is_critical' => true, 'prerequisites' => ['Python']],
                     'SQL' => ['required_level' => 2.5, 'importance_weight' => 0.7, 'is_critical' => false],
-                    'NumPy' => ['required_level' => 2.0, 'importance_weight' => 0.5, 'is_critical' => false],
+                    'NumPy' => ['required_level' => 2.0, 'importance_weight' => 0.5, 'is_critical' => false, 'prerequisites' => ['Python']],
                 ],
             ],
         ];
@@ -61,10 +61,20 @@ class CareerRoleSeeder extends Seeder
                     continue; // Skip silently if SkillSeeder hasn't created it yet.
                 }
 
-                $careerRole->roleSkills()->updateOrCreate(
+                $prerequisiteNames = $pivot['prerequisites'] ?? [];
+                unset($pivot['prerequisites']);
+
+                $roleSkill = $careerRole->roleSkills()->updateOrCreate(
                     ['skill_id' => $skill->id],
                     $pivot
                 );
+
+                if ($prerequisiteNames !== []) {
+                    $prerequisiteIds = Skill::whereIn('slug', array_map(fn ($n) => Str::slug($n), $prerequisiteNames))
+                        ->pluck('id');
+
+                    $roleSkill->prerequisites()->sync($prerequisiteIds);
+                }
             }
         }
     }

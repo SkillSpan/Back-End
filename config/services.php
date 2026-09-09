@@ -54,17 +54,93 @@ return [
     // calculation from evidence. Configurable and versioned per the
     // "Configurability" algorithm design principle (Table 46).
     'evidence' => [
+
+        /*
+     * Skill-confidence-v1
+     *
+     * Approved by Data Science:
+     *
+     * self_assessment      = 0.10
+     * assessment_test      = 0.30
+     * project_performance  = 0.35
+     * expert_evaluation    = 0.20
+     * certificate          = 0.05
+     *
+     * Total = 1.00
+     */
         'source_weights' => [
-            'self_assessment' => (float) env('EVIDENCE_WEIGHT_SELF_ASSESSMENT', 0.10),
-            'assessment_test' => (float) env('EVIDENCE_WEIGHT_ASSESSMENT_TEST', 0.30),
-            'project_performance' => (float) env('EVIDENCE_WEIGHT_PROJECT_PERFORMANCE', 0.35),
-            'expert_evaluation' => (float) env('EVIDENCE_WEIGHT_EXPERT_EVALUATION', 0.20),
-            'certificate' => (float) env('EVIDENCE_WEIGHT_CERTIFICATE', 0.05),
+            'self_assessment' => (float) env(
+                'EVIDENCE_WEIGHT_SELF_ASSESSMENT',
+                0.10
+            ),
+
+            'assessment_test' => (float) env(
+                'EVIDENCE_WEIGHT_ASSESSMENT_TEST',
+                0.30
+            ),
+
+            'project_performance' => (float) env(
+                'EVIDENCE_WEIGHT_PROJECT_PERFORMANCE',
+                0.35
+            ),
+
+            'expert_evaluation' => (float) env(
+                'EVIDENCE_WEIGHT_EXPERT_EVALUATION',
+                0.20
+            ),
+
+            'certificate' => (float) env(
+                'EVIDENCE_WEIGHT_CERTIFICATE',
+                0.05
+            ),
         ],
-        // verified_i for pending evidence in the confidence formula.
-        // Agreed with Data Science as a configurable v1 default — see
-        // SRS 10.3.2 (Confidence Score).
-        'pending_verified_factor' => (float) env('EVIDENCE_PENDING_VERIFIED_FACTOR', 0.5),
+
+        /*
+     * Pending verification factor.
+     *
+     * Approved by Data Science:
+     * pending = 0.50
+     */
+        'pending_verified_factor' => (float) env(
+            'EVIDENCE_PENDING_VERIFIED_FACTOR',
+            0.50
+        ),
+
+        /*
+     * Evidence recency.
+     *
+     * Version:
+     * evidence-recency-v1
+     *
+     * Calendar-month thresholds:
+     *
+     * 0-6 months       = 1.00
+     * >6-12 months     = 0.90
+     * >12-24 months    = 0.75
+     * >24 months       = 0.60
+     */
+        'recency' => [
+
+            'six_months' => (float) env(
+                'EVIDENCE_RECENCY_6_MONTHS',
+                1.00
+            ),
+
+            'twelve_months' => (float) env(
+                'EVIDENCE_RECENCY_12_MONTHS',
+                0.90
+            ),
+
+            'twenty_four_months' => (float) env(
+                'EVIDENCE_RECENCY_24_MONTHS',
+                0.75
+            ),
+
+            'older' => (float) env(
+                'EVIDENCE_RECENCY_OLDER',
+                0.60
+            ),
+        ],
     ],
 
     'admin_setup' => [

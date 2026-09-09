@@ -12,29 +12,48 @@ use Illuminate\Validation\Rule;
 class EvidenceController extends Controller
 {
     public function __construct(
-        private readonly SkillEvaluationService $skillEvaluationService,
+        private readonly SkillEvaluationService $skillEvaluationService
     ) {}
 
     /**
      * POST /api/v1/evidence
-     * Submit new evidence for a skill (self-submitted certificate/link,
-     * pending admin review). Stored in the same skill_evidences table
-     * used by the baseline/assessment pipeline, source = 'certificate'.
+     *
+     * Submit new evidence for a skill.
+     * Evidence is created as pending until reviewed by an admin.
      */
     public function store(Request $request)
     {
         $request->validate([
             'skill_id' => [
                 'required',
-                'exists:skills,id',
-                Rule::where(function ($query) {
+                Rule::exists('skills', 'id')->where(function ($query) {
                     $query->where('status', 'active');
                 }),
             ],
-            'evidence_url' => 'sometimes|required_without:evidence_file|url',
-            'evidence_file' => 'sometimes|required_without:evidence_url|file|max:10000',
-            'description' => 'sometimes|string|max:500',
-            'evidence_date' => 'sometimes|date',
+
+            'evidence_url' => [
+                'sometimes',
+                'required_without:evidence_file',
+                'url',
+            ],
+
+            'evidence_file' => [
+                'sometimes',
+                'required_without:evidence_url',
+                'file',
+                'max:10000',
+            ],
+
+            'description' => [
+                'sometimes',
+                'string',
+                'max:500',
+            ],
+
+            'evidence_date' => [
+                'sometimes',
+                'date',
+            ],
         ]);
 
         $studentProfile = $request->user()->studentProfile;
@@ -48,15 +67,26 @@ class EvidenceController extends Controller
 
         $skillId = $request->skill_id;
 
-        $reference = $request->filled('evidence_url')
-            ? $request->evidence_url
-            : ($request->hasFile('evidence_file')
-                ? $request->file('evidence_file')->store('evidence')
-                : null);
+        /*
+         * Use URL as reference when provided.
+         * Otherwise store the uploaded file and use its path as reference.
+         */
+        if ($request->filled('evidence_url')) {
+            $reference = $request->evidence_url;
+        } elseif ($request->hasFile('evidence_file')) {
+            $reference = $request->file('evidence_file')->store('evidence');
+        } else {
+            $reference = null;
+        }
 
-        // Check for duplicate evidence (same student, skill, source, reference —
-        // matches SKL-07 duplicate-detection requirement).
-        $duplicate = SkillEvidence::where('student_profile_id', $studentProfile->id)
+        /*
+         * Prevent duplicate evidence for the same learner,
+         * skill, source and reference.
+         */
+        $duplicate = SkillEvidence::where(
+            'student_profile_id',
+            $studentProfile->id
+        )
             ->where('skill_id', $skillId)
             ->where('source', 'certificate')
             ->where('reference', $reference)
@@ -69,6 +99,13 @@ class EvidenceController extends Controller
             ], 409);
         }
 
+        /*
+         * New evidence starts as pending.
+         *
+         * recency_factor is initially set for storage compatibility,
+         * but SkillEvaluationService recalculates it dynamically
+         * during every recalculate().
+         */
         $evidence = SkillEvidence::create([
             'student_profile_id' => $studentProfile->id,
             'skill_id' => $skillId,
@@ -76,17 +113,28 @@ class EvidenceController extends Controller
             'value' => 0,
             'normalized_value' => 0,
             'reference' => $reference,
-            'evidence_date' => $request->filled('evidence_date') ? $request->evidence_date : now()->toDateString(),
+
+            'evidence_date' => $request->filled('evidence_date')
+                ? $request->evidence_date
+                : now()->toDateString(),
+
             'verification_status' => 'pending',
             'recency_factor' => 1.00,
         ]);
 
-        // SRS 10.3.2: pending evidence already contributes to the confidence
-        // score (via the configured partial verified_i), so recalculate
-        // immediately rather than waiting for review.
+        /*
+         * Recalculate immediately.
+         *
+         * Pending evidence contributes to confidence using
+         * the configured pending verification factor.
+         */
         $skill = Skill::find($skillId);
+
         if ($skill) {
-            $this->skillEvaluationService->recalculate($studentProfile, $skill);
+            $this->skillEvaluationService->recalculate(
+                $studentProfile,
+                $skill
+            );
         }
 
         return response()->json([
@@ -98,7 +146,8 @@ class EvidenceController extends Controller
 
     /**
      * GET /api/v1/evidence
-     * Retrieve evidence for the authenticated learner.
+     *
+     * Retrieve verified evidence for the authenticated learner.
      */
     public function index(Request $request)
     {
@@ -111,9 +160,15 @@ class EvidenceController extends Controller
             ], 422);
         }
 
-        $evidence = SkillEvidence::where('student_profile_id', $studentProfile->id)
+        $evidence = SkillEvidence::where(
+            'student_profile_id',
+            $studentProfile->id
+        )
             ->where('verification_status', 'verified')
-            ->with(['skill', 'reviewer'])
+            ->with([
+                'skill',
+                'reviewer',
+            ])
             ->get();
 
         return response()->json([
@@ -125,21 +180,27 @@ class EvidenceController extends Controller
 
     /**
      * GET /api/v1/evidence/{id}
+     *
      * Retrieve a specific evidence record.
      *
-     * FIX: this previously had no ownership or role check at all — any
-     * authenticated user could fetch any evidence record by id. Now only
-     * an admin, or the learner who owns the record (via their own
-     * student_profile_id), may retrieve it.
+     * Only:
+     * - Admin
+     * - Owner of the evidence
+     *
+     * can access the record.
      */
     public function show(Request $request, $id)
     {
-        $evidence = SkillEvidence::with(['skill', 'reviewer'])->findOrFail($id);
+        $evidence = SkillEvidence::with([
+            'skill',
+            'reviewer',
+        ])->findOrFail($id);
 
         $user = $request->user();
         $studentProfile = $user->studentProfile;
 
-        $owns = $studentProfile && $evidence->student_profile_id === $studentProfile->id;
+        $owns = $studentProfile
+            && $evidence->student_profile_id === $studentProfile->id;
 
         if (! $user->hasRole('admin') && ! $owns) {
             return response()->json([
@@ -157,15 +218,32 @@ class EvidenceController extends Controller
 
     /**
      * PUT /api/v1/evidence/{id}/review
-     * Review and verify/reject evidence (admin only).
+     *
+     * Admin reviews evidence and marks it as:
+     * - verified
+     * - rejected
      */
     public function review(Request $request, $id)
     {
         $request->validate([
-            'verification_status' => ['required', Rule::in(['verified', 'rejected'])],
-            'reviewer_notes' => 'sometimes|string|max:500',
+            'verification_status' => [
+                'required',
+                Rule::in([
+                    'verified',
+                    'rejected',
+                ]),
+            ],
+
+            'reviewer_notes' => [
+                'sometimes',
+                'string',
+                'max:500',
+            ],
         ]);
 
+        /*
+         * Only admins can review evidence.
+         */
         if (! $request->user()->hasRole('admin')) {
             return response()->json([
                 'success' => false,
@@ -175,22 +253,29 @@ class EvidenceController extends Controller
 
         $evidence = SkillEvidence::findOrFail($id);
 
+        /*
+         * Update verification information.
+         */
         $evidence->update([
             'verification_status' => $request->verification_status,
             'reviewer_id' => $request->user()->id,
             'reviewer_notes' => $request->reviewer_notes,
         ]);
 
-        // SKL-06: recalculate the skill's level and confidence from all
-        // available evidence now that this record's status has changed.
+        /*
+         * Recalculate skill level and confidence after
+         * the evidence verification status changes.
+         */
         $this->skillEvaluationService->recalculate(
             $evidence->studentProfile,
-            $evidence->skill,
+            $evidence->skill
         );
 
         return response()->json([
             'success' => true,
-            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
+            'message' => 'Evidence '
+                .strtolower($request->verification_status)
+                .' successfully.',
             'data' => $evidence,
         ]);
     }
