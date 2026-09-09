@@ -27,4 +27,24 @@ class CareerRoleSkill extends Model
     {
         return $this->belongsTo(Skill::class, 'prerequisite_skill_id');
     }
+
+    /**
+     * Multiple prerequisites per required skill, via career_role_skill_dependencies.
+     * Supersedes the single nullable prerequisite_skill_id column above, which is
+     * kept only for backward compatibility and is not populated by new code.
+     */
+    public function dependencies()
+    {
+        return $this->hasMany(CareerRoleSkillDependency::class);
+    }
+
+    public function prerequisites()
+    {
+        return $this->belongsToMany(
+            Skill::class,
+            'career_role_skill_dependencies',
+            'career_role_skill_id',
+            'prerequisite_skill_id'
+        );
+    }
 }

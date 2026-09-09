@@ -1,30 +1,23 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CareerRole;
-use App\Models\Skill;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 
 class CareerRoleController extends Controller
 {
     /**
      * GET /api/v1/career-roles
-     * List all approved career roles for a learner.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
+     * List all approved career roles.
      */
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        // Learners can only see approved career roles
         $careerRoles = CareerRole::where('status', 'approved')
-            ->withCount('skills as skills_count')
+            ->withCount('roleSkills as skills_count')
             ->latest('version')
             ->paginate(15);
 
@@ -37,67 +30,169 @@ class CareerRoleController extends Controller
 
     /**
      * GET /api/v1/career-roles/{id}
-     * Retrieve a specific career role with its skills and details.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\JsonResponse
+     * Retrieve a specific approved career role.
      */
-    public function show($id)
+    public function show(Request $request, $id): JsonResponse
     {
-        $careerRole = CareerRole::with('skills')
-            ->where('status', 'approved')
-            ->findOrFail($id);
+        $requestId = $this->requestId($request);
+
+        $careerRole = $this->findApprovedCareerRole($id, $requestId);
+
+        if ($careerRole instanceof JsonResponse) {
+            return $careerRole;
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Career role retrieved successfully.',
-            'data' => $careerRole,
+            'data' => [
+                'id' => $careerRole->id,
+                'title' => $careerRole->title,
+                'version' => $careerRole->version,
+                'effective_date' => $careerRole->effective_date,
+                'status' => $careerRole->status,
+            ],
         ]);
     }
 
     /**
      * GET /api/v1/career-roles/{id}/skills
-     * Retrieve required skills for a career role with importance weights and critical flags.
      *
-     * @param  int  $id
-     * @return \Illuminate\Http\JsonResponse
+     * The career role retrieval API's main deliverable: required skills,
+     * importance weights, critical flags, and prerequisites for an approved
+     * role version, packaged as a validated decision snapshot — a
+     * point-in-time, self-contained payload other services (e.g. Readiness)
+     * can rely on without re-deriving these facts themselves.
      */
-    public function skills($id)
+    public function skills(Request $request, $id): JsonResponse
     {
-        $careerRole = CareerRole::where('status', 'approved')
-            ->with(['skills' => function ($query) {
-                $query->select('skill_id', 'required_level', 'importance_weight', 'is_critical');
-            }])
-            ->findOrFail($id);
+        $requestId = $this->requestId($request);
 
-        // Format the skills data for frontend consumption
-        $formattedSkills = $careerRole->skills->map(function ($skill) {
+        $careerRole = $this->findApprovedCareerRole($id, $requestId, with: [
+            'roleSkills.skill',
+            'roleSkills.prerequisites',
+        ]);
+
+        if ($careerRole instanceof JsonResponse) {
+            return $careerRole;
+        }
+
+        if ($careerRole->roleSkills->isEmpty()) {
+            return $this->errorResponse(
+                'CAREER_ROLE_NO_SKILLS',
+                'The selected career role has no required skills.',
+                422,
+                $requestId,
+            );
+        }
+
+        $formattedSkills = $careerRole->roleSkills->map(function ($roleSkill) {
             return [
-                'skill_id' => $skill->id,
-                'skill_name' => $skill->name,
-                'slug' => $skill->slug,
-                'required_level' => $skill->pivot->required_level,
-                'importance_weight' => $skill->pivot->importance_weight,
-                'is_critical' => $skill->pivot->is_critical,
-                'prerequisite_skill_id' => $skill->prerequisite_skill_id,
+                'skill_id' => $roleSkill->skill_id,
+                'skill_name' => $roleSkill->skill?->name,
+                'slug' => $roleSkill->skill?->slug,
+                'required_level' => (float) $roleSkill->required_level,
+                'importance_weight' => (float) $roleSkill->importance_weight,
+                'is_critical' => (bool) $roleSkill->is_critical,
+                'prerequisites' => $roleSkill->prerequisites->map(fn ($skill) => [
+                    'skill_id' => $skill->id,
+                    'slug' => $skill->slug,
+                    'name' => $skill->name,
+                ])->values(),
             ];
-        });
+        })->values();
+
+        $weights = $formattedSkills->pluck('importance_weight');
 
         return response()->json([
             'success' => true,
-            'message' => 'Career role skills retrieved successfully.',
+            'message' => 'Career role decision snapshot prepared successfully.',
+            'request_id' => $requestId,
             'data' => [
-                'career_role_id' => $id,
-                'career_role_title' => $careerRole->title,
+                'career_role' => [
+                    'id' => $careerRole->id,
+                    'title' => $careerRole->title,
+                    'version' => $careerRole->version,
+                    'effective_date' => $careerRole->effective_date,
+                    'status' => $careerRole->status,
+                ],
                 'skills' => $formattedSkills,
                 'statistics' => [
                     'total_skills' => $formattedSkills->count(),
                     'critical_skills_count' => $formattedSkills->where('is_critical', true)->count(),
-                    'average_importance_weight' => $formattedSkills->isNotEmpty()
-                        ? round(array_sum($formattedSkills->pluck('importance_weight')->toArray()) / count($formattedSkills->pluck('importance_weight')->toArray()), 3)
+                    'average_importance_weight' => $weights->isNotEmpty()
+                        ? round($weights->avg(), 3)
                         : 0,
+                ],
+                'snapshot' => [
+                    'is_valid' => true,
+                    'generated_at' => now()->toIso8601String(),
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Shared lookup + ownership/permission validation for a single career
+     * role: only approved roles are ever visible through this API, and
+     * "not found" vs "exists but not approved" are reported distinctly
+     * (matching ReadinessService's error codes) rather than a blanket 404.
+     */
+    private function findApprovedCareerRole(mixed $id, string $requestId, array $with = []): CareerRole|JsonResponse
+    {
+        $careerRole = CareerRole::query()
+            ->whereKey($id)
+            ->where('status', 'approved')
+            ->when($with !== [], fn ($query) => $query->with($with))
+            ->first();
+
+        if ($careerRole) {
+            return $careerRole;
+        }
+
+        $exists = CareerRole::whereKey($id)->exists();
+
+        if ($exists) {
+            return $this->errorResponse(
+                'CAREER_ROLE_NOT_APPROVED',
+                'The selected career role is not approved.',
+                422,
+                $requestId,
+            );
+        }
+
+        return $this->errorResponse(
+            'CAREER_ROLE_NOT_FOUND',
+            'The selected career role does not exist.',
+            404,
+            $requestId,
+            ['career_role_id' => $id],
+        );
+    }
+
+    private function requestId(Request $request): string
+    {
+        return (string) ($request->header('X-Request-ID') ?: Str::uuid());
+    }
+
+    private function errorResponse(
+        string $code,
+        string $message,
+        int $status,
+        string $requestId,
+        array $details = [],
+    ): JsonResponse {
+        $payload = [
+            'success' => false,
+            'code' => $code,
+            'message' => $message,
+            'request_id' => $requestId,
+        ];
+
+        if ($details !== []) {
+            $payload['details'] = $details;
+        }
+
+        return response()->json($payload, $status, ['X-Request-ID' => $requestId]);
     }
 }
