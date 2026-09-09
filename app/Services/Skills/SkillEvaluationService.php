@@ -164,8 +164,7 @@ class SkillEvaluationService
              * Then apply source weight ONCE.
              */
             $verifiedRecords = $distinctRecords->filter(
-                fn(SkillEvidence $evidence) =>
-                $evidence->verification_status === 'verified'
+                fn (SkillEvidence $evidence) => $evidence->verification_status === 'verified'
             );
 
             $includedInLevel = false;
@@ -179,8 +178,7 @@ class SkillEvaluationService
                 if ($recencySum > 0) {
                     $aggregatedValue =
                         $verifiedRecords->sum(
-                            fn(SkillEvidence $evidence) =>
-                            (float) $evidence->normalized_value
+                            fn (SkillEvidence $evidence) => (float) $evidence->normalized_value
                                 * (float) $evidence->calculated_recency_factor
                         )
                         / $recencySum;
@@ -237,19 +235,14 @@ class SkillEvaluationService
 
                     return [
                         'evidence_id' => $evidence->id,
-                        'verification_status' =>
-                        $evidence->verification_status,
+                        'verification_status' => $evidence->verification_status,
                         'verification_factor' => $verificationFactor,
                         'recency_factor' => $recencyFactor,
-                        'record_support' =>
-                        $verificationFactor * $recencyFactor,
+                        'record_support' => $verificationFactor * $recencyFactor,
                         'evidence_date' => $evidence->evidence_date,
-                        'source_record_type' =>
-                        $evidence->source_record_type,
-                        'source_record_id' =>
-                        $evidence->source_record_id,
-                        'reference' =>
-                        $evidence->reference,
+                        'source_record_type' => $evidence->source_record_type,
+                        'source_record_id' => $evidence->source_record_id,
+                        'reference' => $evidence->reference,
                     ];
                 }
             )->values();
@@ -282,8 +275,7 @@ class SkillEvaluationService
 
                 'source_support' => round($sourceSupport, 6),
 
-                'source_contribution' =>
-                round($sourceContribution, 6),
+                'source_contribution' => round($sourceContribution, 6),
 
                 'recency_version' => self::RECENCY_VERSION,
 
@@ -399,11 +391,9 @@ class SkillEvaluationService
 
                     'calculated_at' => $evaluationDate,
 
-                    'source_contributions' =>
-                    $snapshot['sources'],
+                    'source_contributions' => $snapshot['sources'],
 
-                    'latest_skill_evaluation_id' =>
-                    $evaluation->id,
+                    'latest_skill_evaluation_id' => $evaluation->id,
                 ]
             );
 
@@ -436,9 +426,9 @@ class SkillEvaluationService
                     && $evidence->source_record_id !== null
                 ) {
                     return 'canonical:'
-                        . $evidence->source_record_type
-                        . ':'
-                        . $evidence->source_record_id;
+                        .$evidence->source_record_type
+                        .':'
+                        .$evidence->source_record_id;
                 }
 
                 /*
@@ -447,7 +437,7 @@ class SkillEvaluationService
                  */
                 if ($evidence->reference !== null) {
                     return 'reference:'
-                        . (string) $evidence->reference;
+                        .(string) $evidence->reference;
                 }
 
                 /*
@@ -455,7 +445,7 @@ class SkillEvaluationService
                  *
                  * Treat each record as independent.
                  */
-                return 'evidence:' . $evidence->id;
+                return 'evidence:'.$evidence->id;
             }
         );
 
@@ -469,8 +459,7 @@ class SkillEvaluationService
                  */
                 return $duplicates
                     ->sortByDesc(
-                        fn(SkillEvidence $evidence) =>
-                        Carbon::parse($evidence->evidence_date)
+                        fn (SkillEvidence $evidence) => Carbon::parse($evidence->evidence_date)
                             ->timestamp
                     )
                     ->sortByDesc('id')
