@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\StoreProfileRequest;
 use App\Http\Requests\Profile\UpdateProfileRequest;
+use App\Models\CareerGoalHistory;
 use App\Models\StudentProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -127,6 +129,13 @@ class ProfileController extends Controller
         $validated = $request->validated();
         $visibility = Arr::pull($validated, 'visibility');
 
+        /*
+         * US-INT-01 §24: a primary career-role change closes the old
+         * CareerGoalHistory entry, opens a new one, and queues an
+         * intelligence recalculation against the new role.
+         */
+        $oldCareerRoleId = $profile->primary_career_role_id;
+
         $profile->fill($validated);
 
         if ($visibility !== null) {
@@ -136,6 +145,17 @@ class ProfileController extends Controller
             $profile->forceFill(['visibility' => 'private']);
         }
         $profile->forceFill(['completeness_percent' => $this->calculateCompleteness($profile)])->save();
+
+        $careerRoleChanged = $oldCareerRoleId !== $profile->primary_career_role_id;
+
+        if ($careerRoleChanged) {
+            $this->recordCareerGoalChange($profile, $oldCareerRoleId);
+
+            SkillDataChanged::dispatch(
+                $profile->fresh(),
+                'career_role_change',
+            );
+        }
 
         return response()->json([
             'success' => true,
@@ -189,5 +209,28 @@ class ProfileController extends Controller
             'graduation_date' => $profile->graduation_date?->toDateString(),
             'updated_at' => $profile->updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * US-INT-01 §24 — track career-goal history: close the previous
+     * goal entry (replaced_at) and open a new one for the current role.
+     * The CareerGoalHistory table pre-exists; this finally writes it.
+     */
+    private function recordCareerGoalChange(StudentProfile $profile, ?int $oldCareerRoleId): void
+    {
+        if ($oldCareerRoleId !== null) {
+            $profile->careerGoalHistory()
+                ->whereNull('replaced_at')
+                ->where('career_role_id', $oldCareerRoleId)
+                ->update(['replaced_at' => now()]);
+        }
+
+        CareerGoalHistory::create([
+            'student_profile_id' => $profile->id,
+            'career_role_id' => $profile->primary_career_role_id,
+            'career_role_version' => $profile->primaryCareerRole?->version ?? 1,
+            'set_at' => now(),
+            'replaced_at' => null,
+        ]);
     }
 }

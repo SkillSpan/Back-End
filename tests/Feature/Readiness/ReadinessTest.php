@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Readiness;
 
+use App\Models\AlgorithmConfiguration;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
 use App\Models\ReadinessResult;
@@ -30,6 +31,17 @@ class ReadinessTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
+
+        // US-INT-01 §10: readiness decisions now bind to an active
+        // algorithm configuration — no active config means an explicit
+        // error, so seed one for every legacy readiness scenario.
+        AlgorithmConfiguration::create([
+            'name' => 'intelligence',
+            'version' => 1,
+            'status' => 'active',
+            'config' => [],
+            'activated_at' => now(),
+        ]);
     }
 
     public function test_unauthenticated_user_is_rejected(): void

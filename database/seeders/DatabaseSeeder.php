@@ -12,7 +12,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Order matters: universities reference countries, so countries
-        // must exist before the university import runs.
+        // must exist before the university import runs. The algorithm
+        // configuration must be active before any intelligence
+        // calculation (US-INT-01) can bind a decision to a version.
         $this->call([
             RolesSeeder::class,
             PermissionSeeder::class,
@@ -22,6 +24,7 @@ class DatabaseSeeder extends Seeder
             SkillSeeder::class,
             CareerRoleSeeder::class,
             BaselineAssessmentItemSeeder::class,
+            AlgorithmConfigurationSeeder::class,
         ]);
     }
 }

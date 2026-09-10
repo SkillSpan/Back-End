@@ -37,6 +37,16 @@ class UpdateProfileRequest extends FormRequest
             'interests.*' => ['string', 'max:100'],
             'availability' => ['sometimes', 'nullable', 'string', 'max:100'],
             'preferred_work_type' => ['sometimes', 'nullable', 'string', 'max:100'],
+
+            // US-INT-01 §24: a career-role change must target an
+            // approved role — draft/retired roles can't drive decisions.
+            'primary_career_role_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'gt:0',
+                'exists:career_roles,id,status,approved',
+            ],
             'visibility' => ['sometimes', 'in:public,organization_only,private'],
         ];
     }

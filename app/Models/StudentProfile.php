@@ -43,6 +43,11 @@ class StudentProfile extends Model
         return $this->hasMany(ReadinessResult::class);
     }
 
+    public function decisionSnapshots()
+    {
+        return $this->hasMany(DecisionSnapshot::class);
+    }
+
     public function roadmaps()
     {
         return $this->hasMany(Roadmap::class);

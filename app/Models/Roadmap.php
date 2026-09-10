@@ -9,7 +9,11 @@ class Roadmap extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'version'];
+    public const STATUS_ACTIVE = 'active';
+
+    public const STATUS_SUPERSEDED = 'superseded';
+
+    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
 
     protected $casts = ['generated_at' => 'datetime'];
 
@@ -23,8 +27,13 @@ class Roadmap extends Model
         return $this->belongsTo(CareerRole::class);
     }
 
+    public function decisionSnapshot()
+    {
+        return $this->belongsTo(DecisionSnapshot::class);
+    }
+
     public function actions()
     {
-        return $this->hasMany(RoadmapAction::class);
+        return $this->hasMany(RoadmapAction::class)->orderBy('order_index');
     }
 }

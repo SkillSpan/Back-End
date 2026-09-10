@@ -5,17 +5,22 @@ namespace App\Services\Readiness;
 use App\Exceptions\ReadinessException;
 use App\Exceptions\ReadinessIntegrationException;
 use App\Models\CareerRole;
+use App\Models\DecisionSnapshot;
 use App\Models\ReadinessResult;
 use App\Models\SkillEvaluation;
+use App\Models\SkillGapResult;
 use App\Models\StudentProfile;
+use App\Services\Intelligence\DecisionSnapshotService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ReadinessService
 {
     public function __construct(
         private readonly DataScienceClient $dataScienceClient,
         private readonly ReadinessPayloadBuilder $payloadBuilder,
+        private readonly DecisionSnapshotService $decisionSnapshotService,
     ) {}
 
     public function calculate(
@@ -112,6 +117,36 @@ class ReadinessService
             $roleSkills,
         );
 
+        /*
+         * US-INT-01 §10: resolve the active algorithm configuration —
+         * an explicit error when none is active, never a fabricated
+         * default.
+         */
+        $configuration = $this->decisionSnapshotService->resolveConfiguration();
+        $configurationVersion = 'config-v'.$configuration->version;
+
+        /*
+         * US-INT-01 §6: the decision snapshot captures the validated
+         * input state BEFORE the FastAPI call (status=pending). The
+         * same snapshot is marked succeeded only if the response
+         * validates and persists atomically. On failure it stays as
+         * the audit record of the attempt — no fabricated results.
+         */
+        $decisionSnapshot = $this->decisionSnapshotService->createPendingSnapshot(
+            array_merge($payload, [
+                'career_role_id' => (int) $careerRole->id,
+                'career_role_version' => (int) $careerRole->version,
+                'student_profile_id' => (int) $studentProfile->id,
+                'user_id' => (int) $studentProfile->user_id,
+                'target_role' => (string) $careerRole->title,
+                'flow' => 'readiness_legacy',
+                'algorithm_version' => (string) config('services.data_science.algorithm_version', 'skill-gap-v1'),
+                'configuration_version' => $configurationVersion,
+            ]),
+            (string) Str::uuid(),
+            $requestId,
+        );
+
         $result = $this->dataScienceClient->analyze(
             $payload,
             $requestId,
@@ -128,29 +163,42 @@ class ReadinessService
 
         $calculatedAt = now();
 
-        $snapshot = [
-            'career_role_id' => (int) $careerRole->id,
-            'career_role_version' => (int) $careerRole->version,
-            'student_profile_id' => (int) $studentProfile->id,
-            'payload' => $payload,
-            'fastapi_result' => $result,
-            'algorithm_version' => $algorithmVersion,
-            'request_id' => $requestId,
-            'calculated_at' => $calculatedAt->toIso8601String(),
-        ];
-
         return DB::transaction(function () use (
             $studentProfile,
             $careerRole,
             $result,
+            $payload,
             $algorithmVersion,
+            $configurationVersion,
             $calculatedAt,
-            $snapshot,
+            $requestId,
+            $decisionSnapshot,
         ) {
-            return ReadinessResult::create([
+            $snapshot = $decisionSnapshot;
+
+            $snapshot->update([
+                'algorithm_version' => $algorithmVersion,
+                'status' => DecisionSnapshot::STATUS_SUCCEEDED,
+                'calculated_at' => $calculatedAt,
+                'snapshot' => [
+                    'flow' => 'readiness_legacy',
+                    'career_role_id' => (int) $careerRole->id,
+                    'career_role_version' => (int) $careerRole->version,
+                    'student_profile_id' => (int) $studentProfile->id,
+                    'payload' => $payload,
+                    'fastapi_result' => $result,
+                    'algorithm_version' => $algorithmVersion,
+                    'configuration_version' => $configurationVersion,
+                    'request_id' => $requestId,
+                    'calculated_at' => $calculatedAt->toIso8601String(),
+                ],
+            ]);
+
+            $readinessResult = ReadinessResult::create([
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
+                'decision_snapshot_id' => $snapshot->id,
 
                 'score' => $result['readiness_score'],
                 'skill_match_component' => $result['base_readiness_score'],
@@ -164,9 +212,43 @@ class ReadinessService
                 'band' => null,
 
                 'algorithm_version' => $algorithmVersion,
+                'configuration_version' => $configurationVersion,
+                'request_id' => $requestId,
                 'calculated_at' => $calculatedAt,
-                'snapshot' => $snapshot,
+                'snapshot' => [
+                    'decision_uuid' => $snapshot->decision_uuid,
+                    'payload' => $payload,
+                    'fastapi_result' => $result,
+                    'algorithm_version' => $algorithmVersion,
+                    'configuration_version' => $configurationVersion,
+                    'request_id' => $requestId,
+                    'calculated_at' => $calculatedAt->toIso8601String(),
+                ],
             ]);
+
+            // US-INT-01 §17: validated gap output becomes historical
+            // skill_gap_results rows tied to this decision — append-only.
+            foreach ($result['skill_results'] as $skillResult) {
+                SkillGapResult::create([
+                    'decision_snapshot_id' => $snapshot->id,
+                    'skill_id' => (int) $skillResult['skill_id'],
+                    'current_level' => (float) $skillResult['current_level'],
+                    'required_level' => (float) $skillResult['required_level'],
+                    'gap' => (float) $skillResult['gap'],
+                    'match_score' => isset($skillResult['match_score']) && is_numeric($skillResult['match_score'])
+                        ? (float) $skillResult['match_score']
+                        : null,
+                    'importance_weight' => (float) $skillResult['importance_weight'],
+                    'is_critical' => (bool) $skillResult['is_critical'],
+                    'confidence' => isset($skillResult['confidence']) && is_numeric($skillResult['confidence'])
+                        ? (float) $skillResult['confidence']
+                        : null,
+                    'status' => (string) $skillResult['status'],
+                    'explanation' => $skillResult['explanation'] ?? null,
+                ]);
+            }
+
+            return $readinessResult;
         });
     }
 

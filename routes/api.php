@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
 use App\Http\Controllers\Api\EvidenceController;
+use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
@@ -54,6 +55,11 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
+
+        // US-INT-01 — intelligence decision endpoints (skill gap +
+        // readiness + roadmap in one atomic decision).
+        Route::post('/intelligence/calculate', [IntelligenceController::class, 'calculate']);
+        Route::get('/intelligence/latest', [IntelligenceController::class, 'latest']);
     });
 
     Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
