@@ -5,7 +5,6 @@ namespace App\Services\Intelligence;
 use App\Exceptions\IntelligenceException;
 use App\Exceptions\ReadinessException;
 use App\Models\CareerRole;
-use App\Models\LearnerSkill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
@@ -93,11 +92,6 @@ class IntelligenceService
         $skillIds = $roleSkills->pluck('skill_id')->all();
 
         // One query per concern (US-INT-01 §30 — no N+1).
-        $learnerSkills = LearnerSkill::query()
-            ->where('learner_id', $studentProfile->user_id)
-            ->whereIn('skill_id', $skillIds)
-            ->get();
-
         $evaluations = SkillEvaluation::query()
             ->where('student_profile_id', $studentProfile->id)
             ->whereIn('skill_id', $skillIds)
@@ -105,12 +99,27 @@ class IntelligenceService
             ->orderByDesc('id')
             ->get();
 
-        if ($evaluations->isEmpty()) {
-            $missingSkillIds = $roleSkills
-                ->pluck('skill_id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+        /*
+         * SRS validated learner skill state: EVERY required role skill
+         * must have a skill evaluation. There is deliberately NO
+         * fallback to learner_skills for missing evaluations — silently
+         * substituting a projected level would send an incomplete or
+         * unvalidated skill state to the intelligence service.
+         */
+        $evaluatedSkillIds = $evaluations
+            ->map(fn (SkillEvaluation $evaluation) => (int) $evaluation->skill_id)
+            ->unique()
+            ->all();
 
+        $missingSkillIds = [];
+
+        foreach ($roleSkills as $roleSkill) {
+            if (! in_array((int) $roleSkill->skill_id, $evaluatedSkillIds, true)) {
+                $missingSkillIds[] = (int) $roleSkill->skill_id;
+            }
+        }
+
+        if ($missingSkillIds !== []) {
             throw new ReadinessException(
                 'The learner does not have evaluations for all required skills.',
                 422,
@@ -135,7 +144,6 @@ class IntelligenceService
             $studentProfile,
             $careerRole,
             $roleSkills,
-            $learnerSkills,
             $evaluations,
             $evidenceSummary,
             (string) config('services.data_science.algorithm_version', 'skill-gap-v1'),

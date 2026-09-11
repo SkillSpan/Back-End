@@ -167,21 +167,34 @@ class IntelligencePersistenceService
                 ->where('status', Roadmap::STATUS_ACTIVE)
                 ->update(['status' => Roadmap::STATUS_SUPERSEDED]);
 
-            $previousVersion = (int) ($roadmap['roadmap_version'] ?? 1);
+            /*
+             * Roadmap version semantics (US-INT-01): Laravel owns the
+             * persisted roadmap version — it is always the highest
+             * existing version for this (learner, role) plus one, so
+             * historical roadmaps can never collapse onto the same
+             * version. The `roadmap_version` returned by FastAPI stays
+             * part of the contract and is validated by the response
+             * validator, but it is NOT used as the persisted version:
+             * a stateless service cannot know the learner's history.
+             */
+            $nextVersion = ((int) Roadmap::query()
+                ->where('student_profile_id', $snapshot->student_profile_id)
+                ->where('career_role_id', $snapshot->career_role_id)
+                ->max('version')) + 1;
 
             $model = Roadmap::create([
                 'student_profile_id' => $snapshot->student_profile_id,
                 'career_role_id' => $snapshot->career_role_id,
                 'career_role_version' => $snapshot->career_role_version,
                 'decision_snapshot_id' => $snapshot->id,
-                'version' => $previousVersion,
+                'version' => $nextVersion,
+                'status' => Roadmap::STATUS_ACTIVE,
+                'generated_at' => now(),
                 'algorithm_version' => $algorithmVersion,
                 'configuration_version' => $configurationVersion,
                 'request_id' => $requestId,
                 'explanation' => $roadmap['explanation'] ?? null,
             ]);
-
-            $model->forceFill(['generated_at' => now()])->save();
 
             $this->persistRoadmapActions($model, $roadmap, $skillNameById);
 

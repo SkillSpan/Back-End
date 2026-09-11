@@ -31,7 +31,16 @@ class DataScienceClient
             '/api/v1/intelligence/skill-gap'
         );
 
-        $serviceToken = (string) config('services.data_science.service_token', '');
+        $serviceToken = trim((string) config('services.data_science.service_token', ''));
+
+        if ($serviceToken === '') {
+            throw new ReadinessIntegrationException(
+                'The Data Science service token is not configured.',
+                503,
+                'DATA_SCIENCE_NOT_CONFIGURED',
+            );
+        }
+
         $startedAt = microtime(true);
 
         if ($baseUrl === '') {
@@ -48,13 +57,10 @@ class DataScienceClient
                 ->timeout($timeout)
                 ->withHeaders([
                     'X-Request-ID' => $requestId,
-                ]);
-
-            // US-INT-01 §4: dedicated service credential — never a
-            // learner Sanctum token. Optional for local dev.
-            if ($serviceToken !== '') {
-                $request = $request->withToken($serviceToken);
-            }
+                ])
+                // US-INT-01 §4: dedicated service credential, mandatory
+                // on every call — never a learner Sanctum token.
+                ->withToken($serviceToken);
 
             $response = $request->post($endpoint, $payload);
         } catch (ConnectionException $e) {

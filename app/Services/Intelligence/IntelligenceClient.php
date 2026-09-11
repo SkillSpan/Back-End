@@ -19,13 +19,18 @@ use Throwable;
  */
 class IntelligenceClient
 {
+    /**
+     * Configured request timeout in seconds. Declared, typed, and
+     * assigned exactly once in the constructor — never a dynamic
+     * property.
+     */
+    private readonly int $timeout;
+
     public function __construct(
         private readonly ?string $serviceToken = null,
         private readonly ?string $baseUrl = null,
         int $timeout = 10,
     ) {
-        // Resolved lazily via getter — readonly properties cannot be
-        // reassigned when the container injects explicit nulls.
         $this->timeout = $timeout > 0
             ? $timeout
             : (int) config('services.data_science.timeout', 10);
@@ -34,6 +39,29 @@ class IntelligenceClient
     private function resolvedBaseUrl(): string
     {
         return rtrim((string) ($this->baseUrl ?? config('services.data_science.url')), '/');
+    }
+
+    /**
+     * The dedicated service credential (US-INT-01 §4). Mandatory on
+     * every Laravel -> FastAPI intelligence request; never a learner
+     * Sanctum token. A missing token fails locally before any network
+     * I/O — FastAPI is never called unauthenticated.
+     *
+     * @return non-empty-string
+     */
+    private function resolvedServiceToken(): string
+    {
+        $token = $this->serviceToken ?? config('services.data_science.service_token');
+
+        if (! is_string($token) || trim($token) === '') {
+            throw new IntelligenceException(
+                'The intelligence service token is not configured.',
+                503,
+                'INTELLIGENCE_NOT_CONFIGURED',
+            );
+        }
+
+        return trim($token);
     }
 
     /**
@@ -55,21 +83,18 @@ class IntelligenceClient
 
         $startedAt = microtime(true);
 
+        // Fail locally before any network I/O when the mandatory
+        // service credential is missing.
+        $token = $this->resolvedServiceToken();
+
         try {
             $request = Http::acceptJson()
                 ->contentType('application/json')
                 ->timeout($this->timeout)
                 ->withHeaders([
                     'X-Request-ID' => $requestId,
-                ]);
-
-            // Service-to-service credential only (US-INT-01 §4). Optional
-            // so local dev works without one; never a learner token.
-            $token = $this->serviceToken ?? config('services.data_science.service_token');
-
-            if (is_string($token) && $token !== '') {
-                $request = $request->withToken($token);
-            }
+                ])
+                ->withToken($token);
 
             $response = $request->post($baseUrl.$path, $payload);
         } catch (ConnectionException $e) {

@@ -4,7 +4,6 @@ namespace App\Services\Intelligence;
 
 use App\Exceptions\IntelligenceException;
 use App\Models\CareerRole;
-use App\Models\LearnerSkill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
@@ -21,7 +20,6 @@ use Illuminate\Support\Collection;
 class IntelligencePayloadBuilder
 {
     /**
-     * @param  Collection<int, LearnerSkill>  $learnerSkills
      * @param  Collection<int, SkillEvaluation>  $evaluations
      * @param  array<string, mixed>  $evidenceSummary
      */
@@ -29,7 +27,6 @@ class IntelligencePayloadBuilder
         StudentProfile $studentProfile,
         CareerRole $careerRole,
         Collection $roleSkills,
-        Collection $learnerSkills,
         Collection $evaluations,
         array $evidenceSummary,
         string $algorithmVersion,
@@ -40,9 +37,6 @@ class IntelligencePayloadBuilder
             ->sortByDesc('id')
             ->groupBy(fn (SkillEvaluation $evaluation) => (int) $evaluation->skill_id);
 
-        $learnerSkillsBySkillId = $learnerSkills
-            ->keyBy(fn (LearnerSkill $learnerSkill) => (int) $learnerSkill->skill_id);
-
         $skills = [];
 
         foreach ($roleSkills as $roleSkill) {
@@ -50,13 +44,27 @@ class IntelligencePayloadBuilder
             $skillName = (string) $roleSkill->skill?->name;
 
             $evaluation = $latestEvaluationsBySkillId->get($skillId)?->first();
-            $learnerSkill = $learnerSkillsBySkillId->get($skillId);
+
+            /*
+             * SRS validated learner skill state: the authoritative
+             * current level/confidence come ONLY from a skill
+             * evaluation. There is deliberately NO fallback to the
+             * learner_skills projection — a missing evaluation means an
+             * incomplete skill state, which the orchestrator rejects
+             * before the payload is even built.
+             */
+            if ($evaluation === null) {
+                throw new IntelligenceException(
+                    'The learner does not have evaluations for all required skills.',
+                    422,
+                    'INTELLIGENCE_VALIDATION_ERROR',
+                    ['missing_skill_id' => $skillId],
+                );
+            }
 
             $requiredLevel = (float) $roleSkill->required_level;
-            $currentLevel = $evaluation !== null ? (float) $evaluation->level : (float) ($learnerSkill?->level ?? 0);
-            $confidence = $evaluation !== null
-                ? (float) $evaluation->confidence
-                : (float) ($learnerSkill?->confidence_score ?? 0);
+            $currentLevel = (float) $evaluation->level;
+            $confidence = (float) $evaluation->confidence;
 
             $this->assertLevelInRange($currentLevel, 'current_level');
             $this->assertLevelInRange($requiredLevel, 'required_level');

@@ -437,7 +437,8 @@ class IntelligenceResponseValidator
         if (array_key_exists('target_skill_id', $action) && $action['target_skill_id'] !== null) {
             $targetSkillId = (int) $action['target_skill_id'];
 
-            if (! in_array((string) $targetSkillId, $knownSkillIds, true)) {
+            // $knownSkillIds is a list of ints — compare int to int.
+            if (! in_array($targetSkillId, $knownSkillIds, true)) {
                 throw new IntelligenceException(
                     'The intelligence service response contains an unknown target skill.',
                     502,
@@ -449,7 +450,7 @@ class IntelligenceResponseValidator
 
         if (array_key_exists('prerequisite_skill_ids', $action) && is_array($action['prerequisite_skill_ids'])) {
             foreach ($action['prerequisite_skill_ids'] as $prerequisiteSkillId) {
-                if (! in_array((string) ((int) $prerequisiteSkillId), $knownSkillIds, true)) {
+                if (! in_array((int) $prerequisiteSkillId, $knownSkillIds, true)) {
                     throw new IntelligenceException(
                         'The intelligence service response contains an unknown prerequisite skill.',
                         502,

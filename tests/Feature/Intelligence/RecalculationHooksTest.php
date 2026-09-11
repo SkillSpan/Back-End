@@ -35,6 +35,10 @@ class RecalculationHooksTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
 
+        // US-INT-01: the service credential is mandatory on every
+        // Laravel -> FastAPI intelligence request.
+        config(['services.data_science.service_token' => 'test-service-token']);
+
         AlgorithmConfiguration::create([
             'name' => 'intelligence',
             'version' => 1,

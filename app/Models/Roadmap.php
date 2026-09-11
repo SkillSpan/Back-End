@@ -13,7 +13,7 @@ class Roadmap extends Model
 
     public const STATUS_SUPERSEDED = 'superseded';
 
-    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
+    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'status', 'generated_at', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
 
     protected $casts = ['generated_at' => 'datetime'];
 

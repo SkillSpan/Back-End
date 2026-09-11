@@ -30,6 +30,10 @@ class BaselineAssessmentTest extends TestCase
 
         Config::set('services.data_science.baseline.enabled', true);
         Config::set('services.data_science.baseline.version', 'v1.0');
+
+        // US-INT-01: the service credential is mandatory on every
+        // Laravel -> FastAPI intelligence request, baseline included.
+        Config::set('services.data_science.service_token', 'test-service-token');
     }
 
     public function test_unauthenticated_user_is_rejected(): void

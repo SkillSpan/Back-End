@@ -112,8 +112,11 @@ Content-Type: application/json
 ```
 
 The token is a dedicated service credential — never a learner Sanctum token,
-never exposed to the frontend. It is optional in local development (calls work
-without it) and required in production.
+never exposed to the frontend. It is MANDATORY on every Laravel → FastAPI
+intelligence request: when it is missing, Laravel fails locally with 503
+`INTELLIGENCE_NOT_CONFIGURED` (legacy readiness flow:
+`DATA_SCIENCE_NOT_CONFIGURED`) before any network call — FastAPI is never
+called unauthenticated.
 
 ## Request ID
 
@@ -156,8 +159,25 @@ Decisions are immutable and append-only:
 - `roadmaps` — a new roadmap supersedes the previous one for the same
   (learner, role) via an explicit `active -> superseded` status transition; the
   old roadmap and its actions remain fully accessible.
+- **Roadmap versioning is Laravel-owned**: the persisted `roadmaps.version` is
+  always the highest existing version for that (learner, role) plus one, so
+  historical roadmaps can never collapse onto the same version. The
+  `roadmap_version` value returned by FastAPI remains part of the response
+  contract and is validated by the response validator, but it is NOT used as
+  the persisted version — a stateless service cannot know the learner's
+  history.
 
 A failed calculation never overwrites a previous successful result.
+
+## Learner skill state policy
+
+The validated learner skill state is built strictly from the latest
+`skill_evaluations` row per required role skill — current level AND confidence
+come only from that evaluation. There is deliberately NO fallback to the
+`learner_skills` projection: if even ONE required skill lacks an evaluation,
+the calculation fails with 422 `ASSESSMENT_INCOMPLETE` (listing the missing
+skill ids) before any FastAPI call and before the decision snapshot is
+created. An incomplete skill state is never sent to the intelligence service.
 
 ## Error behavior
 
@@ -193,7 +213,7 @@ and never break the original request):
 ```dotenv
 DATA_SCIENCE_SERVICE_URL=http://127.0.0.1:8001
 DATA_SCIENCE_SERVICE_TIMEOUT=10
-DATA_SCIENCE_SERVICE_TOKEN=
+DATA_SCIENCE_SERVICE_TOKEN=   # REQUIRED — see Service authentication
 DATA_SCIENCE_API_VERSION=v1
 DATA_SCIENCE_SKILL_GAP_PATH=/api/v1/intelligence/skill-gap
 DATA_SCIENCE_READINESS_PATH=/api/v1/intelligence/readiness

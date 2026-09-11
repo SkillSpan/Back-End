@@ -8,6 +8,7 @@ use App\Models\CareerRoleSkill;
 use App\Models\DecisionSnapshot;
 use App\Models\ReadinessResult;
 use App\Models\Roadmap;
+use App\Models\RoadmapAction;
 use App\Models\Role;
 use App\Models\Skill;
 use App\Models\SkillEvaluation;
@@ -40,6 +41,10 @@ class IntelligenceCalculateTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
+
+        // US-INT-01: the service credential is mandatory on every
+        // Laravel -> FastAPI intelligence request.
+        config(['services.data_science.service_token' => 'test-service-token']);
 
         AlgorithmConfiguration::create([
             'name' => 'intelligence',
@@ -126,6 +131,32 @@ class IntelligenceCalculateTest extends TestCase
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(422)
             ->assertJsonPath('code', 'CAREER_ROLE_NO_SKILLS');
+    }
+
+    public function test_learner_missing_one_required_skill_evaluation_is_rejected(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        // The learner is missing exactly ONE required skill evaluation —
+        // the incomplete skill state must never reach FastAPI.
+        SkillEvaluation::query()
+            ->where('student_profile_id', $profile->id)
+            ->where('skill_id', $roleSkills[2]->skill_id)
+            ->delete();
+
+        Http::fake();
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'ASSESSMENT_INCOMPLETE')
+            ->assertJsonPath('details.missing_skill_ids.0', (int) $roleSkills[2]->skill_id);
+
+        Http::assertNothingSent();
+
+        // No snapshot, no results — the attempt never left Laravel.
+        $this->assertSame(0, DecisionSnapshot::count());
+        $this->assertNothingPersisted($profile);
     }
 
     // ------------------------------------------------ snapshot + success
@@ -478,6 +509,29 @@ class IntelligenceCalculateTest extends TestCase
         $this->assertNothingPersisted($profile);
     }
 
+    public function test_missing_service_token_fails_locally_without_calling_fastapi(): void
+    {
+        [$user, $profile, $role] = $this->createScenario();
+        Sanctum::actingAs($user);
+        config(['services.data_science.service_token' => null]);
+
+        Http::fake();
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(503)
+            ->assertJsonPath('code', 'INTELLIGENCE_NOT_CONFIGURED');
+
+        // The failure is local: FastAPI is never called unauthenticated,
+        // and the attempt is only recorded as a failed decision.
+        Http::assertNothingSent();
+
+        $snapshot = DecisionSnapshot::where('student_profile_id', $profile->id)->first();
+        $this->assertNotNull($snapshot);
+        $this->assertSame('failed', $snapshot->status);
+
+        $this->assertNothingPersisted($profile);
+    }
+
     // ------------------------------------------------ history
 
     public function test_second_calculation_creates_new_decision_and_preserves_history(): void
@@ -582,6 +636,52 @@ class IntelligenceCalculateTest extends TestCase
             collect($urls)->contains(fn ($url) => str_contains($url, '/api/v1/intelligence/readiness')),
             'the versioned SRS readiness path must be used',
         );
+    }
+
+    // ------------------------------------------------ roadmap versioning
+
+    public function test_roadmap_versions_increment_and_previous_roadmap_is_superseded(): void
+    {
+        config(['services.data_science.roadmap_enabled' => true]);
+
+        [$user, $profile, $role, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        // The DS service returns roadmap_version=1 on BOTH calls — the
+        // persisted roadmap version is Laravel-owned (max+1), so the
+        // second roadmap must become version 2, never a second v1.
+        Http::fake([
+            '*/intelligence/skill-gap' => Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200),
+            '*/intelligence/readiness' => Http::response($this->readinessResponse($profile, $role), 200),
+            '*/intelligence/roadmap' => Http::response($this->roadmapResponse($profile, $role, $roleSkills), 200),
+        ]);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $roadmaps = Roadmap::query()
+            ->where('student_profile_id', $profile->id)
+            ->where('career_role_id', $role->id)
+            ->orderBy('id')
+            ->get();
+
+        $this->assertCount(2, $roadmaps);
+        $this->assertSame(1, (int) $roadmaps[0]->version);
+        $this->assertSame(2, (int) $roadmaps[1]->version);
+        $this->assertSame('superseded', $roadmaps[0]->status);
+        $this->assertSame('active', $roadmaps[1]->status);
+
+        // Old actions remain historically accessible.
+        $this->assertSame(2, RoadmapAction::where('roadmap_id', $roadmaps[0]->id)->count());
+        $this->assertSame(2, RoadmapAction::where('roadmap_id', $roadmaps[1]->id)->count());
+
+        // The roadmap carries its decision linkage and versions.
+        $this->assertNotNull($roadmaps[1]->decision_snapshot_id);
+        $this->assertSame('intelligence-v1', $roadmaps[1]->algorithm_version);
+        $this->assertSame('config-v1', $roadmaps[1]->configuration_version);
     }
 
     // ------------------------------------------------ helpers
@@ -713,6 +813,48 @@ class IntelligenceCalculateTest extends TestCase
             'total_skills' => 3,
             'met_skills' => 1,
             'skills_with_gap' => 2,
+        ];
+    }
+
+    private function roadmapResponse($profile, $role, $roleSkills): array
+    {
+        return [
+            'student_profile_id' => (int) $profile->id,
+            'career_role_id' => (int) $role->id,
+            'career_role_version' => (int) $role->version,
+            'algorithm_version' => 'intelligence-v1',
+
+            // DS-generated contract value; Laravel assigns the persisted
+            // version itself (max+1), so this stays 1 across both calls.
+            'roadmap_version' => 1,
+            'status' => 'active',
+            'phases' => [
+                [
+                    'phase' => 'foundations',
+                    'actions' => [
+                        [
+                            'action_id' => 'A1',
+                            'action_type' => 'resource',
+                            'title' => 'Brush up SQL fundamentals',
+                            'target_skill_id' => (int) $roleSkills[0]->skill_id,
+                            'priority_score' => 0.9,
+                            'estimated_hours' => 6.0,
+                            'completion_criteria' => 'Complete the practice set',
+                            'explanation' => 'Critical skill with the largest gap',
+                        ],
+                        [
+                            'action_id' => 'A2',
+                            'action_type' => 'practice',
+                            'title' => 'Practice joins and aggregation',
+                            'target_skill_id' => (int) $roleSkills[1]->skill_id,
+                            'prerequisite_skill_ids' => [(int) $roleSkills[0]->skill_id],
+                            'priority_score' => 0.6,
+                            'estimated_hours' => 4.0,
+                        ],
+                    ],
+                ],
+            ],
+            'next_best_action_id' => 'A1',
         ];
     }
 
