@@ -33,8 +33,14 @@ class EnsureUserHasRole
         }
 
         if (! $user->hasRole($role)) {
+            // FIX: this was hardcoded to 'LEARNER_ONLY' regardless of which
+            // role was actually required, which is wrong for any route
+            // protected with a different role (e.g. role:admin on
+            // PUT /api/v1/evidence/{id}/review). Now it reflects the role
+            // that was actually required, e.g. 'ADMIN_ONLY', 'LEARNER_ONLY',
+            // 'ORGANIZATION_ONLY'.
             return response()->json([
-                'code' => 'LEARNER_ONLY',
+                'code' => strtoupper($role) . '_ONLY',
                 'message' => "Only {$role} accounts can access this resource.",
                 'request_id' => $requestId,
             ], 403, ['X-Request-ID' => $requestId]);

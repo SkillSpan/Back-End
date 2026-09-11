@@ -16,6 +16,9 @@ class ReadinessService
     public function __construct(
         private readonly DataScienceClient $dataScienceClient,
         private readonly ReadinessPayloadBuilder $payloadBuilder,
+        private readonly PracticalExperienceService $practicalExperienceService,
+        private readonly AssessmentReliabilityService $assessmentReliabilityService,
+        private readonly ProfileCompletenessService $profileCompletenessService,
     ) {}
 
     public function calculate(
@@ -124,8 +127,62 @@ class ReadinessService
             $roleSkills,
         );
 
-        $algorithmVersion = (string) $result['algorithm_version'];
+        $practicalExperience = $this->practicalExperienceService->calculate($studentProfile);
+        $assessmentReliability = $this->assessmentReliabilityService->calculate($studentProfile);
+        $profileCompleteness = $this->profileCompletenessService->calculate($studentProfile);
 
+        if ($practicalExperience['score'] === null || $assessmentReliability['score'] === null) {
+            throw new ReadinessIntegrationException(
+                'Readiness cannot be calculated because a required component is unavailable.',
+                422,
+                'READINESS_COMPONENT_UNAVAILABLE',
+                [
+                    'practical_experience_available' => $practicalExperience['score'] !== null,
+                    'assessment_reliability_available' => $assessmentReliability['score'] !== null,
+                ],
+            );
+        }
+
+        $weights = config('readiness.weights', []);
+        $skillMatch = (float) $result['base_readiness_score'];
+        $practicalExperienceScore = (float) $practicalExperience['score'];
+        $assessmentReliabilityScore = (float) $assessmentReliability['score'];
+        $profileCompletenessScore = (float) $profileCompleteness['score'];
+
+        $finalScore =
+            ($skillMatch * (float) ($weights['skill_match'] ?? 0.65))
+            + ($practicalExperienceScore * (float) ($weights['practical_experience'] ?? 0.20))
+            + ($assessmentReliabilityScore * (float) ($weights['assessment_reliability'] ?? 0.10))
+            + ($profileCompletenessScore * (float) ($weights['profile_completeness'] ?? 0.05));
+
+        $finalScore = min(max($finalScore, 0.0), 100.0);
+
+        $criticalMinimumMatch = (float) config('readiness.critical_skill.minimum_match', 0.50);
+        $criticalCap = (float) config('readiness.critical_skill.cap', 69.0);
+        $criticalCapApplied = false;
+
+        foreach ($result['skill_results'] as $skillResult) {
+            if (! (bool) $skillResult['is_critical']) {
+                continue;
+            }
+
+            $requiredLevel = (float) $skillResult['required_level'];
+            $currentLevel = (float) $skillResult['current_level'];
+            $match = $requiredLevel > 0 ? min(max($currentLevel / $requiredLevel, 0.0), 1.0) : 1.0;
+
+            if ($match < $criticalMinimumMatch) {
+                $criticalCapApplied = true;
+                break;
+            }
+        }
+
+        if ($criticalCapApplied) {
+            $finalScore = min($finalScore, $criticalCap);
+        }
+
+        $finalScore = round($finalScore, 2);
+        $band = $this->resolveBand($finalScore);
+        $algorithmVersion = (string) config('readiness.algorithm_version', 'readiness-v1');
         $calculatedAt = now();
 
         $snapshot = [
@@ -134,6 +191,21 @@ class ReadinessService
             'student_profile_id' => (int) $studentProfile->id,
             'payload' => $payload,
             'fastapi_result' => $result,
+            'components' => [
+                'skill_match' => $skillMatch,
+                'practical_experience' => $practicalExperience,
+                'assessment_reliability' => $assessmentReliability,
+                'profile_completeness' => $profileCompleteness,
+            ],
+            'formula' => [
+                'weights' => $weights,
+                'unrounded_score' => $finalScore,
+            ],
+            'critical_skill_rule' => [
+                'minimum_match' => $criticalMinimumMatch,
+                'cap' => $criticalCap,
+                'applied' => $criticalCapApplied,
+            ],
             'algorithm_version' => $algorithmVersion,
             'request_id' => $requestId,
             'calculated_at' => $calculatedAt->toIso8601String(),
@@ -142,7 +214,13 @@ class ReadinessService
         return DB::transaction(function () use (
             $studentProfile,
             $careerRole,
-            $result,
+            $finalScore,
+            $skillMatch,
+            $practicalExperienceScore,
+            $assessmentReliabilityScore,
+            $profileCompletenessScore,
+            $criticalCapApplied,
+            $band,
             $algorithmVersion,
             $calculatedAt,
             $snapshot,
@@ -151,18 +229,13 @@ class ReadinessService
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
-
-                'score' => $result['readiness_score'],
-                'skill_match_component' => $result['base_readiness_score'],
-
-                'practical_experience_component' => null,
-                'assessment_reliability_component' => null,
-                'profile_completeness_component' => null,
-
-                'critical_cap_applied' => (bool) $result['critical_skill_cap_applied'],
-
-                'band' => null,
-
+                'score' => $finalScore,
+                'skill_match_component' => $skillMatch,
+                'practical_experience_component' => $practicalExperienceScore,
+                'assessment_reliability_component' => $assessmentReliabilityScore,
+                'profile_completeness_component' => $profileCompletenessScore,
+                'critical_cap_applied' => $criticalCapApplied,
+                'band' => $band,
                 'algorithm_version' => $algorithmVersion,
                 'calculated_at' => $calculatedAt,
                 'snapshot' => $snapshot,
@@ -186,6 +259,17 @@ class ReadinessService
             ->latest('calculated_at')
             ->latest('id')
             ->first();
+    }
+
+    private function resolveBand(float $score): string
+    {
+        foreach (config('readiness.bands', []) as $band => $range) {
+            if ($score >= (float) $range['min'] && $score <= (float) $range['max']) {
+                return $band;
+            }
+        }
+
+        return 'highly_ready';
     }
 
     private function validateDataScienceResult(
