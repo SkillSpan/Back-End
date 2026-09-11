@@ -89,6 +89,15 @@ Route::prefix('v1')->group(function () {
             ->middleware('role:admin');
     });
 
+    // Career Role Retrieval API
+    Route::middleware('auth:sanctum')->prefix('career-roles')->group(function () {
+        Route::get('/', [CareerRoleController::class, 'index'])
+            ->middleware('role:learner');
+        Route::get('/{id}', [CareerRoleController::class, 'show']);
+        Route::get('/{id}/skills', [CareerRoleController::class, 'skills'])
+            ->middleware('role:learner');
+    });
+
     // Self-service organization APIs. 'organization.approved' is the second,
     // independent line of defense against a pending/rejected organization
     // account reaching protected data — even if it somehow obtains a valid
