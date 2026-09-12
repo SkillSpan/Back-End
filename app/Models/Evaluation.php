@@ -9,7 +9,7 @@ class Evaluation extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['project_id', 'submission_id', 'evaluator_id', 'rubric_id', 'self_reflection'];
+    protected $fillable = ['project_id', 'submission_id', 'evaluator_id', 'rubric_id', 'self_reflection', 'status'];
 
     protected $casts = ['finalized_at' => 'datetime'];
 

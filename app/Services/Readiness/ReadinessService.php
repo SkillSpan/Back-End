@@ -21,6 +21,9 @@ class ReadinessService
         private readonly DataScienceClient $dataScienceClient,
         private readonly ReadinessPayloadBuilder $payloadBuilder,
         private readonly DecisionSnapshotService $decisionSnapshotService,
+        private readonly PracticalExperienceService $practicalExperienceService,
+        private readonly AssessmentReliabilityService $assessmentReliabilityService,
+        private readonly ProfileCompletenessService $profileCompletenessService,
     ) {}
 
     public function calculate(
@@ -118,19 +121,18 @@ class ReadinessService
         );
 
         /*
-         * US-INT-01 §10: resolve the active algorithm configuration —
-         * an explicit error when none is active, never a fabricated
-         * default.
+         * US-INT-01 §10: resolve the active algorithm configuration.
+         * An explicit error is returned when none is active; no fabricated
+         * default configuration is used.
          */
         $configuration = $this->decisionSnapshotService->resolveConfiguration();
         $configurationVersion = 'config-v'.$configuration->version;
 
         /*
-         * US-INT-01 §6: the decision snapshot captures the validated
-         * input state BEFORE the FastAPI call (status=pending). The
-         * same snapshot is marked succeeded only if the response
-         * validates and persists atomically. On failure it stays as
-         * the audit record of the attempt — no fabricated results.
+         * US-INT-01 §6: capture the validated input state BEFORE the
+         * FastAPI call. The snapshot starts as pending and is marked
+         * succeeded only after the FastAPI response is validated and
+         * persistence completes atomically.
          */
         $decisionSnapshot = $this->decisionSnapshotService->createPendingSnapshot(
             array_merge($payload, [
@@ -140,7 +142,10 @@ class ReadinessService
                 'user_id' => (int) $studentProfile->user_id,
                 'target_role' => (string) $careerRole->title,
                 'flow' => 'readiness_legacy',
-                'algorithm_version' => (string) config('services.data_science.algorithm_version', 'skill-gap-v1'),
+                'algorithm_version' => (string) config(
+                    'services.data_science.algorithm_version',
+                    'skill-gap-v1'
+                ),
                 'configuration_version' => $configurationVersion,
             ]),
             (string) Str::uuid(),
@@ -159,6 +164,120 @@ class ReadinessService
             $roleSkills,
         );
 
+        /*
+         * Readiness components supplied by the application layer.
+         */
+        $practicalExperience = $this->practicalExperienceService->calculate(
+            $studentProfile
+        );
+
+        $assessmentReliability = $this->assessmentReliabilityService->calculate(
+            $studentProfile
+        );
+
+        $profileCompleteness = $this->profileCompletenessService->calculate(
+            $studentProfile
+        );
+
+        if (
+            $practicalExperience['score'] === null
+            || $assessmentReliability['score'] === null
+        ) {
+            throw new ReadinessIntegrationException(
+                'Readiness cannot be calculated because a required component is unavailable.',
+                422,
+                'READINESS_COMPONENT_UNAVAILABLE',
+                [
+                    'practical_experience_available' =>
+                        $practicalExperience['score'] !== null,
+                    'assessment_reliability_available' =>
+                        $assessmentReliability['score'] !== null,
+                ],
+            );
+        }
+
+        $weights = config('readiness.weights', []);
+
+        $skillMatch = (float) $result['base_readiness_score'];
+
+        $practicalExperienceScore = (float) $practicalExperience['score'];
+
+        $assessmentReliabilityScore = (float) $assessmentReliability['score'];
+
+        $profileCompletenessScore = (float) $profileCompleteness['score'];
+
+        /*
+         * Calculate the final readiness score using the configured
+         * component weights.
+         */
+        $finalScore =
+            ($skillMatch * (float) ($weights['skill_match'] ?? 0.65))
+            + (
+                $practicalExperienceScore
+                * (float) ($weights['practical_experience'] ?? 0.20)
+            )
+            + (
+                $assessmentReliabilityScore
+                * (float) ($weights['assessment_reliability'] ?? 0.10)
+            )
+            + (
+                $profileCompletenessScore
+                * (float) ($weights['profile_completeness'] ?? 0.05)
+            );
+
+        $finalScore = min(max($finalScore, 0.0), 100.0);
+
+        /*
+         * Critical-skill cap.
+         */
+        $criticalMinimumMatch = (float) config(
+            'readiness.critical_skill.minimum_match',
+            0.50
+        );
+
+        $criticalCap = (float) config(
+            'readiness.critical_skill.cap',
+            69.0
+        );
+
+        $criticalCapApplied = false;
+
+        foreach ($result['skill_results'] as $skillResult) {
+            if (! (bool) $skillResult['is_critical']) {
+                continue;
+            }
+
+            $requiredLevel = (float) $skillResult['required_level'];
+            $currentLevel = (float) $skillResult['current_level'];
+
+            $match = $requiredLevel > 0
+                ? min(
+                    max($currentLevel / $requiredLevel, 0.0),
+                    1.0
+                )
+                : 1.0;
+
+            if ($match < $criticalMinimumMatch) {
+                $criticalCapApplied = true;
+                break;
+            }
+        }
+
+        if ($criticalCapApplied) {
+            $finalScore = min($finalScore, $criticalCap);
+        }
+
+        $finalScore = round($finalScore, 2);
+
+        $band = $this->resolveBand($finalScore);
+
+        /*
+         * The algorithm_version stored with the decision must represent
+         * the actual FastAPI algorithm used for this calculation.
+         *
+         * configuration_version remains the Laravel-side active
+         * AlgorithmConfiguration version.
+         */
         $algorithmVersion = (string) $result['algorithm_version'];
 
         $calculatedAt = now();
@@ -168,14 +287,28 @@ class ReadinessService
             $careerRole,
             $result,
             $payload,
+            $finalScore,
+            $skillMatch,
+            $practicalExperienceScore,
+            $assessmentReliabilityScore,
+            $profileCompletenessScore,
+            $criticalCapApplied,
+            $band,
             $algorithmVersion,
             $configurationVersion,
             $calculatedAt,
             $requestId,
             $decisionSnapshot,
+            $weights,
+            $criticalMinimumMatch,
+            $criticalCap,
         ) {
             $snapshot = $decisionSnapshot;
 
+            /*
+             * Mark the Decision Snapshot as successfully completed only
+             * after the FastAPI response has passed validation.
+             */
             $snapshot->update([
                 'algorithm_version' => $algorithmVersion,
                 'status' => DecisionSnapshot::STATUS_SUCCEEDED,
@@ -194,31 +327,55 @@ class ReadinessService
                 ],
             ]);
 
+            /*
+             * Persist the final readiness result.
+             *
+             * Historical results are append-only: every successful
+             * calculation creates a new record.
+             */
             $readinessResult = ReadinessResult::create([
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
                 'decision_snapshot_id' => $snapshot->id,
 
-                'score' => $result['readiness_score'],
-                'skill_match_component' => $result['base_readiness_score'],
+                'score' => $finalScore,
+                'skill_match_component' => $skillMatch,
+                'practical_experience_component' => $practicalExperienceScore,
+                'assessment_reliability_component' => $assessmentReliabilityScore,
+                'profile_completeness_component' => $profileCompletenessScore,
 
-                'practical_experience_component' => null,
-                'assessment_reliability_component' => null,
-                'profile_completeness_component' => null,
-
-                'critical_cap_applied' => (bool) $result['critical_skill_cap_applied'],
-
-                'band' => null,
+                'critical_cap_applied' => $criticalCapApplied,
+                'band' => $band,
 
                 'algorithm_version' => $algorithmVersion,
                 'configuration_version' => $configurationVersion,
                 'request_id' => $requestId,
                 'calculated_at' => $calculatedAt,
+
                 'snapshot' => [
                     'decision_uuid' => $snapshot->decision_uuid,
                     'payload' => $payload,
                     'fastapi_result' => $result,
+
+                    'components' => [
+                        'skill_match' => $skillMatch,
+                        'practical_experience' => $practicalExperienceScore,
+                        'assessment_reliability' => $assessmentReliabilityScore,
+                        'profile_completeness' => $profileCompletenessScore,
+                    ],
+
+                    'formula' => [
+                        'weights' => $weights,
+                        'final_score' => $finalScore,
+                    ],
+
+                    'critical_skill_rule' => [
+                        'minimum_match' => $criticalMinimumMatch,
+                        'cap' => $criticalCap,
+                        'applied' => $criticalCapApplied,
+                    ],
+
                     'algorithm_version' => $algorithmVersion,
                     'configuration_version' => $configurationVersion,
                     'request_id' => $requestId,
@@ -226,8 +383,11 @@ class ReadinessService
                 ],
             ]);
 
-            // US-INT-01 §17: validated gap output becomes historical
-            // skill_gap_results rows tied to this decision — append-only.
+            /*
+             * US-INT-01 §17:
+             * Store every validated skill-gap result as an independent,
+             * historical, append-only record tied to this decision.
+             */
             foreach ($result['skill_results'] as $skillResult) {
                 SkillGapResult::create([
                     'decision_snapshot_id' => $snapshot->id,
@@ -235,14 +395,21 @@ class ReadinessService
                     'current_level' => (float) $skillResult['current_level'],
                     'required_level' => (float) $skillResult['required_level'],
                     'gap' => (float) $skillResult['gap'],
-                    'match_score' => isset($skillResult['match_score']) && is_numeric($skillResult['match_score'])
+
+                    'match_score' => isset($skillResult['match_score'])
+                        && is_numeric($skillResult['match_score'])
                         ? (float) $skillResult['match_score']
                         : null,
+
                     'importance_weight' => (float) $skillResult['importance_weight'],
+
                     'is_critical' => (bool) $skillResult['is_critical'],
-                    'confidence' => isset($skillResult['confidence']) && is_numeric($skillResult['confidence'])
+
+                    'confidence' => isset($skillResult['confidence'])
+                        && is_numeric($skillResult['confidence'])
                         ? (float) $skillResult['confidence']
                         : null,
+
                     'status' => (string) $skillResult['status'],
                     'explanation' => $skillResult['explanation'] ?? null,
                 ]);
@@ -268,6 +435,20 @@ class ReadinessService
             ->latest('calculated_at')
             ->latest('id')
             ->first();
+    }
+
+    private function resolveBand(float $score): string
+    {
+        foreach (config('readiness.bands', []) as $band => $range) {
+            if (
+                $score >= (float) $range['min']
+                && $score <= (float) $range['max']
+            ) {
+                return $band;
+            }
+        }
+
+        return 'highly_ready';
     }
 
     private function validateDataScienceResult(
@@ -449,8 +630,10 @@ class ReadinessService
 
             $expected = $expectedSkills[$skillId];
 
-            if ((string) $skillResult['skill_name']
-                !== (string) $expected['skill_name']) {
+            if (
+                (string) $skillResult['skill_name']
+                !== (string) $expected['skill_name']
+            ) {
                 throw new ReadinessIntegrationException(
                     'The Data Science response contains a mismatched skill name.',
                     502,

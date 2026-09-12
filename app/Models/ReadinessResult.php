@@ -9,9 +9,30 @@ class ReadinessResult extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'score', 'skill_match_component', 'practical_experience_component', 'assessment_reliability_component', 'profile_completeness_component', 'critical_cap_applied', 'band', 'algorithm_version', 'configuration_version', 'request_id', 'calculated_at', 'snapshot'];
+    protected $fillable = [
+        'student_profile_id',
+        'career_role_id',
+        'career_role_version',
+        'decision_snapshot_id',
+        'score',
+        'skill_match_component',
+        'practical_experience_component',
+        'assessment_reliability_component',
+        'profile_completeness_component',
+        'critical_cap_applied',
+        'band',
+        'algorithm_version',
+        'configuration_version',
+        'request_id',
+        'calculated_at',
+        'snapshot',
+    ];
 
-    protected $casts = ['critical_cap_applied' => 'boolean', 'calculated_at' => 'datetime', 'snapshot' => 'array'];
+    protected $casts = [
+        'critical_cap_applied' => 'boolean',
+        'calculated_at' => 'datetime',
+        'snapshot' => 'array',
+    ];
 
     public function studentProfile()
     {
