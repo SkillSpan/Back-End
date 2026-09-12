@@ -9,13 +9,11 @@ use Illuminate\Validation\Rule;
 
 class EvidenceController extends Controller
 {
-<<<<<<< HEAD
-=======
+
     public function __construct(
         private readonly SkillEvaluationService $skillEvaluationService
     ) {}
 
->>>>>>> e148b3b61f01f9d8efbb1cbb708740d61057a1a6
     /**
      * POST /api/v1/evidence
      *
@@ -123,8 +121,7 @@ class EvidenceController extends Controller
             'recency_factor' => 1.00,
         ]);
 
-<<<<<<< HEAD
-=======
+
         /*
          * Recalculate immediately.
          *
@@ -140,7 +137,6 @@ class EvidenceController extends Controller
             );
         }
 
->>>>>>> e148b3b61f01f9d8efbb1cbb708740d61057a1a6
         return response()->json([
             'success' => true,
             'message' => 'Evidence submitted successfully, pending review.',
@@ -266,11 +262,9 @@ class EvidenceController extends Controller
             'reviewer_notes' => $request->reviewer_notes,
         ]);
 
-<<<<<<< HEAD
         return response()->json([
             'success' => true,
             'message' => 'Evidence ' . strtolower($request->verification_status) . ' successfully.',
-=======
         /*
          * Recalculate skill level and confidence after
          * the evidence verification status changes.
@@ -285,7 +279,6 @@ class EvidenceController extends Controller
             'message' => 'Evidence '
                 .strtolower($request->verification_status)
                 .' successfully.',
->>>>>>> e148b3b61f01f9d8efbb1cbb708740d61057a1a6
             'data' => $evidence,
         ]);
     }

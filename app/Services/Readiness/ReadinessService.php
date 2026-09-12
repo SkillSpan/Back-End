@@ -182,7 +182,13 @@ class ReadinessService
 
         $finalScore = round($finalScore, 2);
         $band = $this->resolveBand($finalScore);
-        $algorithmVersion = (string) config('readiness.algorithm_version', 'readiness-v1');
+        // FIX: algorithm_version now reflects the FastAPI skill-gap algorithm
+        // actually used for this calculation (already validated as a
+        // non-empty string by validateDataScienceResult() above), not the
+        // Laravel readiness formula version. The Laravel formula/weights
+        // version is tracked separately as configuration_version.
+        $algorithmVersion = (string) $result['algorithm_version'];
+        $configurationVersion = (string) config('readiness.configuration_version', 'readiness-v1');
         $calculatedAt = now();
 
         $snapshot = [
@@ -207,6 +213,7 @@ class ReadinessService
                 'applied' => $criticalCapApplied,
             ],
             'algorithm_version' => $algorithmVersion,
+            'configuration_version' => $configurationVersion,
             'request_id' => $requestId,
             'calculated_at' => $calculatedAt->toIso8601String(),
         ];
@@ -222,6 +229,7 @@ class ReadinessService
             $criticalCapApplied,
             $band,
             $algorithmVersion,
+            $configurationVersion,
             $calculatedAt,
             $snapshot,
         ) {
@@ -237,6 +245,7 @@ class ReadinessService
                 'critical_cap_applied' => $criticalCapApplied,
                 'band' => $band,
                 'algorithm_version' => $algorithmVersion,
+                'configuration_version' => $configurationVersion,
                 'calculated_at' => $calculatedAt,
                 'snapshot' => $snapshot,
             ]);

@@ -28,6 +28,7 @@ class ReadinessResultResource extends JsonResource
             'critical_skill_names' => $fastApiResult['critical_skill_names'] ?? [],
             'band' => $this->band,
             'algorithm_version' => $this->algorithm_version,
+            'configuration_version' => $this->configuration_version,
             'calculated_at' => optional($this->calculated_at)->toIso8601String(),
             'total_skills' => $fastApiResult['total_skills'] ?? null,
             'met_skills' => $fastApiResult['met_skills'] ?? null,

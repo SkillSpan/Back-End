@@ -141,20 +141,6 @@ return [
                 0.60
             ),
         ],
-<<<<<<< HEAD
-        // verified_i for pending evidence in the confidence formula.
-        // Agreed with Data Science as a configurable v1 default — see
-        // SRS 10.3.2 (Confidence Score).
-        'pending_verified_factor' => (float) env('EVIDENCE_PENDING_VERIFIED_FACTOR', 0.5),
-
-        'recency' => [
-            'six_months' => (float) env('EVIDENCE_RECENCY_6_MONTHS', 1.00),
-            'twelve_months' => (float) env('EVIDENCE_RECENCY_12_MONTHS', 0.90),
-            'twenty_four_months' => (float) env('EVIDENCE_RECENCY_24_MONTHS', 0.75),
-            'older' => (float) env('EVIDENCE_RECENCY_OLDER', 0.60),
-        ],
-=======
->>>>>>> e148b3b61f01f9d8efbb1cbb708740d61057a1a6
     ],
 
     'admin_setup' => [
