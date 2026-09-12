@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Readiness;
 
+use App\Models\AlgorithmConfiguration;
 use App\Models\BaselineAssessment;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
@@ -37,6 +38,36 @@ class ReadinessTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
+
+        // US-INT-01 §10: readiness decisions now bind to an active
+        // algorithm configuration — no active config means an explicit
+        // error, so seed one for every legacy readiness scenario.
+        AlgorithmConfiguration::create([
+            'name' => 'intelligence',
+            'version' => 1,
+            'status' => 'active',
+            'config' => [],
+            'activated_at' => now(),
+        ]);
+
+        // US-INT-01: the service credential is mandatory on every
+        // Laravel -> FastAPI intelligence request.
+        config(['services.data_science.service_token' => 'test-service-token']);
+    }
+
+    public function test_missing_service_token_blocks_fastapi_call(): void
+    {
+        [$user, $profile, $careerRole] = $this->createScenario();
+        Sanctum::actingAs($user);
+        config(['services.data_science.service_token' => null]);
+        Http::fake();
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(503)
+            ->assertJsonPath('code', 'DATA_SCIENCE_NOT_CONFIGURED');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('readiness_results', ['student_profile_id' => $profile->id]);
     }
 
     public function test_unauthenticated_user_is_rejected(): void

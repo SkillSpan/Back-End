@@ -9,7 +9,7 @@ class AlgorithmConfiguration extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'version', 'config', 'created_by'];
+    protected $fillable = ['name', 'version', 'status', 'config', 'created_by', 'activated_at'];
 
     protected $casts = ['config' => 'array', 'activated_at' => 'datetime'];
 

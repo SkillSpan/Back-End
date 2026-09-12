@@ -17,6 +17,7 @@ class ReadinessResultResource extends JsonResource
             'student_profile_id' => $this->student_profile_id,
             'career_role_id' => $this->career_role_id,
             'career_role_version' => $this->career_role_version,
+            'decision_id' => $this->decisionSnapshot?->decision_uuid,
             'score' => (float) $this->score,
             'skill_match_component' => $this->skill_match_component === null ? null : (float) $this->skill_match_component,
             'practical_experience_component' => $this->practical_experience_component === null ? null : (float) $this->practical_experience_component,

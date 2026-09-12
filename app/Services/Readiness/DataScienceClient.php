@@ -23,7 +23,24 @@ class DataScienceClient
             10
         );
 
-        $endpoint = $baseUrl.'/api/v1/skill-gap';
+        // US-INT-01 §3/§26: configurable, versioned path. Defaults to the
+        // new intelligence contract; a legacy local FastAPI deployment
+        // overrides via DATA_SCIENCE_SKILL_GAP_PATH without code changes.
+        $endpoint = $baseUrl.config(
+            'services.data_science.skill_gap_path',
+            '/api/v1/intelligence/skill-gap'
+        );
+
+        $serviceToken = trim((string) config('services.data_science.service_token', ''));
+
+        if ($serviceToken === '') {
+            throw new ReadinessIntegrationException(
+                'The Data Science service token is not configured.',
+                503,
+                'DATA_SCIENCE_NOT_CONFIGURED',
+            );
+        }
+
         $startedAt = microtime(true);
 
         if ($baseUrl === '') {
@@ -35,13 +52,17 @@ class DataScienceClient
         }
 
         try {
-            $response = Http::acceptJson()
+            $request = Http::acceptJson()
                 ->contentType('application/json')
                 ->timeout($timeout)
                 ->withHeaders([
                     'X-Request-ID' => $requestId,
                 ])
-                ->post($endpoint, $payload);
+                // US-INT-01 §4: dedicated service credential, mandatory
+                // on every call — never a learner Sanctum token.
+                ->withToken($serviceToken);
+
+            $response = $request->post($endpoint, $payload);
         } catch (ConnectionException $e) {
             $this->logFailure(
                 $payload,

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
 use App\Models\SkillEvidence;
 use Illuminate\Http\Request;
@@ -272,6 +273,17 @@ class EvidenceController extends Controller
         $this->skillEvaluationService->recalculate(
             $evidence->studentProfile,
             $evidence->skill
+        );
+
+        /*
+         * US-INT-01: an APPROVED evidence change triggers a queued
+         * intelligence recalculation for this learner. The sync skill
+         * recalculation above already ran — this only enqueues the
+         * decision refresh.
+         */
+        SkillDataChanged::dispatch(
+            $evidence->studentProfile,
+            'evidence_review'
         );
 
         return response()->json([
