@@ -7,7 +7,6 @@ use App\Models\LearnerSkill;
 use App\Models\Skill;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class SkillsController extends Controller
 {

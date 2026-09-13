@@ -22,13 +22,13 @@ class AssessmentReliabilityService
 
         foreach ($assessments as $assessment) {
             $skills = $assessment->normalized_skills;
-            if (!is_array($skills) || $skills === []) {
+            if (! is_array($skills) || $skills === []) {
                 continue;
             }
 
             $confidenceValues = [];
             foreach ($skills as $skill) {
-                if (!is_array($skill) || !isset($skill['confidence'])) {
+                if (! is_array($skill) || ! isset($skill['confidence'])) {
                     continue;
                 }
                 $confidence = $skill['confidence'];

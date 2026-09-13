@@ -40,7 +40,7 @@ class EnsureUserHasRole
             // that was actually required, e.g. 'ADMIN_ONLY', 'LEARNER_ONLY',
             // 'ORGANIZATION_ONLY'.
             return response()->json([
-                'code' => strtoupper($role) . '_ONLY',
+                'code' => strtoupper($role).'_ONLY',
                 'message' => "Only {$role} accounts can access this resource.",
                 'request_id' => $requestId,
             ], 403, ['X-Request-ID' => $requestId]);

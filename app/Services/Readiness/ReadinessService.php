@@ -188,10 +188,8 @@ class ReadinessService
                 422,
                 'READINESS_COMPONENT_UNAVAILABLE',
                 [
-                    'practical_experience_available' =>
-                        $practicalExperience['score'] !== null,
-                    'assessment_reliability_available' =>
-                        $assessmentReliability['score'] !== null,
+                    'practical_experience_available' => $practicalExperience['score'] !== null,
+                    'assessment_reliability_available' => $assessmentReliability['score'] !== null,
                 ],
             );
         }

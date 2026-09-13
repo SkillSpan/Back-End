@@ -10,7 +10,6 @@ use Illuminate\Validation\Rule;
 
 class EvidenceController extends Controller
 {
-
     public function __construct(
         private readonly SkillEvaluationService $skillEvaluationService
     ) {}
@@ -121,7 +120,6 @@ class EvidenceController extends Controller
             'verification_status' => 'pending',
             'recency_factor' => 1.00,
         ]);
-
 
         /*
          * Recalculate immediately.
@@ -263,18 +261,19 @@ class EvidenceController extends Controller
             'reviewer_notes' => $request->reviewer_notes,
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Evidence ' . strtolower($request->verification_status) . ' successfully.',
         /*
-         * Recalculate skill level and confidence after
-         * the evidence verification status changes.
-         */
+            * Recalculate skill level and confidence after
+            * the evidence verification status changes.
+        */
         $this->skillEvaluationService->recalculate(
             $evidence->studentProfile,
             $evidence->skill
         );
 
+        return response()->json([
+            'success' => true,
+            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
+        ]);
         /*
          * US-INT-01: an APPROVED evidence change triggers a queued
          * intelligence recalculation for this learner. The sync skill
