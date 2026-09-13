@@ -32,18 +32,18 @@ Route::prefix('v1')->group(function () {
     });
 
     // US-AUTH-06: logout requires a valid session, unlike the routes above.
-    Route::middleware('auth:sanctum')->prefix('auth')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/logout-all', [AuthController::class, 'logoutAll']);
     });
 
-    Route::middleware(['auth:sanctum', 'role:learner'])->prefix('profile')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('profile')->group(function () {
         Route::post('/', [ProfileController::class, 'store']);
         Route::get('/', [ProfileController::class, 'show']);
         Route::put('/', [ProfileController::class, 'update']);
     });
 
-    Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
         Route::get('/organizations', [AdminOrganizationController::class, 'index']);
         Route::get('/organizations/{organization}', [AdminOrganizationController::class, 'show']);
         Route::get('/organizations/{organization}/proof-file', [AdminOrganizationController::class, 'downloadProofFile'])
@@ -52,7 +52,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
     });
 
-    Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
 
@@ -62,7 +62,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/intelligence/latest', [IntelligenceController::class, 'latest']);
     });
 
-    Route::middleware(['auth:sanctum', 'role:learner'])->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
         Route::post('/baseline-assessments', [BaselineAssessmentController::class, 'start']);
         Route::get('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'show']);
         Route::patch('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'progress']);
@@ -78,7 +78,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Skills API
-    Route::middleware('auth:sanctum')->prefix('skills')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('skills')->group(function () {
         Route::get('/taxonomy', [SkillsController::class, 'taxonomy']);
         Route::get('/matrix', [SkillsController::class, 'matrix']);
         Route::post('/matrix', [SkillsController::class, 'store']);
@@ -86,7 +86,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Evidence Submission API
-    Route::middleware('auth:sanctum')->prefix('evidence')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('evidence')->group(function () {
         Route::post('/', [EvidenceController::class, 'store'])
             ->middleware('role:learner');
         Route::get('/', [EvidenceController::class, 'index'])
@@ -97,7 +97,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Career Role Retrieval API
-    Route::middleware('auth:sanctum')->prefix('career-roles')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('career-roles')->group(function () {
         Route::get('/', [CareerRoleController::class, 'index'])
             ->middleware('role:learner');
         Route::get('/{id}', [CareerRoleController::class, 'show'])
@@ -110,7 +110,7 @@ Route::prefix('v1')->group(function () {
     // independent line of defense against a pending/rejected organization
     // account reaching protected data — even if it somehow obtains a valid
     // Sanctum token (e.g. by hitting the generic /api/auth/login endpoint).
-    Route::middleware(['auth:sanctum', 'organization.approved'])->prefix('organization')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'organization.approved'])->prefix('organization')->group(function () {
         Route::get('/profile', [OrganizationController::class, 'profile']);
     });
 

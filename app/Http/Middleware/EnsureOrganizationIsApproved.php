@@ -19,12 +19,19 @@ class EnsureOrganizationIsApproved
     {
         $user = $request->user();
 
-        $organization = $user?->organizations()->first();
+        // Check every ACTIVE membership rather than just the first one: a
+        // user linked to several organizations must not pass on the strength
+        // of an approved one while another is still pending or rejected, and
+        // a membership marked 'removed' is ignored entirely.
+        $blocking = $user?->organizations()
+            ->wherePivot('status', 'active')
+            ->whereIn('verification_status', ['pending', 'rejected'])
+            ->first();
 
-        if ($organization && $organization->verification_status !== 'verified') {
+        if ($blocking) {
             return response()->json([
                 'success' => false,
-                'message' => $organization->verification_status === 'pending'
+                'message' => $blocking->verification_status === 'pending'
                     ? 'Your organization is still pending approval. Please wait until it has been reviewed.'
                     : 'Your organization registration was rejected. Please contact support for more information.',
             ], 403);

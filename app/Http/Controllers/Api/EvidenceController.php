@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
+use App\Models\Skill;
 use App\Models\SkillEvidence;
+use App\Services\Skills\SkillEvaluationService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 

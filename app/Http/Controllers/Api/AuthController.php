@@ -63,15 +63,19 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Your organization account has been created successfully. Your proof document will be reviewed and you need to verify your email.',
+            'message' => 'Your organization account has been created successfully. Your proof document will be reviewed by an administrator before your account is activated.',
             'data' => [
                 'user_id' => $user->id,
                 'email' => $user->email,
                 'status' => $user->status,
-                'requires_verification' => true,
-                'resend_available_at' => now()
-                    ->addSeconds((int) config('verification.resend_interval_seconds', 60))
-                    ->toIso8601String(),
+                // This flow deliberately does NOT use an email OTP: the
+                // account is marked email-verified at registration and access
+                // is gated on the manual proof-document review instead (see
+                // AuthService::registerOrganization). The response used to
+                // report `true` here and hand back a `resend_available_at`
+                // window, which sent clients into a verification screen for a
+                // code that was never issued.
+                'requires_verification' => false,
             ],
         ], 201);
     }
@@ -105,42 +109,46 @@ class AuthController extends Controller
 
     public function resendOtp(ResendOtpRequest $request): JsonResponse
     {
-        // رد محايد للإيميلات غير المسجلة حتى ما يصير هذا الـ endpoint
-        // أداة لاستنتاج الحسابات الموجودة — نفس أسلوب forgotPassword().
-        $user = User::where('email', strtolower(trim($request->input('email'))))->first();
-
-        if (! $user) {
-            return response()->json([
-                'success' => true,
-                'message' => 'If an account with that email exists, a new verification code has been sent.',
-            ]);
-        }
-
-        $key = 'resend-otp:'.$user->id;
+        $email = strtolower(trim($request->input('email')));
         $decaySeconds = (int) config('verification.resend_interval_seconds', 60);
 
-        if (RateLimiter::tooManyAttempts($key, 1)) {
-            $seconds = RateLimiter::availableIn($key);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot resend the code right now. Please wait before trying again.',
-                'data' => [
-                    'retry_after' => $seconds,
-                ],
-            ], 429);
-        }
-
-        RateLimiter::hit($key, $decaySeconds);
-        $this->authService->resendOtp($user);
-
-        return response()->json([
+        // ONE response shape for every outcome — unknown address, known
+        // address, and cooldown alike. Any difference here (status code,
+        // message text, or the mere presence of `data`) turns this endpoint
+        // into an account-existence oracle.
+        $neutralResponse = fn () => response()->json([
             'success' => true,
-            'message' => 'A new verification code has been sent to your email.',
+            'message' => 'If an account with that email exists, a new verification code has been sent.',
             'data' => [
                 'resend_available_at' => now()->addSeconds($decaySeconds)->toIso8601String(),
             ],
         ]);
+
+        // Keyed on the REQUEST (email + IP), not on the resolved user id.
+        // The previous key ('resend-otp:'.$user->id) could only ever exist
+        // for a registered address, so a 429 was a definitive "this email is
+        // registered" signal that an unknown address could never produce —
+        // exactly the leak this endpoint's neutral copy was trying to avoid.
+        $key = 'resend-otp:'.hash('sha256', $email.'|'.$request->ip());
+
+        if (RateLimiter::tooManyAttempts($key, 1)) {
+            return $neutralResponse();
+        }
+
+        // Consume the cooldown for every address, registered or not, so the
+        // rate-limit state itself carries no information about the account.
+        RateLimiter::hit($key, $decaySeconds);
+
+        $user = User::where('email', $email)->first();
+
+        // Send only for a real account allowed to receive a challenge.
+        // AuthService::resendOtp() additionally refuses suspended/deleted
+        // accounts, so a blocked user is never issued a fresh code.
+        if ($user) {
+            $this->authService->resendOtp($user);
+        }
+
+        return $neutralResponse();
     }
 
     /**
@@ -250,7 +258,14 @@ class AuthController extends Controller
         $organization = null;
 
         if ($mode === 'organization') {
-            $organization = $user->organizations()->first();
+            // Scope to an ACTIVE admin membership rather than "first linked
+            // organization": this endpoint is the organization administrator
+            // login, so a plain member (or a membership marked 'removed')
+            // must not be treated as an organization account.
+            $organization = $user->organizations()
+                ->wherePivot('role_in_org', 'admin')
+                ->wherePivot('status', 'active')
+                ->first();
 
             if (! $organization) {
                 throw ValidationException::withMessages([
@@ -277,23 +292,29 @@ class AuthController extends Controller
      */
     private function assertOrganizationIsApproved(User $user): void
     {
-        $organization = $user->organizations()->first();
+        // Deliberately checks EVERY active membership rather than just the
+        // first one. A user can belong to more than one organization, and a
+        // membership marked 'removed' must neither gate this check nor be
+        // usable to bypass it. This is a state gate for any organization-
+        // linked account, so it is intentionally not limited to admins.
+        $blocking = $user->organizations()
+            ->wherePivot('status', 'active')
+            ->whereIn('verification_status', ['pending', 'rejected'])
+            ->first();
 
-        if (! $organization) {
+        if (! $blocking) {
             return;
         }
 
-        if ($organization->verification_status === 'pending') {
+        if ($blocking->verification_status === 'pending') {
             throw ValidationException::withMessages([
                 'email' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
             ]);
         }
 
-        if ($organization->verification_status === 'rejected') {
-            throw ValidationException::withMessages([
-                'email' => 'Your organization registration was rejected. Please contact support for more information.',
-            ]);
-        }
+        throw ValidationException::withMessages([
+            'email' => 'Your organization registration was rejected. Please contact support for more information.',
+        ]);
     }
 
     /**

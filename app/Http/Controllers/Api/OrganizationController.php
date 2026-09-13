@@ -20,27 +20,31 @@ class OrganizationController extends Controller
      */
     public function profile(Request $request): JsonResponse
     {
-        $organization = $request->user()->organizations()->first();
+        $user = $request->user();
 
-        // The organization.approved middleware lets accounts WITHOUT any
-        // organization through (nothing to gate), so a plain learner could
-        // reach this endpoint and crash the controller on a null org.
-        // Fail gracefully instead of fatally.
-        if (! $organization) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This account is not linked to any organization.',
-            ], 403);
-        }
-
-        // Only the linked account's own admin (role_in_org = 'admin') may
-        // read the organization profile — a regular member should not see
-        // the organization's full data.
-        $isAdmin = $request->user()->organizations()
+        // The organization returned and the organization that establishes
+        // admin rights MUST be the same row. This previously used
+        // organizations()->first() for the payload while the permission
+        // check was a separate exists() across *all* of the user's
+        // memberships — so a user who administered organization B but was
+        // only a plain member of organization A could read A's profile.
+        // The pivot status is filtered too, so a membership marked
+        // 'removed' no longer grants access.
+        $organization = $user->organizations()
             ->wherePivot('role_in_org', 'admin')
-            ->exists();
+            ->wherePivot('status', 'active')
+            ->first();
 
-        if (! $isAdmin) {
+        if (! $organization) {
+            // Distinguish "no organization at all" from "not an active admin
+            // of one" purely to keep the existing UX copy; both are 403.
+            if (! $user->organizations()->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This account is not linked to any organization.',
+                ], 403);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'Only an organization admin can view this profile.',

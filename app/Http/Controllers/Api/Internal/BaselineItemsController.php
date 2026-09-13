@@ -21,8 +21,14 @@ class BaselineItemsController extends Controller
     public function index(Request $request)
     {
         $expectedSecret = config('services.internal.baseline_items_secret');
+        $providedSecret = (string) $request->header('X-Internal-Secret');
 
-        if (blank($expectedSecret) || $request->header('X-Internal-Secret') !== $expectedSecret) {
+        // hash_equals(), not !==: a short-circuiting string comparison leaks
+        // the length of the matching prefix through response timing. This
+        // endpoint returns `correct_answer` for every item, so it is worth
+        // the constant-time check. Same pattern as
+        // SetupController::createAdmin() for ADMIN_SETUP_SECRET.
+        if (blank($expectedSecret) || ! hash_equals($expectedSecret, $providedSecret)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthorized.',
