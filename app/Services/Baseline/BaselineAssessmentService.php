@@ -2,6 +2,7 @@
 
 namespace App\Services\Baseline;
 
+use App\Events\SkillDataChanged;
 use App\Exceptions\BaselineAssessmentException;
 use App\Models\BaselineAssessment;
 use App\Models\Skill;
@@ -296,6 +297,17 @@ class BaselineAssessmentService
                 'skill_count' => count($normalizedSkills),
                 'algorithm_version' => $algorithmVersion,
             ],
+        );
+
+        /*
+         * US-INT-01 §24: an approved (service-verified) assessment
+         * update triggers a queued intelligence recalculation. The
+         * caller's transaction has committed by the time the queued
+         * listener runs.
+         */
+        SkillDataChanged::dispatch(
+            $assessment->studentProfile,
+            'baseline_assessment_submit',
         );
     }
 

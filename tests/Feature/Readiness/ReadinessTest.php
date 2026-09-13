@@ -2,13 +2,21 @@
 
 namespace Tests\Feature\Readiness;
 
+use App\Models\AlgorithmConfiguration;
+use App\Models\BaselineAssessment;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
+use App\Models\Evaluation;
+use App\Models\Project;
+use App\Models\ProjectTeam;
+use App\Models\ProjectTeamMember;
 use App\Models\ReadinessResult;
 use App\Models\Role;
+use App\Models\Rubric;
 use App\Models\Skill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
+use App\Models\Submission;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -30,6 +38,36 @@ class ReadinessTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
+
+        // US-INT-01 §10: readiness decisions now bind to an active
+        // algorithm configuration — no active config means an explicit
+        // error, so seed one for every legacy readiness scenario.
+        AlgorithmConfiguration::create([
+            'name' => 'intelligence',
+            'version' => 1,
+            'status' => 'active',
+            'config' => [],
+            'activated_at' => now(),
+        ]);
+
+        // US-INT-01: the service credential is mandatory on every
+        // Laravel -> FastAPI intelligence request.
+        config(['services.data_science.service_token' => 'test-service-token']);
+    }
+
+    public function test_missing_service_token_blocks_fastapi_call(): void
+    {
+        [$user, $profile, $careerRole] = $this->createScenario();
+        Sanctum::actingAs($user);
+        config(['services.data_science.service_token' => null]);
+        Http::fake();
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(503)
+            ->assertJsonPath('code', 'DATA_SCIENCE_NOT_CONFIGURED');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('readiness_results', ['student_profile_id' => $profile->id]);
     }
 
     public function test_unauthenticated_user_is_rejected(): void
@@ -62,11 +100,18 @@ class ReadinessTest extends TestCase
         $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
 
         $response->assertStatus(201);
-        $this->assertEquals(80.0, $response->json('data.score'));
+
+        // Weighted composite from createScenario()'s fixture data:
+        //   skill_match (80.0) * 0.65 = 52.0
+        //   practical_experience (50.0, 1 of 2 full-credit projects) * 0.20 = 10.0
+        //   assessment_reliability (90.0, avg confidence) * 0.10 = 9.0
+        //   profile_completeness (100.0, all required fields filled) * 0.05 = 5.0
+        //   total = 76.0
+        $this->assertEquals(76.0, $response->json('data.score'));
         $this->assertDatabaseHas('readiness_results', [
             'student_profile_id' => $profile->id,
             'career_role_id' => $careerRole->id,
-            'score' => 80.00,
+            'score' => 76.00,
         ]);
     }
 
@@ -82,7 +127,7 @@ class ReadinessTest extends TestCase
 
     public function test_career_role_not_approved_uses_custom_error_code(): void
     {
-        [$user, , $role] = $this->createScenario('draft');
+        [$user,, $role] = $this->createScenario('draft');
         Sanctum::actingAs($user);
 
         $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
@@ -105,7 +150,7 @@ class ReadinessTest extends TestCase
 
     public function test_missing_skill_evaluation_blocks_fastapi_call(): void
     {
-        [$user, , $careerRole, $roleSkills] = $this->createScenario();
+        [$user,, $careerRole, $roleSkills] = $this->createScenario();
         SkillEvaluation::query()->where('skill_id', $roleSkills[0]->skill_id)->delete();
         Sanctum::actingAs($user);
         Http::fake();
@@ -114,6 +159,37 @@ class ReadinessTest extends TestCase
 
         $response->assertStatus(422)->assertJsonPath('code', 'ASSESSMENT_INCOMPLETE');
         Http::assertNothingSent();
+    }
+
+    public function test_missing_practical_experience_blocks_calculation(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+
+        // Remove the practical-experience fixture only: no completed/accepted/
+        // evaluated project for this learner, so the component is unavailable.
+        Evaluation::query()->delete();
+        Submission::query()->delete();
+
+        Sanctum::actingAs($user);
+        Http::fake(['*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200)]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'READINESS_COMPONENT_UNAVAILABLE');
+    }
+
+    public function test_missing_baseline_assessment_blocks_calculation(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+
+        BaselineAssessment::query()->where('student_profile_id', $profile->id)->delete();
+
+        Sanctum::actingAs($user);
+        Http::fake(['*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200)]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'READINESS_COMPONENT_UNAVAILABLE');
     }
 
     public function test_latest_skill_evaluation_is_used(): void
@@ -277,17 +353,28 @@ class ReadinessTest extends TestCase
             'status' => $status,
         ]);
 
+        // All Profile Completeness required_fields (see config/readiness.php)
+        // filled in, so that component defaults to 100.0 in the happy path.
         $profile = StudentProfile::forceCreate([
             'user_id' => $user->id,
             'primary_career_role_id' => $role->id,
+            'university_name' => 'Test University',
+            'student_university_number' => '12345',
+            'specialization' => 'Computer Science',
+            'academic_level' => 'Senior',
+            'career_status' => 'student',
+            'interests' => ['data-analysis'],
+            'availability' => 'full_time',
         ]);
 
         $roleSkills = collect();
-        foreach ([
-            ['SQL', 4.0, 0.45, true, 2.5],
-            ['Python', 4.0, 0.30, true, 3.5],
-            ['Power BI', 4.0, 0.25, false, 4.0],
-        ] as [$name, $required, $weight, $critical, $current]) {
+        foreach (
+            [
+                ['SQL', 4.0, 0.45, true, 2.5],
+                ['Python', 4.0, 0.30, true, 3.5],
+                ['Power BI', 4.0, 0.25, false, 4.0],
+            ] as [$name, $required, $weight, $critical, $current]
+        ) {
             $skill = Skill::create([
                 'name' => $name,
                 'slug' => strtolower(str_replace(' ', '-', $name)).'-'.uniqid(),
@@ -310,7 +397,84 @@ class ReadinessTest extends TestCase
             $roleSkills->push($roleSkill->load('skill'));
         }
 
+        $this->seedEligiblePracticalExperience($user, $profile);
+        $this->seedCompletedBaselineAssessment($profile, $roleSkills);
+
         return [$user, $profile, $role, $roleSkills];
+    }
+
+    /**
+     * Seeds exactly one fully-eligible project (Project.status=completed,
+     * ProjectTeamMember.assignment_state=completed, Submission.status=accepted,
+     * Evaluation.status=finalized for THAT submission) so
+     * PracticalExperienceService finds eligible_count = 1, i.e. score = 50.0
+     * with the default full_credit_project_count = 2.
+     */
+    private function seedEligiblePracticalExperience(User $user, StudentProfile $profile): void
+    {
+        $rubric = Rubric::create([
+            'title' => 'Test Rubric',
+            'version' => 1,
+            'status' => 'published',
+        ]);
+
+        $project = Project::forceCreate([
+            'owner_id' => $user->id,
+            'type' => 'simulation',
+            'title' => 'Test Project',
+            'status' => 'completed',
+            'rubric_id' => $rubric->id,
+        ]);
+
+        $team = ProjectTeam::create([
+            'project_id' => $project->id,
+            'name' => 'Team A',
+        ]);
+
+        ProjectTeamMember::create([
+            'project_team_id' => $team->id,
+            'user_id' => $user->id,
+            'assignment_state' => 'completed',
+        ]);
+
+        $submission = Submission::forceCreate([
+            'project_id' => $project->id,
+            'contributor_id' => $user->id,
+            'status' => 'accepted',
+            'submitted_at' => now(),
+        ]);
+
+        Evaluation::forceCreate([
+            'project_id' => $project->id,
+            'submission_id' => $submission->id,
+            'evaluator_id' => $user->id,
+            'rubric_id' => $rubric->id,
+            'rubric_version' => 1,
+            'status' => 'finalized',
+        ]);
+    }
+
+    /**
+     * Seeds one completed BaselineAssessment with normalized_skills confidence
+     * values on the 0-100 scale (matching BaselineAssessmentService's actual
+     * storage format), so AssessmentReliabilityService finds score = 90.0.
+     */
+    private function seedCompletedBaselineAssessment($profile, $roleSkills): void
+    {
+        BaselineAssessment::forceCreate([
+            'student_profile_id' => $profile->id,
+            'assessment_type' => 'baseline',
+            'assessment_version' => 'v1.0',
+            'status' => 'completed',
+            'normalized_skills' => $roleSkills->map(fn ($roleSkill) => [
+                'skill_id' => $roleSkill->skill_id,
+                'slug' => $roleSkill->skill->slug,
+                'name' => $roleSkill->skill->name,
+                'level' => 2.5,
+                'confidence' => 90,
+            ])->values()->all(),
+            'completed_at' => now(),
+        ]);
     }
 
     private function createUserWithRole(Role $role): User

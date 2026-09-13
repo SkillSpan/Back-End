@@ -76,6 +76,18 @@ class BaselineDataScienceClient
 
         $endpoint = $baseUrl.'/'.$path;
 
+        // US-INT-01 §4: dedicated service credential, mandatory on every
+        // Laravel -> FastAPI call — never a learner Sanctum token.
+        $serviceToken = trim((string) config('services.data_science.service_token', ''));
+
+        if ($serviceToken === '') {
+            throw new BaselineAssessmentException(
+                'The intelligence service token is not configured.',
+                503,
+                'BASELINE_INTEGRATION_NOT_CONFIGURED',
+            );
+        }
+
         $payload = [
             'student_profile_id' => (int) $studentProfile->id,
             'user_id' => (int) $studentProfile->user_id,
@@ -92,6 +104,7 @@ class BaselineDataScienceClient
                 ->withHeaders([
                     'X-Request-ID' => $requestId,
                 ])
+                ->withToken($serviceToken)
                 ->post($endpoint, $payload);
         } catch (ConnectionException $e) {
             $this->logFailure($payload, $requestId, null, $startedAt, $e->getMessage());

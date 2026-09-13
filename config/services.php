@@ -42,7 +42,38 @@ return [
     'data_science' => [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
         'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 10),
+
+        // Service-to-service credential (US-INT-01 §4). Never a learner
+        // Sanctum token, never exposed to the frontend.
+        'service_token' => env('DATA_SCIENCE_SERVICE_TOKEN'),
+
+        'api_version' => env('DATA_SCIENCE_API_VERSION', 'v1'),
+
+        // Versioned SRS contract paths (US-INT-01 §26). Defaults target
+        // the new intelligence API; legacy local FastAPI deployments can
+        // override per-path without touching business logic.
+        'skill_gap_path' => env(
+            'DATA_SCIENCE_SKILL_GAP_PATH',
+            '/api/v1/intelligence/skill-gap',
+        ),
+        'readiness_path' => env(
+            'DATA_SCIENCE_READINESS_PATH',
+            '/api/v1/intelligence/readiness',
+        ),
+        'roadmap_path' => env(
+            'DATA_SCIENCE_ROADMAP_PATH',
+            '/api/v1/intelligence/roadmap',
+        ),
+
+        // Compatibility fallback (US-INT-01 §11): used only when the
+        // service response carries no algorithm_version metadata.
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
+
+        // Which intelligence endpoints are enabled. Roadmap generation is
+        // gated because the FastAPI roadmap endpoint is still being
+        // rolled out — disabled means 503, never a fabricated result.
+        'roadmap_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ENABLED', false),
+
         'baseline' => [
             'path' => env('DATA_SCIENCE_BASELINE_PATH', 'api/v1/baseline'),
             'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
