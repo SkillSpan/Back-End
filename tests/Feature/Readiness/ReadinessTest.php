@@ -139,7 +139,7 @@ class ReadinessTest extends TestCase
     {
         $user = $this->createUserWithRole($this->learnerRole);
         $profile = StudentProfile::forceCreate(['user_id' => $user->id]);
-        $role = CareerRole::forceCreate(['title' => 'Empty Role', 'slug' => 'empty-role-' . uniqid(), 'version' => 1, 'status' => 'approved']);
+        $role = CareerRole::forceCreate(['title' => 'Empty Role', 'slug' => 'empty-role-'.uniqid(), 'version' => 1, 'status' => 'approved']);
         $profile->update(['primary_career_role_id' => $role->id]);
         Sanctum::actingAs($user);
 
@@ -338,7 +338,7 @@ class ReadinessTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $response = $this->getJson('/api/v1/readiness/latest?career_role_id=' . $careerRole->id);
+        $response = $this->getJson('/api/v1/readiness/latest?career_role_id='.$careerRole->id);
         $response->assertOk();
         $this->assertEquals(82.0, $response->json('data.score'));
     }
@@ -348,7 +348,7 @@ class ReadinessTest extends TestCase
         $user = $this->createUserWithRole($this->learnerRole);
         $role = CareerRole::forceCreate([
             'title' => 'Data Analyst',
-            'slug' => 'data-analyst-' . uniqid(),
+            'slug' => 'data-analyst-'.uniqid(),
             'version' => 1,
             'status' => $status,
         ]);
@@ -377,7 +377,7 @@ class ReadinessTest extends TestCase
         ) {
             $skill = Skill::create([
                 'name' => $name,
-                'slug' => strtolower(str_replace(' ', '-', $name)) . '-' . uniqid(),
+                'slug' => strtolower(str_replace(' ', '-', $name)).'-'.uniqid(),
             ]);
             $roleSkill = CareerRoleSkill::create([
                 'career_role_id' => $role->id,
@@ -466,7 +466,7 @@ class ReadinessTest extends TestCase
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
             'status' => 'completed',
-            'normalized_skills' => $roleSkills->map(fn($roleSkill) => [
+            'normalized_skills' => $roleSkills->map(fn ($roleSkill) => [
                 'skill_id' => $roleSkill->skill_id,
                 'slug' => $roleSkill->skill->slug,
                 'name' => $roleSkill->skill->name,
@@ -481,7 +481,7 @@ class ReadinessTest extends TestCase
     {
         $user = User::forceCreate([
             'name' => 'Test User',
-            'email' => uniqid() . '@test.com',
+            'email' => uniqid().'@test.com',
             'password' => 'password123',
             'status' => 'active',
             'email_verified_at' => now(),

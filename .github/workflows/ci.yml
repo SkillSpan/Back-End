@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop, 'feature/**']
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   ci:
@@ -21,6 +21,16 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, dom, fileinfo, sqlite3, pdo_sqlite
           coverage: none
+
+      # Runs before any dependency install so a parse error fails the build
+      # in seconds. A syntax error in a controller previously reached a
+      # shared branch because nothing lint-checked it: the file only breaks
+      # when PHP tries to load it, which the test suite may never do.
+      - name: Check PHP syntax
+        run: |
+          set -e
+          find app routes config database bootstrap -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

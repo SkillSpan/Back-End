@@ -7,7 +7,6 @@ use App\Models\LearnerSkill;
 use App\Models\Skill;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class SkillsController extends Controller
 {
@@ -79,7 +78,7 @@ class SkillsController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'learner_id' => 'required|exists:users,id',
             'skill_id' => 'required|exists:skills,id',
             'level' => 'required|numeric|between:0.00,5.00',
@@ -87,18 +86,39 @@ class SkillsController extends Controller
             'source_type' => 'sometimes|required|string',
             'algorithm_version' => 'sometimes|required|string',
             'configuration_version' => 'sometimes|required|string',
-            'source_contributions' => 'sometimes|required|json',
+            // A structured payload, NOT a JSON string. The model casts this
+            // column to `array`, and Eloquent encodes on write — so handing
+            // it an already-encoded string encoded it a second time and the
+            // stored value read back as a string instead of an array.
+            'source_contributions' => 'sometimes|array',
         ]);
 
+        $user = $request->user();
+
+        // AUTHZ: a learner may only ever write their own skill rows. Without
+        // this check any authenticated user could POST an arbitrary
+        // learner_id and create or overwrite another learner's level,
+        // confidence score and provenance metadata. matrix() already scoped
+        // its read the same way; the write path was left open.
+        if (! $user->hasRole('admin') && (int) $validated['learner_id'] !== $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not authorized to modify another learner\'s skills.',
+            ], 403);
+        }
+
         $learnerSkill = LearnerSkill::updateOrCreate(
-            ['learner_id' => $request->learner_id, 'skill_id' => $request->skill_id],
             [
-                'level' => $request->level,
-                'confidence_score' => $request->confidence_score,
-                'source_type' => $request->source_type,
-                'algorithm_version' => $request->algorithm_version,
-                'configuration_version' => $request->configuration_version,
-                'source_contributions' => $request->source_contributions,
+                'learner_id' => $validated['learner_id'],
+                'skill_id' => $validated['skill_id'],
+            ],
+            [
+                'level' => $validated['level'],
+                'confidence_score' => $validated['confidence_score'],
+                'source_type' => $validated['source_type'] ?? null,
+                'algorithm_version' => $validated['algorithm_version'] ?? null,
+                'configuration_version' => $validated['configuration_version'] ?? null,
+                'source_contributions' => $validated['source_contributions'] ?? null,
                 'calculated_at' => now(),
             ]
         );
@@ -116,26 +136,36 @@ class SkillsController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $learnerSkill = LearnerSkill::findOrFail($id);
+        // AUTHZ: scope the lookup to the caller first, so a non-admin asking
+        // for another learner's row gets a 404 (the row is simply not visible
+        // to them) instead of a 403 that would confirm the id exists.
+        $query = LearnerSkill::query();
 
-        $request->validate([
+        if (! $request->user()->hasRole('admin')) {
+            $query->where('learner_id', $request->user()->id);
+        }
+
+        $learnerSkill = $query->findOrFail($id);
+
+        $validated = $request->validate([
             'level' => 'sometimes|numeric|between:0.00,5.00',
             'confidence_score' => 'sometimes|numeric|between:0.00,100.00',
             'source_type' => 'sometimes|string',
             'algorithm_version' => 'sometimes|string',
             'configuration_version' => 'sometimes|string',
-            'source_contributions' => 'sometimes|json',
+            'source_contributions' => 'sometimes|array',
         ]);
 
-        $learnerSkill->update($request->only([
-            'level',
-            'confidence_score',
-            'source_type',
-            'algorithm_version',
-            'configuration_version',
-            'source_contributions',
-            'calculated_at',
-        ]));
+        // Only validated fields are written. `calculated_at` is deliberately
+        // NOT accepted from the client — it is a server-managed provenance
+        // timestamp. The previous version read it with $request->only(),
+        // which pulls from the raw input bag rather than validated data, so
+        // an unvalidated client value reached the model and let a caller
+        // forge when their scores were computed.
+        $learnerSkill->update([
+            ...$validated,
+            'calculated_at' => now(),
+        ]);
 
         return response()->json([
             'success' => true,

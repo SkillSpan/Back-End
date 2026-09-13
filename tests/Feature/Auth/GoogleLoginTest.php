@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Organization;
+use App\Models\OrganizationMember;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AuthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
@@ -200,5 +203,50 @@ class GoogleLoginTest extends TestCase
             ->assertJsonValidationErrors(['credential']);
 
         $this->assertDatabaseCount('users', 0);
+    }
+
+    /**
+     * Regression test: the organization-approval rejection is raised from
+     * INSIDE the transaction (assertOrganizationIsApproved() is called after
+     * DB::beginTransaction()), and the ValidationException catch branch used
+     * to rethrow without rolling back. On a reused connection the
+     * transaction was left open for a later, unrelated request.
+     */
+    public function test_pending_organization_google_login_leaves_no_open_transaction(): void
+    {
+        $user = $this->createActiveUser('orgadmin@gmail.com');
+
+        $organization = Organization::forceCreate([
+            'name' => 'Pending Org',
+            'type' => 'company',
+            'verification_status' => 'pending',
+            'contact_email' => 'contact@pending.com',
+        ]);
+
+        OrganizationMember::forceCreate([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role_in_org' => 'admin',
+            'status' => 'active',
+        ]);
+
+        $this->mockVerifiedToken($this->verifiedPayload(['email' => 'orgadmin@gmail.com']));
+
+        // RefreshDatabase wraps the test itself in a transaction, so the
+        // baseline is 1, not 0. What matters is that the request does not
+        // leave an EXTRA transaction open on top of it.
+        $levelBefore = DB::transactionLevel();
+
+        $this->postJson('/api/v1/auth/login/google', ['credential' => 'valid-id-token'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['credential']);
+
+        // The transaction opened inside loginWithGoogle() must be closed by
+        // the time the request ends.
+        $this->assertSame($levelBefore, DB::transactionLevel());
+
+        // And nothing leaked: no token, no session row.
+        $this->assertSame(0, $user->tokens()->count());
+        $this->assertDatabaseCount('auth_sessions', 0);
     }
 }
