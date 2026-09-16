@@ -24,6 +24,7 @@ class ReadinessService
         private readonly PracticalExperienceService $practicalExperienceService,
         private readonly AssessmentReliabilityService $assessmentReliabilityService,
         private readonly ProfileCompletenessService $profileCompletenessService,
+        private readonly SkillMatchService $skillMatchService,
     ) {}
 
     public function calculate(
@@ -191,7 +192,17 @@ class ReadinessService
          */
         $weights = config('readiness.weights', []);
 
-        $skillMatch = (float) $result['base_readiness_score'];
+        /*
+         * Contract update (Data Science, skill-match-v1): the readiness
+         * composite's skill_match component must come from this
+         * deterministic local calculation, not from FastAPI's
+         * base_readiness_score. FastAPI's /skill-gap response is still
+         * used for per-skill gap/confidence/explanation persistence
+         * below — only the composite's skill_match figure changes source.
+         */
+        $skillMatchResult = $this->skillMatchService->calculate($payload);
+
+        $skillMatch = (float) $skillMatchResult['skill_match_score'];
 
         $components = [
             'skill_match' => [
@@ -319,6 +330,7 @@ class ReadinessService
             $payload,
             $finalScore,
             $skillMatch,
+            $skillMatchResult,
             $practicalExperienceScore,
             $assessmentReliabilityScore,
             $profileCompletenessScore,
@@ -352,6 +364,7 @@ class ReadinessService
                     'student_profile_id' => (int) $studentProfile->id,
                     'payload' => $payload,
                     'fastapi_result' => $result,
+                    'skill_match_result' => $skillMatchResult,
                     'algorithm_version' => $algorithmVersion,
                     'configuration_version' => $configurationVersion,
                     'request_id' => $requestId,
@@ -390,6 +403,7 @@ class ReadinessService
                     'decision_uuid' => $snapshot->decision_uuid,
                     'payload' => $payload,
                     'fastapi_result' => $result,
+                    'skill_match_result' => $skillMatchResult,
 
                     'components' => [
                         'skill_match' => $skillMatch,
