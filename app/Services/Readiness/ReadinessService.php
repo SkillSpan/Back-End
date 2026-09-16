@@ -85,7 +85,7 @@ class ReadinessService
             ->orderByDesc('id')
             ->get()
             ->groupBy(
-                fn (SkillEvaluation $evaluation) => (int) $evaluation->skill_id
+                fn(SkillEvaluation $evaluation) => (int) $evaluation->skill_id
             );
 
         $missingSkillIds = [];
@@ -126,7 +126,7 @@ class ReadinessService
          * default configuration is used.
          */
         $configuration = $this->decisionSnapshotService->resolveConfiguration();
-        $configurationVersion = 'config-v'.$configuration->version;
+        $configurationVersion = 'config-v' . $configuration->version;
 
         /*
          * US-INT-01 §6: capture the validated input state BEFORE the
@@ -179,49 +179,81 @@ class ReadinessService
             $studentProfile
         );
 
-        if (
-            $practicalExperience['score'] === null
-            || $assessmentReliability['score'] === null
-        ) {
-            throw new ReadinessIntegrationException(
-                'Readiness cannot be calculated because a required component is unavailable.',
-                422,
-                'READINESS_COMPONENT_UNAVAILABLE',
-                [
-                    'practical_experience_available' => $practicalExperience['score'] !== null,
-                    'assessment_reliability_available' => $assessmentReliability['score'] !== null,
-                ],
-            );
-        }
-
+        /*
+         * Missing-component policy (agreed with Data Science): an
+         * unavailable component (score === null) is excluded rather than
+         * treated as 0 or blocking the calculation. Remaining component
+         * weights are renormalized over only the available components,
+         * and the result is flagged `is_provisional`. skill_match is
+         * always available at this point (validateDataScienceResult()
+         * already succeeded above); profile_completeness never returns
+         * null by design (see ProfileCompletenessService).
+         */
         $weights = config('readiness.weights', []);
 
         $skillMatch = (float) $result['base_readiness_score'];
 
-        $practicalExperienceScore = (float) $practicalExperience['score'];
+        $components = [
+            'skill_match' => [
+                'score' => $skillMatch,
+                'weight' => (float) ($weights['skill_match'] ?? 0.65),
+                'available' => true,
+            ],
+            'practical_experience' => [
+                'score' => $practicalExperience['score'],
+                'weight' => (float) ($weights['practical_experience'] ?? 0.20),
+                'available' => $practicalExperience['score'] !== null,
+            ],
+            'assessment_reliability' => [
+                'score' => $assessmentReliability['score'],
+                'weight' => (float) ($weights['assessment_reliability'] ?? 0.10),
+                'available' => $assessmentReliability['score'] !== null,
+            ],
+            'profile_completeness' => [
+                'score' => $profileCompleteness['score'],
+                'weight' => (float) ($weights['profile_completeness'] ?? 0.05),
+                'available' => $profileCompleteness['score'] !== null,
+            ],
+        ];
 
-        $assessmentReliabilityScore = (float) $assessmentReliability['score'];
+        $availableComponents = array_filter($components, fn($c) => $c['available']);
+        $excludedComponents = array_keys(array_diff_key($components, $availableComponents));
+        $isProvisional = $excludedComponents !== [];
 
-        $profileCompletenessScore = (float) $profileCompleteness['score'];
+        $availableWeightSum = array_sum(array_column($availableComponents, 'weight'));
+
+        if ($availableWeightSum <= 0.0) {
+            // Defensive only — skill_match is always available here, so
+            // this should never actually be reached.
+            throw new ReadinessIntegrationException(
+                'Readiness cannot be calculated because no components are available.',
+                422,
+                'READINESS_COMPONENT_UNAVAILABLE',
+                ['excluded_components' => $excludedComponents],
+            );
+        }
+
+        $practicalExperienceScore = $practicalExperience['score'] === null
+            ? null
+            : (float) $practicalExperience['score'];
+
+        $assessmentReliabilityScore = $assessmentReliability['score'] === null
+            ? null
+            : (float) $assessmentReliability['score'];
+
+        $profileCompletenessScore = $profileCompleteness['score'] === null
+            ? null
+            : (float) $profileCompleteness['score'];
 
         /*
          * Calculate the final readiness score using the configured
-         * component weights.
+         * component weights, renormalized over available components only.
          */
-        $finalScore =
-            ($skillMatch * (float) ($weights['skill_match'] ?? 0.65))
-            + (
-                $practicalExperienceScore
-                * (float) ($weights['practical_experience'] ?? 0.20)
-            )
-            + (
-                $assessmentReliabilityScore
-                * (float) ($weights['assessment_reliability'] ?? 0.10)
-            )
-            + (
-                $profileCompletenessScore
-                * (float) ($weights['profile_completeness'] ?? 0.05)
-            );
+        $finalScore = 0.0;
+        foreach ($availableComponents as $component) {
+            $finalScore += $component['score'] * $component['weight'];
+        }
+        $finalScore = $finalScore / $availableWeightSum;
 
         $finalScore = min(max($finalScore, 0.0), 100.0);
 
@@ -291,6 +323,8 @@ class ReadinessService
             $assessmentReliabilityScore,
             $profileCompletenessScore,
             $criticalCapApplied,
+            $isProvisional,
+            $excludedComponents,
             $band,
             $algorithmVersion,
             $configurationVersion,
@@ -344,6 +378,7 @@ class ReadinessService
                 'profile_completeness_component' => $profileCompletenessScore,
 
                 'critical_cap_applied' => $criticalCapApplied,
+                'is_provisional' => $isProvisional,
                 'band' => $band,
 
                 'algorithm_version' => $algorithmVersion,
@@ -361,6 +396,11 @@ class ReadinessService
                         'practical_experience' => $practicalExperienceScore,
                         'assessment_reliability' => $assessmentReliabilityScore,
                         'profile_completeness' => $profileCompletenessScore,
+                    ],
+
+                    'missing_component_policy' => [
+                        'excluded_components' => $excludedComponents,
+                        'is_provisional' => $isProvisional,
                     ],
 
                     'formula' => [
@@ -425,7 +465,7 @@ class ReadinessService
             ->where('student_profile_id', $studentProfile->id)
             ->when(
                 $careerRoleId,
-                fn ($query) => $query->where(
+                fn($query) => $query->where(
                     'career_role_id',
                     $careerRoleId
                 )
@@ -540,10 +580,12 @@ class ReadinessService
             );
         }
 
-        foreach ([
-            'base_readiness_score',
-            'readiness_score',
-        ] as $field) {
+        foreach (
+            [
+                'base_readiness_score',
+                'readiness_score',
+            ] as $field
+        ) {
             if (
                 ! is_numeric($result[$field])
                 || (float) $result[$field] < 0
@@ -586,16 +628,18 @@ class ReadinessService
         $seenSkillIds = [];
 
         foreach ($result['skill_results'] as $skillResult) {
-            foreach ([
-                'skill_id',
-                'skill_name',
-                'current_level',
-                'required_level',
-                'importance_weight',
-                'is_critical',
-                'gap',
-                'status',
-            ] as $field) {
+            foreach (
+                [
+                    'skill_id',
+                    'skill_name',
+                    'current_level',
+                    'required_level',
+                    'importance_weight',
+                    'is_critical',
+                    'gap',
+                    'status',
+                ] as $field
+            ) {
                 if (! array_key_exists($field, $skillResult)) {
                     throw new ReadinessIntegrationException(
                         'The Data Science response contains an incomplete skill result.',
@@ -643,7 +687,7 @@ class ReadinessService
             if (
                 abs(
                     (float) $skillResult['current_level']
-                    - (float) $expected['current_level']
+                        - (float) $expected['current_level']
                 ) > 0.0001
             ) {
                 throw new ReadinessIntegrationException(
@@ -657,7 +701,7 @@ class ReadinessService
             if (
                 abs(
                     (float) $skillResult['required_level']
-                    - (float) $expected['required_level']
+                        - (float) $expected['required_level']
                 ) > 0.0001
             ) {
                 throw new ReadinessIntegrationException(
@@ -671,7 +715,7 @@ class ReadinessService
             if (
                 abs(
                     (float) $skillResult['importance_weight']
-                    - (float) $expected['importance_weight']
+                        - (float) $expected['importance_weight']
                 ) > 0.0001
             ) {
                 throw new ReadinessIntegrationException(
@@ -696,14 +740,14 @@ class ReadinessService
 
             $expectedGap = max(
                 (float) $expected['required_level']
-                - (float) $expected['current_level'],
+                    - (float) $expected['current_level'],
                 0.0,
             );
 
             if (
                 abs(
                     (float) $skillResult['gap']
-                    - $expectedGap
+                        - $expectedGap
                 ) > 0.01
             ) {
                 throw new ReadinessIntegrationException(
