@@ -31,6 +31,7 @@ class AdminPanelAuthTest extends TestCase
 
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
+        Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
     private function admin(string $status = 'active'): User
@@ -199,6 +200,86 @@ class AdminPanelAuthTest extends TestCase
         ])->assertSessionHasErrors('email');
 
         $this->assertGuest();
+    }
+
+    /**
+     * Regression: the API login normalises the address (strtolower + trim)
+     * before looking the account up, while Auth::attempt() uses whatever the
+     * browser sent. The two must not disagree on identical input, or the same
+     * credentials "work on the API but not in the panel".
+     */
+    public function test_a_pasted_email_with_surrounding_whitespace_is_accepted(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/admin/login', [
+            'email' => '  admin@test.com  ',
+            'password' => 'password123',
+        ])->assertRedirect(route('admin.organizations'));
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    /**
+     * Case matters here because the comparison is not case-insensitive on
+     * every driver: MySQL's utf8mb4_unicode_ci matches regardless, but SQLite
+     * (and therefore this test suite) does not. Normalising keeps the panel
+     * behaving the same on both.
+     */
+    public function test_a_capitalised_email_is_accepted(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/admin/login', [
+            'email' => 'Admin@Test.COM',
+            'password' => 'password123',
+        ])->assertRedirect(route('admin.organizations'));
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    /**
+     * "Works on the API but not in the panel" is usually this: an organisation
+     * admin signs in fine through /api/v1/auth/login/organization, then the
+     * panel refuses them. The message has to name the role they actually hold
+     * so it does not read like a wrong password.
+     */
+    public function test_an_organisation_admin_is_told_which_role_they_hold(): void
+    {
+        $user = User::forceCreate([
+            'name' => 'Company Admin',
+            'email' => 'company@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $user->roles()->attach(Role::where('slug', 'company_admin')->first()->id);
+
+        $this->post('/admin/login', [
+            'email' => 'company@test.com',
+            'password' => 'password123',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertGuest();
+        $this->assertStringContainsString(
+            'company_admin',
+            session('errors')->first('email')
+        );
+    }
+
+    public function test_an_inactive_account_is_told_it_is_inactive(): void
+    {
+        $this->admin(status: 'suspended');
+
+        $this->post('/admin/login', [
+            'email' => 'admin@test.com',
+            'password' => 'password123',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertStringContainsString(
+            'not active',
+            session('errors')->first('email')
+        );
     }
 
     public function test_repeated_failures_are_throttled(): void

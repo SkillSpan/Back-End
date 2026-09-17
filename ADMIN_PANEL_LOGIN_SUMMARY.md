@@ -126,7 +126,36 @@ Live checks against a running server:
 | `GET /admin/login` | `200`, form with CSRF + email + password |
 | `GET /admin/api/organizations` as a guest | `401` |
 | Full cookie + CSRF round-trip, wrong password | `302` back with *"do not match our records"* — **not** 419, so CSRF and session wiring are correct |
-| Successful live login | Not tested — I don't know the admin's password. Covered by the test suite. |
+
+### Full end-to-end login, verified live
+
+Because your `.env` points at the **live** database, this was run against a **throwaway SQLite
+database** so production was never touched (confirmed afterwards: still 122 users / 1 admin /
+27 organizations, unchanged):
+
+```bash
+export DB_CONNECTION=sqlite DB_DATABASE=".../storage/verify.sqlite"
+php artisan migrate --force && php artisan serve --port=8124
+```
+
+| Step | Result |
+|---|---|
+| `GET /admin/login` | `200`, CSRF token issued |
+| `POST /admin/login`, correct credentials | `302` → panel |
+| `GET /admin/organizations` | `200` — session bar shows the signed-in email |
+| `GET /admin/api/organizations` | **`200` + organizations** ← *the request that used to return 401* |
+| `?status=pending` filter | `200`, filtered correctly |
+| `POST /admin/api/organizations/{id}/approve` | `200`, persisted, `verified_by` recorded |
+| Proof document link | resolves to `/admin/organizations/{id}/proof-file` and returns `200 application/pdf` |
+| `POST /admin/logout` | `302`; panel afterwards `302`; API afterwards `401` |
+
+Two refusals are **intended behaviour, not bugs**:
+
+- Approving an organization with no proof document → *"This organization has no proof document to
+  review."* (the ADM rule: never mark something verified without evidence). Approval succeeded once
+  a proof file was attached.
+- Rejecting an already-reviewed organization → `422`.
+
 
 ---
 
@@ -154,12 +183,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/setup/create-admin \
 
 ## 6. Commit state
 
-Mid-session the controllers and views were committed as **`2812c3f feature: add acoute editinh`**.
-Still uncommitted at the end:
+Everything is committed:
 
-- `app/Http/Middleware/EnsureAccountIsActive.php` (modified)
-- `routes/web.php` (modified)
-- `tests/Feature/Admin/AdminPanelAuthTest.php` (new)
+- **`2812c3f`** *"feature: add acoute editinh"* — the two web controllers, both views, the API
+  controller tweak and `routes/web.php`.
+- **`423c844`** *"add CRS"* — `EnsureAccountIsActive.php`, the route update, the test file and this
+  summary.
+
+Working tree is clean. HEAD is `423c844`.
+
 
 ---
 
