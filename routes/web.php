@@ -10,3 +10,4 @@ Route::get('/', function () {
 if (app()->environment('local')) {
     Route::get('/test-register', [TestController::class, 'showRegisterForm'])->name('test.register');
 }
+Route::view('/admin/organizations', 'admin.organizations');

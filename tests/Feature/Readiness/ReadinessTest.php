@@ -101,18 +101,24 @@ class ReadinessTest extends TestCase
 
         $response->assertStatus(201);
 
-        // Weighted composite from createScenario()'s fixture data:
-        //   skill_match (80.0) * 0.65 = 52.0
+        // Weighted composite from createScenario()'s fixture data. The
+        // skill_match component comes from the local skill-match-v1
+        // calculation (SkillMatchService), NOT from FastAPI's
+        // base_readiness_score — see ReadinessService::calculate():
+        //   skill_match (79.38, from the fixture's levels/weights) * 0.65 = 51.60
         //   practical_experience (50.0, 1 of 2 full-credit projects) * 0.20 = 10.0
         //   assessment_reliability (90.0, avg confidence) * 0.10 = 9.0
         //   profile_completeness (100.0, all required fields filled) * 0.05 = 5.0
-        //   total = 76.0
-        $this->assertEquals(76.0, $response->json('data.score'));
+        //   total = 75.60
+        $this->assertEquals(75.6, $response->json('data.score'));
+        // Regression guard: the key must actually be present. assertFalse()
+        // alone would pass on a missing key, because json() returns null.
+        $this->assertArrayHasKey('is_provisional', $response->json('data'));
         $this->assertFalse($response->json('data.is_provisional'));
         $this->assertDatabaseHas('readiness_results', [
             'student_profile_id' => $profile->id,
             'career_role_id' => $careerRole->id,
-            'score' => 76.00,
+            'score' => 75.60,
         ]);
     }
 
@@ -140,7 +146,7 @@ class ReadinessTest extends TestCase
     {
         $user = $this->createUserWithRole($this->learnerRole);
         $profile = StudentProfile::forceCreate(['user_id' => $user->id]);
-        $role = CareerRole::forceCreate(['title' => 'Empty Role', 'slug' => 'empty-role-' . uniqid(), 'version' => 1, 'status' => 'approved']);
+        $role = CareerRole::forceCreate(['title' => 'Empty Role', 'slug' => 'empty-role-'.uniqid(), 'version' => 1, 'status' => 'approved']);
         $profile->update(['primary_career_role_id' => $role->id]);
         Sanctum::actingAs($user);
 
@@ -180,10 +186,10 @@ class ReadinessTest extends TestCase
         $response->assertStatus(201);
         $this->assertTrue($response->json('data.is_provisional'));
         $this->assertNull($response->json('data.practical_experience_component'));
-        // skill_match(80*.65) + assessment_reliability(90*.10) + profile_completeness(100*.05)
+        // skill_match(79.38*.65) + assessment_reliability(90*.10) + profile_completeness(100*.05)
         // renormalized over the remaining weight sum (.65+.10+.05=.80):
-        // (52 + 9 + 5) / 0.80 = 82.5
-        $this->assertEquals(82.5, $response->json('data.score'));
+        // (51.60 + 9 + 5) / 0.80 = 82.0
+        $this->assertEquals(82.0, $response->json('data.score'));
     }
 
     public function test_missing_baseline_assessment_is_provisional_not_blocked(): void
@@ -200,10 +206,10 @@ class ReadinessTest extends TestCase
         $response->assertStatus(201);
         $this->assertTrue($response->json('data.is_provisional'));
         $this->assertNull($response->json('data.assessment_reliability_component'));
-        // skill_match(80*.65) + practical_experience(50*.20) + profile_completeness(100*.05)
+        // skill_match(79.38*.65) + practical_experience(50*.20) + profile_completeness(100*.05)
         // renormalized over the remaining weight sum (.65+.20+.05=.90):
-        // (52 + 10 + 5) / 0.90 = 74.44
-        $this->assertEquals(74.44, $response->json('data.score'));
+        // (51.60 + 10 + 5) / 0.90 = 74.0
+        $this->assertEquals(74.0, $response->json('data.score'));
     }
 
     public function test_latest_skill_evaluation_is_used(): void
@@ -352,7 +358,7 @@ class ReadinessTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $response = $this->getJson('/api/v1/readiness/latest?career_role_id=' . $careerRole->id);
+        $response = $this->getJson('/api/v1/readiness/latest?career_role_id='.$careerRole->id);
         $response->assertOk();
         $this->assertEquals(82.0, $response->json('data.score'));
     }
@@ -362,7 +368,7 @@ class ReadinessTest extends TestCase
         $user = $this->createUserWithRole($this->learnerRole);
         $role = CareerRole::forceCreate([
             'title' => 'Data Analyst',
-            'slug' => 'data-analyst-' . uniqid(),
+            'slug' => 'data-analyst-'.uniqid(),
             'version' => 1,
             'status' => $status,
         ]);
@@ -391,7 +397,7 @@ class ReadinessTest extends TestCase
         ) {
             $skill = Skill::create([
                 'name' => $name,
-                'slug' => strtolower(str_replace(' ', '-', $name)) . '-' . uniqid(),
+                'slug' => strtolower(str_replace(' ', '-', $name)).'-'.uniqid(),
             ]);
             $roleSkill = CareerRoleSkill::create([
                 'career_role_id' => $role->id,
@@ -480,7 +486,7 @@ class ReadinessTest extends TestCase
             'assessment_type' => 'baseline',
             'assessment_version' => 'v1.0',
             'status' => 'completed',
-            'normalized_skills' => $roleSkills->map(fn($roleSkill) => [
+            'normalized_skills' => $roleSkills->map(fn ($roleSkill) => [
                 'skill_id' => $roleSkill->skill_id,
                 'slug' => $roleSkill->skill->slug,
                 'name' => $roleSkill->skill->name,
@@ -495,7 +501,7 @@ class ReadinessTest extends TestCase
     {
         $user = User::forceCreate([
             'name' => 'Test User',
-            'email' => uniqid() . '@test.com',
+            'email' => uniqid().'@test.com',
             'password' => 'password123',
             'status' => 'active',
             'email_verified_at' => now(),

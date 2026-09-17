@@ -24,6 +24,7 @@ class ReadinessResultResource extends JsonResource
             'assessment_reliability_component' => $this->assessment_reliability_component === null ? null : (float) $this->assessment_reliability_component,
             'profile_completeness_component' => $this->profile_completeness_component === null ? null : (float) $this->profile_completeness_component,
             'critical_cap_applied' => (bool) $this->critical_cap_applied,
+            'is_provisional' => (bool) $this->is_provisional,
             'critical_skill_readiness_cap' => $fastApiResult['critical_skill_readiness_cap'] ?? null,
             'critical_skill_gap_count' => $fastApiResult['critical_skill_gap_count'] ?? 0,
             'critical_skill_names' => $fastApiResult['critical_skill_names'] ?? [],
