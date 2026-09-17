@@ -39,11 +39,12 @@ Route::post('/admin/logout', [AdminAuthController::class, 'logout'])
 | The page itself plus the session-authenticated JSON endpoints its
 | JavaScript calls. These used to be the token-protected /api/v1/admin/*
 | routes; they now sit on the normal web session so the panel no longer
-| needs a manually pasted Bearer token. The 'admin' middleware still
-| refuses any account that does not hold the admin role.
+| needs a manually pasted Bearer token. 'admin' still refuses any account
+| without the admin role, and 'account.active' ends the session if the
+| account is suspended after signing in.
 |
 */
-Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(function () {
     Route::view('/organizations', 'admin.organizations')->name('admin.organizations');
 
     Route::get('/api/organizations', [AdminOrganizationController::class, 'index']);

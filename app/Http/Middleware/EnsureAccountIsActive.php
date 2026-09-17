@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -30,6 +31,21 @@ class EnsureAccountIsActive
             // login attempt. Deleting the tokens here means the account
             // cannot keep acting even if the response is ignored.
             $user->tokens()->delete();
+
+            // API clients get a machine-readable 403. Browser requests — the
+            // admin panel — are signed out and sent to the login page
+            // instead, so a session opened before the suspension stops
+            // working rather than staying usable until it expires.
+            if (! $request->expectsJson()) {
+                Auth::guard('web')->logout();
+
+                if ($request->hasSession()) {
+                    $request->session()->invalidate();
+                    $request->session()->regenerateToken();
+                }
+
+                return redirect()->route('login');
+            }
 
             return response()->json([
                 'code' => 'ACCOUNT_DISABLED',
