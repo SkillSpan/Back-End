@@ -469,7 +469,14 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/'.$organization->id, 'local');
+        // Stored on the configured default disk, not a hardcoded 'local' one.
+        // In a containerised deployment the local disk lives inside the
+        // container image and is wiped by every deploy and restart, while the
+        // database rows survive on their own server — leaving every uploaded
+        // proof pointing at a file that no longer exists. Pointing this at the
+        // default disk lets FILESYSTEM_DISK=s3 move uploads to storage that
+        // actually persists, without touching this code again.
+        $path = $file->store('proofs/'.$organization->id);
 
         UploadedFile::forceCreate([
             'user_id' => $user->id,

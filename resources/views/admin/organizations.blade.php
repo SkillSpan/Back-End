@@ -195,6 +195,13 @@
   }
   .proof-row a{color:var(--teal-deep);text-decoration:none;font-weight:500;}
   .proof-row a:hover{text-decoration:underline;}
+  /* سجل موجود بس الملف ضايع من السيرفر — لون تحذير مش لون خطأ،
+     لأنها مش غلطة الأدمن اللي عم يراجع. */
+  .proof-row.missing{
+    background:var(--amber-bg);border-color:var(--amber);
+    color:var(--amber);flex-direction:column;align-items:flex-start;gap:4px;
+  }
+  .proof-row.missing .hint{font-size:12.5px;color:var(--ink-soft);}
   .actions{display:flex;gap:10px;}
   .actions button{
     border:none;border-radius:8px;padding:9px 18px;
@@ -399,12 +406,22 @@ function detailTemplate(org){
     ? `<p class="desc">${org.description}</p>`
     : `<p class="desc empty">لسا ما ضافوا وصف للمؤسسة.</p>`;
 
-  const proof = org.proof_file
-    ? `<div class="proof-row">
-         <span>ملف الإثبات — ${org.proof_file.status === 'pending' ? 'بانتظار المراجعة' : org.proof_file.status}</span>
-         <a href="${org.proof_file.download_url}" target="_blank">فتح الملف</a>
-       </div>`
-    : `<div class="proof-row"><span>ما في ملف إثبات مرفوع.</span></div>`;
+  // ثلاث حالات مختلفة، وكل وحدة لازم تبان مختلفة:
+  //   1) ما في ملف مرفوع أصلًا،
+  //   2) في سجل بالداتابيس بس الملف نفسه ضايع من القرص (صار معنا بعد كل نشر)،
+  //   3) الملف موجود وشغّال.
+  // لو خليناها حالتين، الضياع بيبين متل "ما في ملف" وبنتوه بالسبب.
+  const proof = !org.proof_file
+    ? `<div class="proof-row"><span>ما في ملف إثبات مرفوع.</span></div>`
+    : (org.proof_file.available === false
+        ? `<div class="proof-row missing">
+             <span>ملف الإثبات مسجّل بالداتابيس، بس الملف نفسه مش موجود على السيرفر.</span>
+             <span class="hint">هذا بيصير لما يُرفع الملف قبل إعادة النشر وبدون تخزين دائم.</span>
+           </div>`
+        : `<div class="proof-row">
+             <span>ملف الإثبات — ${org.proof_file.status === 'pending' ? 'بانتظار المراجعة' : org.proof_file.status}</span>
+             <a href="${org.proof_file.download_url}" target="_blank" rel="noopener">فتح الملف</a>
+           </div>`);
 
   const facts = `
     <div class="facts">

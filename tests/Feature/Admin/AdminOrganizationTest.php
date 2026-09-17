@@ -175,6 +175,92 @@ class AdminOrganizationTest extends TestCase
             ->assertJsonPath('data.proof_file.download_url', route('admin.organizations.proof-file', $org->id));
     }
 
+    /**
+     * Regression: the detail payload omitted `description`, so the review
+     * panel rendered "no description submitted" for every organization —
+     * including the ones that had submitted one.
+     */
+    public function test_show_returns_the_organization_description(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization();
+        $org->forceFill(['description' => 'A software company building developer tools.'])->save();
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath('data.description', 'A software company building developer tools.');
+    }
+
+    /**
+     * An organization that genuinely submitted no description must still come
+     * back with the key present and null, so the panel can tell the two cases
+     * apart instead of relying on an absent key.
+     */
+    public function test_show_returns_a_null_description_when_none_was_submitted(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+
+        $response = $this->getJson("/api/v1/admin/organizations/{$org->id}")->assertOk();
+
+        $response->assertJsonPath('data.description', null);
+        $this->assertArrayHasKey('description', $response->json('data'));
+    }
+
+    /**
+     * The happy path: the row and the file agree, so the panel shows a link.
+     */
+    public function test_show_reports_a_proof_file_as_available_when_it_is_on_disk(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+        $this->proofFile($org);
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath('data.proof_file.available', true);
+    }
+
+    /**
+     * The failure this flag exists for: the DB row survives but the bytes are
+     * gone — which is what happens on every deploy of a container whose
+     * filesystem has no persistent volume. Without this distinction the panel
+     * rendered a link to a 404 and the admin could not tell a lost upload from
+     * an upload that never happened.
+     */
+    public function test_show_reports_a_proof_file_as_unavailable_when_the_file_is_gone(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+        $this->proofFile($org);
+
+        // The upload is destroyed but the database row is untouched.
+        Storage::disk('local')->delete('proofs/proof.pdf');
+
+        $response = $this->getJson("/api/v1/admin/organizations/{$org->id}")->assertOk();
+
+        $response
+            ->assertJsonPath('data.proof_file.available', false)
+            // The metadata still comes back, so the admin can see what was lost.
+            ->assertJsonPath('data.proof_file.mime_type', 'application/pdf');
+    }
+
+    /**
+     * An organization that never uploaded anything must report `proof_file`
+     * as null rather than as an object with `available: false`, otherwise the
+     * panel would accuse the server of losing a file that never existed.
+     */
+    public function test_show_reports_a_null_proof_file_when_nothing_was_uploaded(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath('data.proof_file', null);
+    }
+
     public function test_approve_verifies_a_pending_organization_with_full_audit_trail(): void
     {
         $adminUser = $this->admin();
@@ -286,6 +372,42 @@ class AdminOrganizationTest extends TestCase
         $response->assertOk();
         // Storage::response() returns a StreamedResponse — read it as such.
         $this->assertSame('%PDF-1.4 fake proof', $response->streamedContent());
+    }
+
+    /**
+     * Regression: the proof download hardcoded the 'local' disk. That disk
+     * lives inside the deployment container, so every deploy wipes it and the
+     * panel then shows a proof whose file no longer exists. Following the
+     * configured default disk is what allows FILESYSTEM_DISK to point uploads
+     * at storage that persists — this proves the download reads from wherever
+     * the default points, not from a fixed disk name.
+     */
+    public function test_proof_download_follows_the_configured_default_disk(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        // A disk that is deliberately NOT 'local': if any code path still
+        // hardcoded 'local', the file would not be found and this would 404.
+        Storage::fake('persistent-cloud');
+        config(['filesystems.default' => 'persistent-cloud']);
+
+        $org = $this->organization();
+        Storage::disk('persistent-cloud')->put('proofs/proof.pdf', '%PDF-1.4 on the cloud disk');
+
+        UploadedFile::forceCreate([
+            'fileable_type' => Organization::class,
+            'fileable_id' => $org->id,
+            'type' => 'certificate',
+            'path' => 'proofs/proof.pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1234,
+            'status' => 'pending',
+        ]);
+
+        $response = $this->getJson("/api/v1/admin/organizations/{$org->id}/proof-file");
+
+        $response->assertOk();
+        $this->assertSame('%PDF-1.4 on the cloud disk', $response->streamedContent());
     }
 
     public function test_missing_proof_file_returns_404_not_an_error_page(): void

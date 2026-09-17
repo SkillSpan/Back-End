@@ -359,11 +359,15 @@ class AdminPanelAuthTest extends TestCase
     {
         $this->actingAs($this->admin());
         $org = $this->organization();
+        $org->forceFill(['description' => 'A software company building developer tools.'])->save();
 
+        // This is the exact payload the panel's expanded card renders, so the
+        // description has to survive the session-authenticated path too.
         $this->getJson("/admin/api/organizations/{$org->id}")
             ->assertOk()
             ->assertJsonPath('data.name', 'Test Company')
-            ->assertJsonPath('data.verification_status', 'pending');
+            ->assertJsonPath('data.verification_status', 'pending')
+            ->assertJsonPath('data.description', 'A software company building developer tools.');
     }
 
     /**
