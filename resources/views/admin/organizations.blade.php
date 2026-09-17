@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>SkillSpan Admin — طلبات المؤسسات</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,42 +57,32 @@
     font-size:15px;
   }
 
-  .token-bar{
+  .session-bar{
     background:var(--paper-raised);
     border:1px solid var(--line);
     border-radius:var(--radius);
-    padding:14px 16px;
+    padding:12px 16px;
     margin-bottom:24px;
     display:flex;
-    gap:10px;
+    gap:12px;
     align-items:center;
+    justify-content:space-between;
     flex-wrap:wrap;
   }
-  .token-bar label{font-size:13px;color:var(--ink-soft);white-space:nowrap;}
-  .token-bar input{
-    flex:1;
-    min-width:180px;
+  .session-bar .who{font-size:13px;color:var(--ink-soft);overflow-wrap:anywhere;}
+  .session-bar .who strong{color:var(--ink);font-weight:600;}
+  .session-bar form{margin:0;}
+  .session-bar button{
     border:1px solid var(--line);
-    border-radius:8px;
-    padding:8px 10px;
-    font-size:13px;
-    font-family:monospace;
-    direction:ltr;
-    text-align:left;
-    background:#FBFAF7;
-  }
-  .token-bar button{
-    border:none;
-    background:var(--teal);
-    color:#fff;
-    padding:8px 16px;
+    background:none;
+    color:var(--ink-soft);
+    padding:7px 14px;
     border-radius:8px;
     font-size:13px;
     cursor:pointer;
     font-family:inherit;
   }
-  .token-bar button:hover{background:var(--teal-deep);}
-  .base-url{font-size:12px;color:var(--ink-soft);}
+  .session-bar button:hover{border-color:var(--brick);color:var(--brick);}
 
   .tabs{
     display:flex;
@@ -226,7 +217,7 @@
 
   @media (max-width:520px){
     .facts{grid-template-columns:1fr;}
-    .token-bar{flex-direction:column;align-items:stretch;}
+    .session-bar{flex-direction:column;align-items:stretch;}
   }
 </style>
 </head>
@@ -238,12 +229,16 @@
     <p>راجع طلبات تسجيل الشركات والجامعات ومراكز التدريب قبل انضمامها لـ <span dir="ltr" style="unicode-bidi:isolate">SkillSpan</span>.</p>
   </header>
 
-  <div class="token-bar">
-    <label for="tokenInput">Admin Token</label>
-    <input id="tokenInput" type="password" placeholder="Bearer token تبع حساب الأدمن">
-    <button onclick="saveTokenAndLoad()">حفظ وتحميل</button>
+  <div class="session-bar">
+    <span class="who">
+      مسجّل دخول باسم <strong>{{ auth()->user()->name }}</strong>
+      <span dir="ltr" style="unicode-bidi:isolate">({{ auth()->user()->email }})</span>
+    </span>
+    <form method="POST" action="{{ route('admin.logout') }}">
+      @csrf
+      <button type="submit">تسجيل الخروج</button>
+    </form>
   </div>
-  <p class="base-url">Base URL: <code id="baseUrlLabel"></code> — عدّلها بالسطر الأول من كود الصفحة لو مختلفة عندك.</p>
 
   <div class="tabs" id="tabs">
     <button data-status="" class="active">الكل</button>
@@ -259,21 +254,12 @@
 </div>
 
 <script>
-// عدّل الرابط هون لو الباك اند عندك على رابط مختلف.
-const BASE_URL = "{{ url('/') }}";
-document.getElementById('baseUrlLabel').textContent = BASE_URL;
-
-let token = localStorage.getItem('skillspan_admin_token') || '';
-document.getElementById('tokenInput').value = token;
+// الصفحة محمية بجلسة الأدمن، فما في داعي لـ token هون: المتصفح يبعث
+// كوكي الجلسة لحاله، ومنبعث معه CSRF token للطلبات يلي بتعدّل.
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
 let currentStatus = '';
 let cache = {}; // id -> full org detail once fetched
-
-function saveTokenAndLoad(){
-  token = document.getElementById('tokenInput').value.trim();
-  localStorage.setItem('skillspan_admin_token', token);
-  loadOrganizations();
-}
 
 function setStatusLine(text, isError){
   const el = document.getElementById('status-line');
@@ -303,15 +289,24 @@ function pillFor(status){
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(BASE_URL + path, {
+  const res = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token,
+      'X-CSRF-TOKEN': CSRF_TOKEN,
       ...(options.headers || {}),
     },
   });
+
+  // 401 = ما في جلسة، 419 = الجلسة/الـ CSRF token صاروا قديمين.
+  // بالحالتين منرجّع المستخدم ع صفحة تسجيل الدخول.
+  if (res.status === 401 || res.status === 419) {
+    window.location.href = '/admin/login';
+    throw new Error('انتهت الجلسة، سجّل دخول من جديد.');
+  }
+
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(body.message || `${res.status} ${res.statusText}`);
@@ -321,15 +316,10 @@ async function api(path, options = {}) {
 
 async function loadOrganizations(){
   const feed = document.getElementById('feed');
-  if (!token) {
-    setStatusLine('حط الـ Admin Token فوق أول شي.', true);
-    feed.innerHTML = '';
-    return;
-  }
   setStatusLine('عم نجيب الطلبات...');
   try {
     const query = currentStatus ? `?status=${currentStatus}` : '';
-    const body = await api(`/api/v1/admin/organizations${query}`);
+    const body = await api(`/admin/api/organizations${query}`);
     const orgs = body.data?.data || [];
     renderFeed(orgs);
     setStatusLine(orgs.length ? '' : null);
@@ -394,7 +384,7 @@ async function toggleDetail(id){
   try {
     let org = cache[id];
     if (!org) {
-      const body = await api(`/api/v1/admin/organizations/${id}`);
+      const body = await api(`/admin/api/organizations/${id}`);
       org = body.data;
       cache[id] = org;
     }
@@ -412,7 +402,7 @@ function detailTemplate(org){
   const proof = org.proof_file
     ? `<div class="proof-row">
          <span>ملف الإثبات — ${org.proof_file.status === 'pending' ? 'بانتظار المراجعة' : org.proof_file.status}</span>
-         <a href="${BASE_URL + org.proof_file.download_url}" target="_blank">فتح الملف</a>
+         <a href="${org.proof_file.download_url}" target="_blank">فتح الملف</a>
        </div>`
     : `<div class="proof-row"><span>ما في ملف إثبات مرفوع.</span></div>`;
 
@@ -443,7 +433,7 @@ async function decide(id, action){
   }
 
   try {
-    await api(`/api/v1/admin/organizations/${id}/${action}`, {
+    await api(`/admin/api/organizations/${id}/${action}`, {
       method: 'POST',
       body: JSON.stringify(reason ? { reason } : {}),
     });
@@ -464,7 +454,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   loadOrganizations();
 });
 
-if (token) loadOrganizations();
+loadOrganizations();
 </script>
 </body>
 </html>

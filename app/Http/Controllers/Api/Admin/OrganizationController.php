@@ -250,8 +250,21 @@ class OrganizationController extends Controller
             'mime_type' => $file->mime_type,
             'size' => $file->size,
             'uploaded_at' => $file->created_at?->toIso8601String(),
-            'download_url' => route('admin.organizations.proof-file', $file->fileable_id),
+            'download_url' => route($this->proofFileRouteName(), $file->fileable_id),
         ];
+    }
+
+    /**
+     * Route name used to build proof-document download links.
+     *
+     * Kept overridable because the same controller also backs the
+     * session-authenticated web panel: the browser opens that link with a
+     * session cookie, so it has to point at the web route rather than at
+     * the token-protected API one.
+     */
+    protected function proofFileRouteName(): string
+    {
+        return 'admin.organizations.proof-file';
     }
 
     private function notifyOrganizationAdmins(Organization $organization, $notification): void
