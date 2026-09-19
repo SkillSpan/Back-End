@@ -24,11 +24,12 @@ class DataScienceClient
         );
 
         // US-INT-01 §3/§26: configurable, versioned path. Defaults to the
-        // new intelligence contract; a legacy local FastAPI deployment
-        // overrides via DATA_SCIENCE_SKILL_GAP_PATH without code changes.
+        // Skill Match v1 contract confirmed by Data Science
+        // (POST /api/v1/skill-match, algorithm skill-match-v1) —
+        // replaces the earlier /skill-gap-shaped contract.
         $endpoint = $baseUrl.config(
-            'services.data_science.skill_gap_path',
-            '/api/v1/intelligence/skill-gap'
+            'services.data_science.skill_match_path',
+            '/api/v1/skill-match'
         );
 
         $serviceToken = trim((string) config('services.data_science.service_token', ''));
