@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         apiPrefix: 'api',
     )
+    /**s */
     ->withMiddleware(function (Middleware $middleware): void {
         // Render terminates TLS and forwards the request to the app as
         // plain HTTP. Without this, Laravel thinks every request is
