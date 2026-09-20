@@ -65,6 +65,14 @@ return [
             '/api/v1/intelligence/roadmap',
         ),
 
+        // Skill Match v1 contract confirmed by Data Science — used by the
+        // legacy ReadinessService (POST /api/v1/readiness/calculate).
+        // Independent of the intelligence/* paths above.
+        'skill_match_path' => env(
+            'DATA_SCIENCE_SKILL_MATCH_PATH',
+            '/api/v1/skill-match',
+        ),
+
         // Compatibility fallback (US-INT-01 §11): used only when the
         // service response carries no algorithm_version metadata.
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),

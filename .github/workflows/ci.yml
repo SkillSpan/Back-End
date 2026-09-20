@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop, 'feature/**']
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   ci:
@@ -21,6 +21,16 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, dom, fileinfo, sqlite3, pdo_sqlite
           coverage: none
+
+      # Runs before any dependency install so a parse error fails the build
+      # in seconds. A syntax error in a controller previously reached a
+      # shared branch because nothing lint-checked it: the file only breaks
+      # when PHP tries to load it, which the test suite may never do.
+      - name: Check PHP syntax
+        run: |
+          set -e
+          find app routes config database bootstrap -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,10 +53,24 @@ jobs:
         run: php artisan key:generate
 
       - name: Create SQLite database file
+        id: prepare
         run: touch database/database.sqlite
 
+      # Pint and PHPUnit are each gated on `prepare`, NOT on one another, so a
+      # style failure can no longer hide a test failure.
+      #
+      # Previously Pint ran first and a single `concat_space` violation in
+      # bootstrap/app.php aborted the job before PHPUnit ever started. That is
+      # how five genuinely broken readiness tests stayed invisible behind eight
+      # consecutive red runs — every one of them reported only the style error.
+      #
+      # Gating on `prepare` rather than `always()` keeps the syntax check above
+      # meaningful: if it fails, `prepare` is skipped and both steps are too, so
+      # the job still fails fast in seconds instead of running the whole suite.
       - name: Run Laravel Pint (code style check)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: vendor/bin/pint --test
 
       - name: Run PHPUnit tests
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: php artisan test

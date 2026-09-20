@@ -89,6 +89,43 @@ class RegistrationTest extends TestCase
         ]);
     }
 
+    /**
+     * The organization flow does not send an OTP — the account is marked
+     * email-verified at registration and gated on the manual proof-document
+     * review. The response must therefore NOT claim that email verification
+     * is required, and must not hand back a resend window for a code that
+     * was never issued (which is what used to send clients into a dead-end
+     * verification screen).
+     */
+    public function test_organization_registration_does_not_claim_email_verification_is_required(): void
+    {
+        $response = $this->postJson('/api/v1/auth/register/organization', [
+            'name' => 'Org Admin',
+            'email' => 'admin2@company.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => true,
+            'privacy_accepted' => true,
+            'organization_name' => 'Tech Co',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'info@techco.com',
+            'proof_file' => UploadedFile::fake()->image('proof.jpg'),
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.requires_verification', false)
+            ->assertJsonMissingPath('data.resend_available_at');
+
+        // The account really is verified and active at this point, so the
+        // response and the persisted state now agree.
+        $user = User::where('email', 'admin2@company.com')->first();
+        $this->assertSame('active', $user->status);
+        $this->assertNotNull($user->email_verified_at);
+
+        // And no verification code was ever sent.
+        Notification::assertNothingSent();
+    }
+
     public function test_registration_fails_duplicate_email(): void
     {
         User::forceCreate([

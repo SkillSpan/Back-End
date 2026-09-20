@@ -20,6 +20,7 @@ class ReadinessResult extends Model
         'assessment_reliability_component',
         'profile_completeness_component',
         'critical_cap_applied',
+        'is_provisional',
         'band',
         'algorithm_version',
         'configuration_version',
@@ -30,6 +31,7 @@ class ReadinessResult extends Model
 
     protected $casts = [
         'critical_cap_applied' => 'boolean',
+        'is_provisional' => 'boolean',
         'calculated_at' => 'datetime',
         'snapshot' => 'array',
     ];

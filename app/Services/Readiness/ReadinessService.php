@@ -144,7 +144,7 @@ class ReadinessService
                 'flow' => 'readiness_legacy',
                 'algorithm_version' => (string) config(
                     'services.data_science.algorithm_version',
-                    'skill-gap-v1'
+                    'skill-match-v1'
                 ),
                 'configuration_version' => $configurationVersion,
             ]),
@@ -179,49 +179,81 @@ class ReadinessService
             $studentProfile
         );
 
-        if (
-            $practicalExperience['score'] === null
-            || $assessmentReliability['score'] === null
-        ) {
+        /*
+         * Missing-component policy (agreed with Data Science): an
+         * unavailable component (score === null) is excluded rather than
+         * treated as 0 or blocking the calculation. Remaining component
+         * weights are renormalized over only the available components,
+         * and the result is flagged `is_provisional`. skill_match is
+         * always available at this point (validateDataScienceResult()
+         * already succeeded above); profile_completeness never returns
+         * null by design (see ProfileCompletenessService).
+         */
+        $weights = config('readiness.weights', []);
+
+        $skillMatch = (float) $result['skill_match_score'];
+
+        $components = [
+            'skill_match' => [
+                'score' => $skillMatch,
+                'weight' => (float) ($weights['skill_match'] ?? 0.65),
+                'available' => true,
+            ],
+            'practical_experience' => [
+                'score' => $practicalExperience['score'],
+                'weight' => (float) ($weights['practical_experience'] ?? 0.20),
+                'available' => $practicalExperience['score'] !== null,
+            ],
+            'assessment_reliability' => [
+                'score' => $assessmentReliability['score'],
+                'weight' => (float) ($weights['assessment_reliability'] ?? 0.10),
+                'available' => $assessmentReliability['score'] !== null,
+            ],
+            'profile_completeness' => [
+                'score' => $profileCompleteness['score'],
+                'weight' => (float) ($weights['profile_completeness'] ?? 0.05),
+                'available' => $profileCompleteness['score'] !== null,
+            ],
+        ];
+
+        $availableComponents = array_filter($components, fn ($c) => $c['available']);
+        $excludedComponents = array_keys(array_diff_key($components, $availableComponents));
+        $isProvisional = $excludedComponents !== [];
+
+        $availableWeightSum = array_sum(array_column($availableComponents, 'weight'));
+
+        if ($availableWeightSum <= 0.0) {
+            // Defensive only — skill_match is always available here, so
+            // this should never actually be reached.
             throw new ReadinessIntegrationException(
-                'Readiness cannot be calculated because a required component is unavailable.',
+                'Readiness cannot be calculated because no components are available.',
                 422,
                 'READINESS_COMPONENT_UNAVAILABLE',
-                [
-                    'practical_experience_available' => $practicalExperience['score'] !== null,
-                    'assessment_reliability_available' => $assessmentReliability['score'] !== null,
-                ],
+                ['excluded_components' => $excludedComponents],
             );
         }
 
-        $weights = config('readiness.weights', []);
+        $practicalExperienceScore = $practicalExperience['score'] === null
+            ? null
+            : (float) $practicalExperience['score'];
 
-        $skillMatch = (float) $result['base_readiness_score'];
+        $assessmentReliabilityScore = $assessmentReliability['score'] === null
+            ? null
+            : (float) $assessmentReliability['score'];
 
-        $practicalExperienceScore = (float) $practicalExperience['score'];
-
-        $assessmentReliabilityScore = (float) $assessmentReliability['score'];
-
-        $profileCompletenessScore = (float) $profileCompleteness['score'];
+        $profileCompletenessScore = $profileCompleteness['score'] === null
+            ? null
+            : (float) $profileCompleteness['score'];
 
         /*
          * Calculate the final readiness score using the configured
-         * component weights.
+         * component weights, renormalized over available components only.
          */
-        $finalScore =
-            ($skillMatch * (float) ($weights['skill_match'] ?? 0.65))
-            + (
-                $practicalExperienceScore
-                * (float) ($weights['practical_experience'] ?? 0.20)
-            )
-            + (
-                $assessmentReliabilityScore
-                * (float) ($weights['assessment_reliability'] ?? 0.10)
-            )
-            + (
-                $profileCompletenessScore
-                * (float) ($weights['profile_completeness'] ?? 0.05)
-            );
+        $finalScore = 0.0;
+        foreach ($availableComponents as $component) {
+            $finalScore += $component['score'] * $component['weight'];
+        }
+        $finalScore = $finalScore / $availableWeightSum;
 
         $finalScore = min(max($finalScore, 0.0), 100.0);
 
@@ -239,25 +271,19 @@ class ReadinessService
         );
 
         $criticalCapApplied = false;
+        $criticalSkillNames = [];
 
         foreach ($result['skill_results'] as $skillResult) {
             if (! (bool) $skillResult['is_critical']) {
                 continue;
             }
 
-            $requiredLevel = (float) $skillResult['required_level'];
-            $currentLevel = (float) $skillResult['current_level'];
-
-            $match = $requiredLevel > 0
-                ? min(
-                    max($currentLevel / $requiredLevel, 0.0),
-                    1.0
-                )
-                : 1.0;
-
-            if ($match < $criticalMinimumMatch) {
+            // Skill Match v1 already computes match_ratio per skill
+            // (0..1, capped at 1.0) — no need to re-derive it from
+            // current_level/required_level here.
+            if ((float) $skillResult['match_ratio'] < $criticalMinimumMatch) {
                 $criticalCapApplied = true;
-                break;
+                $criticalSkillNames[] = (string) $skillResult['skill_name'];
             }
         }
 
@@ -291,6 +317,9 @@ class ReadinessService
             $assessmentReliabilityScore,
             $profileCompletenessScore,
             $criticalCapApplied,
+            $criticalSkillNames,
+            $isProvisional,
+            $excludedComponents,
             $band,
             $algorithmVersion,
             $configurationVersion,
@@ -344,6 +373,7 @@ class ReadinessService
                 'profile_completeness_component' => $profileCompletenessScore,
 
                 'critical_cap_applied' => $criticalCapApplied,
+                'is_provisional' => $isProvisional,
                 'band' => $band,
 
                 'algorithm_version' => $algorithmVersion,
@@ -363,6 +393,11 @@ class ReadinessService
                         'profile_completeness' => $profileCompletenessScore,
                     ],
 
+                    'missing_component_policy' => [
+                        'excluded_components' => $excludedComponents,
+                        'is_provisional' => $isProvisional,
+                    ],
+
                     'formula' => [
                         'weights' => $weights,
                         'final_score' => $finalScore,
@@ -372,6 +407,7 @@ class ReadinessService
                         'minimum_match' => $criticalMinimumMatch,
                         'cap' => $criticalCap,
                         'applied' => $criticalCapApplied,
+                        'critical_skill_names' => $criticalSkillNames,
                     ],
 
                     'algorithm_version' => $algorithmVersion,
@@ -383,33 +419,28 @@ class ReadinessService
 
             /*
              * US-INT-01 §17:
-             * Store every validated skill-gap result as an independent,
-             * historical, append-only record tied to this decision.
+             * Store every validated Skill Match v1 result as an
+             * independent, historical, append-only record tied to this
+             * decision. Skill Match v1 does not provide per-skill
+             * confidence/explanation (that was a /skill-gap-only concept),
+             * so those two columns are stored as null going forward.
              */
             foreach ($result['skill_results'] as $skillResult) {
+                $requiredLevel = (float) $skillResult['required_level'];
+                $achievedLevel = (float) $skillResult['achieved_level'];
+
                 SkillGapResult::create([
                     'decision_snapshot_id' => $snapshot->id,
                     'skill_id' => (int) $skillResult['skill_id'],
                     'current_level' => (float) $skillResult['current_level'],
-                    'required_level' => (float) $skillResult['required_level'],
-                    'gap' => (float) $skillResult['gap'],
-
-                    'match_score' => isset($skillResult['match_score'])
-                        && is_numeric($skillResult['match_score'])
-                        ? (float) $skillResult['match_score']
-                        : null,
-
+                    'required_level' => $requiredLevel,
+                    'gap' => max($requiredLevel - $achievedLevel, 0.0),
+                    'match_score' => round(((float) $skillResult['match_ratio']) * 100, 2),
                     'importance_weight' => (float) $skillResult['importance_weight'],
-
                     'is_critical' => (bool) $skillResult['is_critical'],
-
-                    'confidence' => isset($skillResult['confidence'])
-                        && is_numeric($skillResult['confidence'])
-                        ? (float) $skillResult['confidence']
-                        : null,
-
+                    'confidence' => null,
                     'status' => (string) $skillResult['status'],
-                    'explanation' => $skillResult['explanation'] ?? null,
+                    'explanation' => null,
                 ]);
             }
 
@@ -455,21 +486,24 @@ class ReadinessService
         CareerRole $careerRole,
         $roleSkills,
     ): void {
+        // Skill Match v1 contract, confirmed by Data Science.
         $required = [
             'student_profile_id',
             'career_role_id',
             'career_role_version',
+            'user_id',
             'target_role',
-            'base_readiness_score',
-            'readiness_score',
             'algorithm_version',
-            'critical_skill_cap_applied',
-            'critical_skill_readiness_cap',
-            'critical_skill_gap_count',
-            'critical_skill_names',
+            'weight_configuration_version',
+            'original_weight_total',
+            'normalized_weight_total',
+            'weighted_achieved_total',
+            'weighted_required_total',
+            'skill_match_score',
             'total_skills',
             'met_skills',
-            'skills_with_gap',
+            'partial_skills',
+            'not_required_skills',
             'skill_results',
         ];
 
@@ -518,6 +552,17 @@ class ReadinessService
         }
 
         if (
+            (int) $result['user_id']
+            !== (int) $payload['user_id']
+        ) {
+            throw new ReadinessIntegrationException(
+                'The Data Science response does not match the requesting user.',
+                502,
+                'DATA_SCIENCE_RESPONSE_MISMATCH',
+            );
+        }
+
+        if (
             (string) $result['target_role']
             !== (string) $careerRole->title
         ) {
@@ -528,34 +573,31 @@ class ReadinessService
             );
         }
 
-        if (
-            ! is_string($result['algorithm_version'])
-            || trim($result['algorithm_version']) === ''
-        ) {
-            throw new ReadinessIntegrationException(
-                'The Data Science response contains an invalid algorithm version.',
-                502,
-                'DATA_SCIENCE_INVALID_RESPONSE',
-                ['field' => 'algorithm_version'],
-            );
-        }
-
-        foreach ([
-            'base_readiness_score',
-            'readiness_score',
-        ] as $field) {
+        foreach (['algorithm_version', 'weight_configuration_version'] as $field) {
             if (
-                ! is_numeric($result[$field])
-                || (float) $result[$field] < 0
-                || (float) $result[$field] > 100
+                ! is_string($result[$field])
+                || trim($result[$field]) === ''
             ) {
                 throw new ReadinessIntegrationException(
-                    'The Data Science response contains an invalid readiness score.',
+                    'The Data Science response contains an invalid version field.',
                     502,
                     'DATA_SCIENCE_INVALID_RESPONSE',
                     ['field' => $field],
                 );
             }
+        }
+
+        if (
+            ! is_numeric($result['skill_match_score'])
+            || (float) $result['skill_match_score'] < 0
+            || (float) $result['skill_match_score'] > 100
+        ) {
+            throw new ReadinessIntegrationException(
+                'The Data Science response contains an invalid skill match score.',
+                502,
+                'DATA_SCIENCE_INVALID_RESPONSE',
+                ['field' => 'skill_match_score'],
+            );
         }
 
         if (! is_array($result['skill_results'])) {
@@ -577,6 +619,12 @@ class ReadinessService
             );
         }
 
+        // The importance weights are normalized internally by Data
+        // Science: normalized_weight_i = importance_weight_i /
+        // SUM(importance_weight). Recompute the expected sum from our own
+        // payload so we can cross-check normalized_importance_weight below.
+        $weightTotal = array_sum(array_column($payload['skills'], 'importance_weight'));
+
         $expectedSkills = [];
 
         foreach ($payload['skills'] as $skill) {
@@ -592,8 +640,10 @@ class ReadinessService
                 'current_level',
                 'required_level',
                 'importance_weight',
+                'normalized_importance_weight',
+                'achieved_level',
+                'match_ratio',
                 'is_critical',
-                'gap',
                 'status',
             ] as $field) {
                 if (! array_key_exists($field, $skillResult)) {
@@ -694,28 +744,77 @@ class ReadinessService
                 );
             }
 
-            $expectedGap = max(
-                (float) $expected['required_level']
-                - (float) $expected['current_level'],
-                0.0,
-            );
+            // normalized_importance_weight = importance_weight / SUM(importance_weight)
+            $expectedNormalizedWeight = $weightTotal > 0
+                ? (float) $expected['importance_weight'] / $weightTotal
+                : 0.0;
 
             if (
                 abs(
-                    (float) $skillResult['gap']
-                    - $expectedGap
-                ) > 0.01
+                    (float) $skillResult['normalized_importance_weight']
+                    - $expectedNormalizedWeight
+                ) > 0.001
             ) {
                 throw new ReadinessIntegrationException(
-                    'The Data Science response contains a mismatched skill gap.',
+                    'The Data Science response contains a mismatched normalized importance weight.',
                     502,
                     'DATA_SCIENCE_RESPONSE_MISMATCH',
                     ['skill_id' => $skillId],
                 );
             }
 
-            $expectedStatus =
-                $expectedGap == 0.0 ? 'met' : 'gap';
+            $requiredLevel = (float) $expected['required_level'];
+            $currentLevel = (float) $expected['current_level'];
+
+            // achieved_level is current_level capped at required_level —
+            // over-qualification never counts beyond 100% of what the
+            // role requires (contract note: "the result never exceeds
+            // 100%").
+            $expectedAchievedLevel = $requiredLevel > 0
+                ? min($currentLevel, $requiredLevel)
+                : $currentLevel;
+
+            if (
+                abs(
+                    (float) $skillResult['achieved_level']
+                    - $expectedAchievedLevel
+                ) > 0.0001
+            ) {
+                throw new ReadinessIntegrationException(
+                    'The Data Science response contains a mismatched achieved level.',
+                    502,
+                    'DATA_SCIENCE_RESPONSE_MISMATCH',
+                    ['skill_id' => $skillId],
+                );
+            }
+
+            // required_level = 0 => not_required, match_ratio not
+            // meaningfully constrained beyond the 0..1 Pydantic schema
+            // bound (already enforced by FastAPI).
+            if ($requiredLevel > 0) {
+                $expectedMatchRatio = min(
+                    max($expectedAchievedLevel / $requiredLevel, 0.0),
+                    1.0
+                );
+
+                if (
+                    abs(
+                        (float) $skillResult['match_ratio']
+                        - $expectedMatchRatio
+                    ) > 0.01
+                ) {
+                    throw new ReadinessIntegrationException(
+                        'The Data Science response contains a mismatched match ratio.',
+                        502,
+                        'DATA_SCIENCE_RESPONSE_MISMATCH',
+                        ['skill_id' => $skillId],
+                    );
+                }
+
+                $expectedStatus = $expectedMatchRatio >= 1.0 ? 'met' : 'partial';
+            } else {
+                $expectedStatus = 'not_required';
+            }
 
             if (
                 (string) $skillResult['status']
@@ -733,12 +832,13 @@ class ReadinessService
         }
 
         Log::debug(
-            'Validated Data Science readiness response.',
+            'Validated Data Science skill-match response.',
             [
                 'career_role_id' => $careerRole->id,
                 'career_role_version' => $careerRole->version,
                 'result_skill_count' => count($result['skill_results']),
                 'algorithm_version' => $result['algorithm_version'],
+                'weight_configuration_version' => $result['weight_configuration_version'],
             ],
         );
     }

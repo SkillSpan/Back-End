@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
+use App\Models\Skill;
 use App\Models\SkillEvidence;
+use App\Services\Skills\SkillEvaluationService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -270,15 +272,16 @@ class EvidenceController extends Controller
             $evidence->skill
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Evidence '.strtolower($request->verification_status).' successfully.',
-        ]);
         /*
-         * US-INT-01: an APPROVED evidence change triggers a queued
-         * intelligence recalculation for this learner. The sync skill
-         * recalculation above already ran — this only enqueues the
-         * decision refresh.
+         * US-INT-01: any evidence review can change the learner's effective
+         * skill levels, so it triggers a queued intelligence recalculation
+         * for this learner. The sync skill recalculation above already ran —
+         * this only enqueues the decision refresh.
+         *
+         * This block used to sit after an early `return`, which made both the
+         * dispatch and the `data` key in the response below permanently
+         * unreachable — the event never fired, and callers never received
+         * the reviewed record.
          */
         SkillDataChanged::dispatch(
             $evidence->studentProfile,

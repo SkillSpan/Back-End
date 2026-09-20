@@ -215,6 +215,10 @@ class OrganizationController extends Controller
             'contact_email' => $organization->contact_email,
             'contact_phone' => $organization->contact_phone,
             'website' => $organization->website,
+            // The review panel renders this in the expanded card. Without it
+            // the panel cannot tell "no description was submitted" apart from
+            // "the API did not send one", and always claimed the former.
+            'description' => $organization->description,
             'industry' => $organization->industry,
             'company_size' => $organization->company_size,
             'country' => $organization->country,
@@ -230,14 +234,16 @@ class OrganizationController extends Controller
     {
         $file = $organization->proofFile();
 
-        if (! $file || ! Storage::disk('local')->exists($file->path)) {
+        // The default disk, matching wherever AuthService::uploadProofFile
+        // stored it — see the note there about container filesystems.
+        if (! $file || ! Storage::exists($file->path)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Proof file not found.',
             ], 404);
         }
 
-        return Storage::disk('local')->response($file->path, null, [
+        return Storage::response($file->path, null, [
             'Content-Type' => $file->mime_type,
         ]);
     }
@@ -250,8 +256,27 @@ class OrganizationController extends Controller
             'mime_type' => $file->mime_type,
             'size' => $file->size,
             'uploaded_at' => $file->created_at?->toIso8601String(),
-            'download_url' => route('admin.organizations.proof-file', $file->fileable_id),
+            'download_url' => route($this->proofFileRouteName(), $file->fileable_id),
+            // Whether the file is actually on the configured disk. The row can
+            // outlive the file — a container filesystem without a persistent
+            // volume drops uploads on every deploy — and a link to a file that
+            // is no longer there looks like a broken page rather than a lost
+            // upload. The panel uses this to say which one it is.
+            'available' => Storage::exists($file->path),
         ];
+    }
+
+    /**
+     * Route name used to build proof-document download links.
+     *
+     * Kept overridable because the same controller also backs the
+     * session-authenticated web panel: the browser opens that link with a
+     * session cookie, so it has to point at the web route rather than at
+     * the token-protected API one.
+     */
+    protected function proofFileRouteName(): string
+    {
+        return 'admin.organizations.proof-file';
     }
 
     private function notifyOrganizationAdmins(Organization $organization, $notification): void

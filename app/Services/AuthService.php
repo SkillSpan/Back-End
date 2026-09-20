@@ -253,6 +253,16 @@ class AuthService
                 'created' => true,
             ];
         } catch (ValidationException $e) {
+            // A ValidationException can be thrown from *inside* the
+            // transaction — most notably by assertOrganizationIsApproved()
+            // for a pending/rejected organization. Rethrowing without a
+            // rollback left the transaction open on a reused connection,
+            // where an unrelated later request could run inside it.
+            // (DB::rollBack() is a no-op when no transaction is active, so
+            // this is also safe for the validations that run before
+            // beginTransaction().)
+            DB::rollBack();
+
             throw $e;
         } catch (Throwable $e) {
             DB::rollBack();
@@ -306,23 +316,40 @@ class AuthService
      */
     private function assertOrganizationIsApproved(User $user): void
     {
-        $organization = $user->organizations()->first();
+        // Same reasoning as AuthController::assertOrganizationIsApproved():
+        // check every ACTIVE membership instead of only the first one, so a
+        // second (or 'removed') membership cannot be used to bypass the
+        // approval gate on a pending/rejected organization.
+        $blocking = $user->organizations()
+            ->wherePivot('status', 'active')
+            ->whereIn('verification_status', ['pending', 'rejected'])
+            ->first();
 
-        if (! $organization) {
+        if (! $blocking) {
             return;
         }
 
-        if ($organization->verification_status === 'pending') {
+        if ($blocking->verification_status === 'pending') {
             throw ValidationException::withMessages([
                 'credential' => 'Your organization is still pending approval. Please wait until it has been reviewed.',
             ]);
         }
 
-        if ($organization->verification_status === 'rejected') {
-            throw ValidationException::withMessages([
-                'credential' => 'Your organization registration was rejected. Please contact support for more information.',
-            ]);
-        }
+        throw ValidationException::withMessages([
+            'credential' => 'Your organization registration was rejected. Please contact support for more information.',
+        ]);
+    }
+
+    /**
+     * An account that must not be able to act on its own behalf, regardless
+     * of whether it still controls the mailbox: soft-deleted, suspended or
+     * explicitly deleted. Used by the verification flow so that email
+     * verification can never be used to restore a suspended account.
+     */
+    private function isAccountBlocked(User $user): bool
+    {
+        return $user->trashed()
+            || in_array($user->status, ['suspended', 'deleted'], true);
     }
 
     private function createUser(array $data): User
@@ -442,7 +469,14 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        $path = $file->store('proofs/'.$organization->id, 'local');
+        // Stored on the configured default disk, not a hardcoded 'local' one.
+        // In a containerised deployment the local disk lives inside the
+        // container image and is wiped by every deploy and restart, while the
+        // database rows survive on their own server — leaving every uploaded
+        // proof pointing at a file that no longer exists. Pointing this at the
+        // default disk lets FILESYSTEM_DISK=s3 move uploads to storage that
+        // actually persists, without touching this code again.
+        $path = $file->store('proofs/'.$organization->id);
 
         UploadedFile::forceCreate([
             'user_id' => $user->id,
@@ -500,6 +534,17 @@ class AuthService
                 return false;
             }
 
+            // Account standing is a different question from mailbox ownership.
+            // A suspended (or deleted) account must not be able to clear its
+            // own suspension by re-verifying its email. The return value is
+            // identical to a wrong/expired OTP so this endpoint stays
+            // indistinguishable from a normal failure.
+            if ($this->isAccountBlocked($user)) {
+                DB::rollBack();
+
+                return false;
+            }
+
             $verification = AccountVerification::where('user_id', $user->id)
                 ->where('decision', 'pending')
                 ->latest()
@@ -535,10 +580,16 @@ class AuthService
                 'decided_at' => now(),
             ])->save();
 
-            $user->forceFill([
-                'email_verified_at' => now(),
-                'status' => 'active',
-            ])->save();
+            // Only a pending account is promoted by email verification. The
+            // status is deliberately NOT force-set to 'active' here: doing so
+            // silently undid an administrative suspension. A blocked account
+            // never reaches this point (guarded above).
+            if ($user->status === 'pending') {
+                $user->status = 'active';
+            }
+
+            $user->email_verified_at = now();
+            $user->save();
 
             DB::commit();
 
@@ -552,6 +603,13 @@ class AuthService
 
     public function resendOtp(User $user): void
     {
+        // Never issue a fresh challenge to a blocked account — otherwise a
+        // suspended user could request a new OTP and immediately verify it.
+        // Returning silently keeps the caller's response neutral.
+        if ($this->isAccountBlocked($user)) {
+            return;
+        }
+
         AccountVerification::where('user_id', $user->id)
             ->where('decision', 'pending')
             ->update([

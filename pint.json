@@ -1,0 +1,4 @@
+{
+    "$schema": "https://raw.githubusercontent.com/laravel/pint/main/pint-schema.json",
+    "preset": "laravel"
+}
