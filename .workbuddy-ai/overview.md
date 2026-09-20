@@ -1,60 +1,94 @@
-# CI is green again — there were two problems, not one
+# "Fix all the problems" — what was wrong, and what I did
 
-You pasted a Pint failure. It was real, but it was also **hiding a second failure**:
-`ci.yml` runs Pint *before* PHPUnit, so the red light stopped at the style check and the
-5 broken tests behind it never showed up. Fixing only Pint would have moved the red light,
-not removed it.
+I swept the repo for outstanding problems rather than fixing only the ones already on the
+list. **Five real issues found, four fixed, one deliberately left for your call.**
 
-## 1. The Pint failure you saw
+## 🔴 Fixed — a live bug: unreachable code in `EvidenceController::review()`
 
-`bootstrap/app.php` used `__DIR__ . '/../routes/web.php'` — with spaces around the `.`.
-There is no `pint.json` in the repo, so Pint applies its default **`laravel`** preset, whose
-`concat_space` rule is `none`: it wants `__DIR__.'/...'`.
+This is the important one. The method **returned early**, before this line:
 
-> The previous attempt (`c91c75f`, *"fixed:extra space in app.php"*) didn't fix it — it only
-> inserted a stray `/**s */` comment between `)` and `->withMiddleware(`. That comment is
-> removed too.
+```php
+SkillDataChanged::dispatch($evidence->studentProfile, 'evidence_review');
+```
 
-## 2. The 5 test failures it was hiding
+So both that dispatch *and* the response carrying `data` were **permanently unreachable**.
+In practice:
 
-All five failed identically with **502 instead of 201**. Cause: the test fixture
-`successResponse()` still returned the **old `/skill-gap` shape**, while commit `d87040e`
-migrated the integration to **`/skill-match v1`**. The tests were never updated to match.
+- Approving or rejecting evidence **never enqueued the intelligence recalculation**.
+- Callers only ever got `success` + `message`, never the reviewed record.
 
-The v1 contract is much stricter — it now requires the normalized-weight breakdown and
-`skill_match_score`, and it **cross-checks every skill result against the payload Laravel
-actually sent**, re-deriving `achieved_level`, `match_ratio` and `status` itself. So the
-fixture can't invent numbers any more; it has to mirror the real thing.
+The endpoint had **zero test coverage**, which is exactly how dead code survived in it. I
+fixed it and added `tests/Feature/Evidence/EvidenceReviewTest.php` — and I verified all three
+tests **fail against the old code** before passing against the new one, so they genuinely
+guard the regression.
 
-I rewrote the fixture to build the v1 contract and to **derive** `skill_match_score` from
-the same levels and weights the validator checks, rather than hardcoding it — a hardcoded
-number would silently drift out of agreement with them. For the scenario data this works
-out to `79.38`, which is exactly what your existing assertions (`75.6`, `82.0`, `74.0`)
-were written against.
+> Worth knowing: **you had already diagnosed this by hand in the `C:` checkout** and left the
+> fix uncommitted. The version committed here is that same fix, cleaned up.
 
-**One correction worth knowing:** the test comment claimed the `skill_match` component comes
-from a *local* `SkillMatchService` calculation. It doesn't — `ReadinessService::calculate()`
-reads `$result['skill_match_score']` from FastAPI. `SkillMatchService` exists but is only
-used by `SkillMatchController`. Comment fixed.
+## 🟡 Fixed — a tracked junk file
 
-**Side finding:** `test_invalid_fastapi_skill_result_is_rejected` was *passing for the wrong
-reason* — with the old fixture it tripped the missing-key check, not the unknown-`skill_id`
-check it was written for. It now tests what it intends.
+`count()` sat at the repo root and was **committed**. It's a tinker error dump — the output of
+an interrupted `DB::table('learner_skills')-` command, accidentally redirected into a file
+whose name is literally `count()`. Removed.
 
-## Verification (both CI steps, run locally)
+## 🟡 Fixed — `.env.example` was stale and incomplete
 
-| Step | Result |
+It still documented `DATA_SCIENCE_SKILL_GAP_PATH` but **not** `DATA_SCIENCE_SKILL_MATCH_PATH`,
+which `d87040e` added to `config/services.php`. A fresh deployment therefore had no way to
+override the new endpoint. I also added the app-specific keys that were missing entirely
+(`APP_*`, `FILESYSTEM_DISK`, `QUEUE_CONNECTION`, `MAIL_*`, `VITE_API_BASE_URL`,
+`ADMIN_SETUP_SECRET`, `INTERNAL_BASELINE_ITEMS_SECRET`, `SANCTUM_TOKEN_EXPIRATION_MINUTES`,
+the baseline keys). `FILESYSTEM_DISK` now carries a comment explaining the container-filesystem
+data loss behind the missing proof files.
+
+## 🟡 Fixed — a wrong docblock
+
+`Organization::proofFile()` claimed the file is resolved "through the organization's admin
+member". It isn't — the code does a direct `morphMany` on the organization's own `files()`.
+Rewritten to match, with a note that the returned row says nothing about whether the file is
+still on disk.
+
+## 🟡 Fixed — a false security claim I had written
+
+`ADMIN_PANEL_LOGIN_SUMMARY.md` (and the 2026-09-17 log) stated that `ADMIN_SETUP_SECRET` is
+**committed in `.env`**. That is **false**: `.env` is git-ignored and `git log --all -- .env`
+is empty. The repo only ever holds the empty placeholder in `.env.example`. Corrected in both —
+and **you don't need to rotate anything** on account of it.
+
+## ⚠️ NOT changed — needs your decision
+
+**`trustProxies(at: '*')` in `bootstrap/app.php`.** Trusting *every* proxy means
+`X-Forwarded-For` is honoured from any client, so `$request->ip()` is spoofable if Render's
+edge *appends* to that header. Your admin-login throttle is keyed `email|ip`, so rotating a
+fake `X-Forwarded-For` **defeats the 5-attempt lockout**.
+
+The targeted hardening is to drop `HEADER_X_FORWARDED_FOR` from the trusted set and keep
+`HOST`/`PORT`/`PROTO` — `PROTO` is what your HTTPS/419 fix actually needs. But that changes
+`$request->ip()` for throttling *and* logging, and the right answer depends on how Render's
+proxy behaves, which I can't verify from here. **So I left it alone rather than risk undoing
+your 419 fix.** Say the word and I'll apply it.
+
+## Verification
+
+| Check | Result |
 | --- | --- |
-| `vendor/bin/pint --test` | **PASS** — 274 files |
-| `php artisan test` | **235 passed** (886 assertions) |
+| `vendor/bin/pint --test` | **PASS** — 275 files |
+| `php artisan test` | **238 passed** (896 assertions) |
 
-Committed as `1ef1651` and pushed to `origin/feature/authentication`, so the CI run on
-GitHub should go green.
+Commits `c533f86` and `408cee8`, pushed to `origin/feature/authentication`.
 
-## One thing to be aware of
+## Still on you: the `C:` checkout
 
-The **`C:`** checkout (`C:\Users\HP\Documents\GitHub\SkillSpan\...`) — which is what your IDE
-has open — is still at `d025485`, far behind. All of today's work, and the previous
-proof-file fix, are in the **`E:`** checkout. C: also still carries an uncommitted edit to
-`Api/EvidenceController.php`. Worth catching C: up (and deciding on that edit) so the two
-don't drift further apart.
+`C:\Users\HP\Documents\GitHub\SkillSpan\...` is still at `d025485` and now **well behind**, and
+it still carries that uncommitted `EvidenceController.php` edit — which is now **superseded**
+by the committed fix. To catch it up:
+
+```bash
+cd "C:/Users/HP/Documents/GitHub/SkillSpan/Back-End-feature-authentication"
+git fetch origin
+git checkout -- app/Http/Controllers/Api/EvidenceController.php   # discard: superseded
+git reset --hard origin/feature/authentication
+```
+
+I did **not** run this myself: `reset --hard` discards uncommitted work, and that's your call,
+not mine. Everything above is already safe in the `E:` checkout and on the remote.
