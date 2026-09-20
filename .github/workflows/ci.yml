@@ -53,10 +53,24 @@ jobs:
         run: php artisan key:generate
 
       - name: Create SQLite database file
+        id: prepare
         run: touch database/database.sqlite
 
+      # Pint and PHPUnit are each gated on `prepare`, NOT on one another, so a
+      # style failure can no longer hide a test failure.
+      #
+      # Previously Pint ran first and a single `concat_space` violation in
+      # bootstrap/app.php aborted the job before PHPUnit ever started. That is
+      # how five genuinely broken readiness tests stayed invisible behind eight
+      # consecutive red runs — every one of them reported only the style error.
+      #
+      # Gating on `prepare` rather than `always()` keeps the syntax check above
+      # meaningful: if it fails, `prepare` is skipped and both steps are too, so
+      # the job still fails fast in seconds instead of running the whole suite.
       - name: Run Laravel Pint (code style check)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: vendor/bin/pint --test
 
       - name: Run PHPUnit tests
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: php artisan test
