@@ -55,27 +55,63 @@ still on disk.
 is empty. The repo only ever holds the empty placeholder in `.env.example`. Corrected in both —
 and **you don't need to rotate anything** on account of it.
 
-## ⚠️ NOT changed — needs your decision
+## ⚠️ NOT changed — `trustProxies(at: '*')`, and a correction to my own earlier warning
 
-**`trustProxies(at: '*')` in `bootstrap/app.php`.** Trusting *every* proxy means
-`X-Forwarded-For` is honoured from any client, so `$request->ip()` is spoofable if Render's
-edge *appends* to that header. Your admin-login throttle is keyed `email|ip`, so rotating a
-fake `X-Forwarded-For` **defeats the 5-attempt lockout**.
+**My first write-up of this was overstated, and I retracted it.** This section is the
+corrected version. `at: '*'` is **left exactly as it was**, on purpose.
 
-The targeted hardening is to drop `HEADER_X_FORWARDED_FOR` from the trusted set and keep
-`HOST`/`PORT`/`PROTO` — `PROTO` is what your HTTPS/419 fix actually needs. But that changes
-`$request->ip()` for throttling *and* logging, and the right answer depends on how Render's
-proxy behaves, which I can't verify from here. **So I left it alone rather than risk undoing
-your 419 fix.** Say the word and I'll apply it.
+**What `'*'` actually means.** In Laravel 11/12,
+`TrustProxies::setTrustedProxyIpAddresses()` maps `'*'` / `'**'` to
+`setTrustedProxyIpAddressesToTheCallingIp($request)` — i.e. it trusts `[REMOTE_ADDR]`,
+**one hop: the immediate caller**. It is *not* `0.0.0.0/0`. (Symfony's own
+`setTrustedProxies()` has no `'*'` handling at all, which is what misled me the first time.)
+
+**Spoofing needs a misbehaving edge, and is unlikely here.** Symfony returns the *rightmost
+untrusted* entry of `X-Forwarded-For`. With the edge trusted, that is the edge's own appended
+value — so a client-supplied forgery sits to its left and is ignored. Measured with a
+throwaway test (trusted = `[REMOTE_ADDR]`), since deleted:
+
+| edge behaviour | `X-Forwarded-For` | `$request->ip()` |
+| --- | --- | --- |
+| replaces | `203.0.113.9` | correct |
+| appends | `1.2.3.4, 203.0.113.9` | correct |
+| passes through | `1.2.3.4` | **spoofed** |
+
+So the login throttle is only defeatable if Render's edge forwards the header *without*
+appending the real client IP — which a normal reverse proxy does not do.
+
+The 419/HTTPS fix **does** depend on `PROTO` being trusted; verified: `isSecure() = true` with
+it, `false` without.
+
+**Verdict: no change needed.** `at: '*'` is the standard Laravel setting for a single managed
+edge. Tightening it to `at: '<render-egress-cidr>'` is optional hardening, not a live
+vulnerability — and I chose not to touch it rather than risk undoing your 419 fix on a guess
+about Render's internals.
 
 ## Verification
 
-| Check | Result |
-| --- | --- |
-| `vendor/bin/pint --test` | **PASS** — 275 files |
-| `php artisan test` | **238 passed** (896 assertions) |
+Re-run against the exact pushed HEAD (`7e34619`) as a local replica of `.github/workflows/ci.yml`
+— the repo is private, so the Actions run isn't readable from here without a token.
 
-Commits `c533f86` and `408cee8`, pushed to `origin/feature/authentication`.
+| CI step | Result |
+| --- | --- |
+| PHP syntax (`app routes config database bootstrap`) | **OK** — no parse errors |
+| `vendor/bin/pint --test` | **PASS** — 275 files |
+| `php artisan test` | **238 passed** (896 assertions), 29.6s |
+
+All three steps pass, so CI should now be green.
+
+## Commits pushed this session — `origin/feature/authentication` @ `7e34619`
+
+| Commit | What |
+| --- | --- |
+| `b9f8d6c` | proof uploads use the configured disk; `available` flag; 3-state panel |
+| `1ef1651` | CI fix — Pint `concat_space`, plus the 5 readiness tests it was hiding |
+| `bdfa5cc` | notes for the CI fix / readiness contract change |
+| `c533f86` | `EvidenceController` dead code + `count()` deletion |
+| `408cee8` | `.env.example` refresh, two misleading docs corrected |
+| `2192ebc` | notes for the sweep |
+| `7e34619` | `trustProxies` correction (memory log) |
 
 ## Still on you: the `C:` checkout
 
@@ -85,10 +121,19 @@ by the committed fix. To catch it up:
 
 ```bash
 cd "C:/Users/HP/Documents/GitHub/SkillSpan/Back-End-feature-authentication"
+git stash push -u -m "pre-catchup"        # belt-and-braces: nothing is destroyed
 git fetch origin
-git checkout -- app/Http/Controllers/Api/EvidenceController.php   # discard: superseded
 git reset --hard origin/feature/authentication
 ```
 
-I did **not** run this myself: `reset --hard` discards uncommitted work, and that's your call,
-not mine. Everything above is already safe in the `E:` checkout and on the remote.
+Note the `.workbuddy-ai/` notes are **untracked** in `C:` but **tracked on the remote** now, so
+the reset will bring the corrected copies down over them. The stash in step 1 keeps your local
+versions if you want to diff them. I did **not** run this myself: it discards uncommitted work,
+and that's your call, not mine. Everything above is already safe in `E:` and on the remote.
+
+## Still on you: the proof files
+
+28 uploaded proofs are **permanently lost** (rows survived in the external MySQL; the bytes
+lived in the container filesystem and every deploy wiped them). Nothing recovers them. To stop
+the next one dying: set `FILESYSTEM_DISK=s3` + credentials (R2's free tier works), or mount a
+paid Render persistent disk at `storage/app/private`.
