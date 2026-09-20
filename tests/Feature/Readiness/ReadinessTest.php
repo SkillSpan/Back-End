@@ -102,10 +102,11 @@ class ReadinessTest extends TestCase
         $response->assertStatus(201);
 
         // Weighted composite from createScenario()'s fixture data. The
-        // skill_match component comes from the local skill-match-v1
-        // calculation (SkillMatchService), NOT from FastAPI's
-        // base_readiness_score — see ReadinessService::calculate():
-        //   skill_match (79.38, from the fixture's levels/weights) * 0.65 = 51.60
+        // skill_match component is FastAPI's own skill_match_score
+        // (skill-match-v1) — see ReadinessService::calculate(), which reads
+        // $result['skill_match_score']. The fixture derives that value from
+        // these same levels and weights, so the arithmetic below holds:
+        //   skill_match (79.38) * 0.65 = 51.60
         //   practical_experience (50.0, 1 of 2 full-credit projects) * 0.20 = 10.0
         //   assessment_reliability (90.0, avg confidence) * 0.10 = 9.0
         //   profile_completeness (100.0, all required fields filled) * 0.05 = 5.0
@@ -511,16 +512,38 @@ class ReadinessTest extends TestCase
         return $user;
     }
 
+    /**
+     * Build a FastAPI skill-match-v1 response that satisfies the validator
+     * in ReadinessService::validateDataScienceResult() exactly.
+     *
+     * The contract changed in d87040e (/skill-gap -> /skill-match v1): the
+     * response now carries the normalized-weight breakdown plus
+     * skill_match_score, and every skill_result is cross-checked against
+     * the payload Laravel actually sent. So this fixture mirrors the
+     * validator's own formulas rather than inventing its own numbers:
+     *
+     *  - current_level comes from the learner's LATEST evaluation per skill
+     *    (calculated_at desc, id desc) — the same source the payload uses.
+     *  - achieved_level = current_level capped at required_level.
+     *  - match_ratio   = achieved_level / required_level, clamped to 0..1.
+     *  - status        = met (ratio 1.0) / partial / not_required (req 0).
+     *  - skill_match_score = normalized weighted match on a 0..100 scale.
+     *    This is the value ReadinessService uses as its skill_match
+     *    component, so it must stay derived — a hardcoded number would
+     *    silently disagree with the levels and weights below.
+     */
     private function successResponse($profile, $careerRole, $roleSkills): array
     {
-        $metSkills = 0;
-        $skillsWithGap = 0;
+        $weightTotal = (float) $roleSkills->sum('importance_weight');
 
-        // Mirror the validator exactly: it cross-checks every skill_result
-        // against the payload built from the learner's LATEST evaluation
-        // per skill (calculated_at desc, id desc), so the fixture has to
-        // derive current_level/gap/status from the same source.
-        $skillResults = $roleSkills->map(function ($roleSkill) use ($profile, &$metSkills, &$skillsWithGap) {
+        $skillResults = [];
+        $metSkills = 0;
+        $partialSkills = 0;
+        $notRequiredSkills = 0;
+        $weightedAchievedTotal = 0.0;
+        $weightedRequiredTotal = 0.0;
+
+        foreach ($roleSkills as $roleSkill) {
             $currentLevel = (float) SkillEvaluation::query()
                 ->where('student_profile_id', $profile->id)
                 ->where('skill_id', $roleSkill->skill_id)
@@ -529,22 +552,55 @@ class ReadinessTest extends TestCase
                 ->first()
                 ->level;
 
-            $gap = max((float) $roleSkill->required_level - $currentLevel, 0.0);
-            $status = $gap == 0.0 ? 'met' : 'gap';
+            $requiredLevel = (float) $roleSkill->required_level;
+            $importanceWeight = (float) $roleSkill->importance_weight;
 
-            $status === 'met' ? $metSkills++ : $skillsWithGap++;
+            // Over-qualification never counts beyond 100% of what the role
+            // asks for, so the achieved level is capped at the required one.
+            $achievedLevel = $requiredLevel > 0
+                ? min($currentLevel, $requiredLevel)
+                : $currentLevel;
 
-            return [
+            if ($requiredLevel > 0) {
+                $matchRatio = min(max($achievedLevel / $requiredLevel, 0.0), 1.0);
+                $status = $matchRatio >= 1.0 ? 'met' : 'partial';
+            } else {
+                $matchRatio = 0.0;
+                $status = 'not_required';
+            }
+
+            if ($status === 'met') {
+                $metSkills++;
+            } elseif ($status === 'partial') {
+                $partialSkills++;
+            } else {
+                $notRequiredSkills++;
+            }
+
+            $normalizedWeight = $weightTotal > 0
+                ? $importanceWeight / $weightTotal
+                : 0.0;
+
+            $weightedAchievedTotal += $normalizedWeight * $achievedLevel;
+            $weightedRequiredTotal += $normalizedWeight * $requiredLevel;
+
+            $skillResults[] = [
                 'skill_id' => (int) $roleSkill->skill_id,
                 'skill_name' => (string) $roleSkill->skill->name,
                 'current_level' => $currentLevel,
-                'required_level' => (float) $roleSkill->required_level,
-                'importance_weight' => (float) $roleSkill->importance_weight,
+                'required_level' => $requiredLevel,
+                'importance_weight' => $importanceWeight,
+                'normalized_importance_weight' => $normalizedWeight,
+                'achieved_level' => $achievedLevel,
+                'match_ratio' => $matchRatio,
                 'is_critical' => (bool) $roleSkill->is_critical,
-                'gap' => $gap,
                 'status' => $status,
             ];
-        })->values()->all();
+        }
+
+        $skillMatchScore = $weightedRequiredTotal > 0
+            ? round($weightedAchievedTotal / $weightedRequiredTotal * 100, 2)
+            : 0.0;
 
         return [
             'student_profile_id' => (int) $profile->id,
@@ -552,16 +608,17 @@ class ReadinessTest extends TestCase
             'career_role_version' => (int) $careerRole->version,
             'user_id' => (int) $profile->user_id,
             'target_role' => (string) $careerRole->title,
-            'algorithm_version' => 'test-v1',
-            'base_readiness_score' => 80.0,
-            'readiness_score' => 80.0,
-            'critical_skill_cap_applied' => false,
-            'critical_skill_readiness_cap' => null,
-            'critical_skill_gap_count' => $skillsWithGap,
-            'critical_skill_names' => [],
+            'algorithm_version' => 'skill-match-v1',
+            'weight_configuration_version' => 'weights-v1',
+            'original_weight_total' => $weightTotal,
+            'normalized_weight_total' => 1.0,
+            'weighted_achieved_total' => $weightedAchievedTotal,
+            'weighted_required_total' => $weightedRequiredTotal,
+            'skill_match_score' => $skillMatchScore,
             'total_skills' => count($skillResults),
             'met_skills' => $metSkills,
-            'skills_with_gap' => $skillsWithGap,
+            'partial_skills' => $partialSkills,
+            'not_required_skills' => $notRequiredSkills,
             'skill_results' => $skillResults,
         ];
     }
