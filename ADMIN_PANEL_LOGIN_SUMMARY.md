@@ -197,8 +197,12 @@ Working tree is clean. HEAD is `423c844`.
 
 ## 7. Two things worth knowing
 
-- **`ADMIN_SETUP_SECRET` is committed in `.env`.** `.env` should be git-ignored and the secret
-  rotated if it ever reached the repo — it creates admin accounts.
+- **`.env` is correctly git-ignored — there is nothing to rotate here.** `.env` is listed in
+  `.gitignore` and has never been committed (`git log --all -- .env` returns nothing).
+  `ADMIN_SETUP_SECRET` exists only in the local `.env`; the repository contains just the empty
+  `ADMIN_SETUP_SECRET=` placeholder in `.env.example`. *(An earlier version of this note claimed
+  the secret was committed in `.env` — that was wrong.)* Rotating it is still worthwhile if the
+  value has ever been shared outside your machine, since it creates admin accounts.
 - **`APP_ENV=production` and `APP_DEBUG=true` locally.** That combination means verbose error pages
   locally; more importantly, if those values ever reach the deployed Render service, stack traces
   (and the secrets in them) become public. Worth checking the Render environment variables.

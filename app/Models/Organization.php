@@ -30,9 +30,18 @@ class Organization extends Model
 
     /**
      * The registration proof/certificate uploaded by the organization's admin
-     * during registration (see AuthService::uploadProofFile). Proof files are
-     * not linked to the organization directly, so we resolve them through the
-     * organization's admin member.
+     * during registration (see AuthService::uploadProofFile).
+     *
+     * Resolved as the most recent `certificate` record on this organization's
+     * own polymorphic `files()` relation — `fileable_type` is Organization, so
+     * the lookup is a direct morphMany and does not go through the uploading
+     * member.
+     *
+     * This returns the database row only. It says nothing about whether the
+     * file still exists on the configured disk: a row can outlive its file
+     * (a container filesystem without a persistent volume drops uploads on
+     * every deploy). Check `Storage::exists($file->path)` before serving a
+     * download — the admin API exposes exactly that as `available`.
      */
     public function proofFile(): ?UploadedFile
     {
