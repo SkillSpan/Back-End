@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
@@ -54,6 +55,7 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
+        Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
         Route::post('/skill-match', [SkillMatchController::class, 'store']);
