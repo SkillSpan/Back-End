@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
+use App\Services\Projects\ProjectAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,6 +18,10 @@ class ProjectController extends Controller
         'organization:id,title',
         'requiredSkills.skill:id,name',
     ];
+
+    public function __construct(
+        private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService(),
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -124,11 +129,7 @@ class ProjectController extends Controller
             );
         }
 
-        $organizationId = $this->learnerOrganizationId($user);
-
-        $accessibleProject = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH)
-            ->whereKey($project)
-            ->first();
+        $accessibleProject = $this->getSecureAccessibleProject($project, $user);
 
         if (! $accessibleProject) {
             $exists = Project::query()->whereKey($project)->exists();
@@ -155,6 +156,28 @@ class ProjectController extends Controller
     }
 
     /**
+     * Retrieve a project that the authenticated learner is authorized to
+     * view AND that satisfies availability rules. The query enforces the
+     * same catalog-level restrictions (status, deadline, end_date,
+     * confidentiality) so a learner cannot bypass access by supplying
+     * a project ID directly.
+     */
+    private function getSecureAccessibleProject(int $projectId, $user): ?Project
+    {
+        $organizationId = $this->learnerOrganizationId($user);
+
+        $project = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH)
+            ->whereKey($projectId)
+            ->first();
+
+        if ($project && ! $this->availabilityService->isAvailable($project)) {
+            return null;
+        }
+
+        return $project;
+    }
+
+    /**
      * The learner's own organization id from the membership pivot, or
      * null when the learner is not a member of any organization.
      */
@@ -169,8 +192,13 @@ class ProjectController extends Controller
 
     /**
      * Reusable base query enforcing the project catalog access rules:
-     * only open, non-expired projects with a valid application window,
-     * visible publicly (or restricted only to the learner's own org).
+     * only available projects (status = open, application_deadline not
+     * expired) with a valid end_date, visible publicly (or restricted
+     * only to the learner's own org).
+     *
+     * The availability portion mirrors ProjectAvailabilityService::check();
+     * the end_date and confidentiality filters are authorization rules
+     * that remain in the controller.
      *
      * @param  array<int, string>  $with
      */
