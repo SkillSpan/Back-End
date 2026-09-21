@@ -56,6 +56,9 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
         Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
+        Route::get('/projects/{project}', [ProjectController::class, 'show'])
+            ->name('projects.show')
+            ->whereNumber('project');
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
         Route::post('/skill-match', [SkillMatchController::class, 'store']);

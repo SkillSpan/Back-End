@@ -13,6 +13,11 @@ use Illuminate\Support\Facades\DB;
 
 class ProjectController extends Controller
 {
+    private const PROJECT_WITH = [
+        'organization:id,title',
+        'requiredSkills.skill:id,name',
+    ];
+
     public function index(Request $request): JsonResponse
     {
         $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
@@ -29,33 +34,9 @@ class ProjectController extends Controller
             );
         }
 
-        $organizationId = DB::table('organization_members')
-            ->where('user_id', $user->id)
-            ->value('organization_id');
+        $organizationId = $this->learnerOrganizationId($user);
 
-        $query = Project::query()
-            ->with([
-                'organization:id,title',
-                'requiredSkills.skill:id,name',
-            ]);
-
-        $query->where('status', 'open')
-            ->whereNotIn('confidentiality', ['restricted'])
-            ->where(function ($q) {
-                $q->whereNull('end_date')
-                    ->orWhere('end_date', '>=', now()->toDateString());
-            })
-            ->where(function ($q) {
-                $q->whereNull('application_deadline')
-                    ->orWhere('application_deadline', '>=', now()->toDateString());
-            })
-            ->where(function ($subQ) use ($organizationId) {
-                $subQ->where('confidentiality', 'public')
-                    ->orWhere(function ($innerQ) use ($organizationId) {
-                        $innerQ->where('confidentiality', 'restricted')
-                            ->where('organization_id', $organizationId);
-                    });
-            });
+        $query = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH);
 
         /** @var array<string, mixed> $filters */
         $filters = $this->validatedFilters($request, $requestId);
@@ -117,6 +98,106 @@ class ProjectController extends Controller
             'data' => ProjectResource::collection($projects),
             'request_id' => $requestId,
         ]);
+    }
+
+    /**
+     * GET /api/v1/projects/{project}
+     *
+     * Returns the details of one project the authenticated learner is
+     * authorized to see. The SAME access/availability rules as the
+     * catalog are applied here (never weaker), so a learner cannot
+     * bypass catalog restrictions by supplying a project ID directly.
+     */
+    public function show(Request $request, int $project): JsonResponse
+    {
+        $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
+
+        $user = $request->user();
+        $studentProfile = $user->studentProfile;
+
+        if (! $studentProfile) {
+            return $this->errorResponse(
+                'STUDENT_PROFILE_NOT_FOUND',
+                'The authenticated learner does not have a student profile.',
+                422,
+                $requestId,
+            );
+        }
+
+        $organizationId = $this->learnerOrganizationId($user);
+
+        $accessibleProject = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH)
+            ->whereKey($project)
+            ->first();
+
+        if (! $accessibleProject) {
+            $exists = Project::query()->whereKey($project)->exists();
+
+            return $this->errorResponse(
+                $exists
+                    ? 'PROJECT_UNAUTHORIZED'
+                    : 'PROJECT_NOT_FOUND',
+                $exists
+                    ? 'The requested project is not available to this learner.'
+                    : 'The requested project does not exist.',
+                $exists ? 403 : 404,
+                $requestId,
+                ['project_id' => $project],
+            );
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Project details retrieved successfully.',
+            'data' => new ProjectResource($accessibleProject),
+            'request_id' => $requestId,
+        ]);
+    }
+
+    /**
+     * The learner's own organization id from the membership pivot, or
+     * null when the learner is not a member of any organization.
+     */
+    private function learnerOrganizationId($user): ?int
+    {
+        $organizationId = DB::table('organization_members')
+            ->where('user_id', $user->id)
+            ->value('organization_id');
+
+        return $organizationId !== null ? (int) $organizationId : null;
+    }
+
+    /**
+     * Reusable base query enforcing the project catalog access rules:
+     * only open, non-expired projects with a valid application window,
+     * visible publicly (or restricted only to the learner's own org).
+     *
+     * @param  array<int, string>  $with
+     */
+    private function accessibleProjectsQuery(?int $organizationId, array $with = []): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = Project::query();
+
+        if ($with !== []) {
+            $query->with($with);
+        }
+
+        return $query->where('status', 'open')
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->toDateString());
+            })
+            ->where(function ($q) {
+                $q->whereNull('application_deadline')
+                    ->orWhere('application_deadline', '>=', now()->toDateString());
+            })
+            ->where(function ($subQ) use ($organizationId) {
+                $subQ->where('confidentiality', 'public')
+                    ->orWhere(function ($innerQ) use ($organizationId) {
+                        $innerQ->where('confidentiality', 'restricted')
+                            ->where('organization_id', $organizationId);
+                    });
+            });
     }
 
     private function likePattern(string $term): string

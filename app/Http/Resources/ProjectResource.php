@@ -35,9 +35,11 @@ class ProjectResource extends JsonResource
                 'id' => $project->organization->id,
                 'title' => $project->organization->title,
             ]),
-            'required_skills' => $this->whenLoaded('requiredSkills.skill', fn () => $project->requiredSkills->map(fn ($rs) => [
+            'required_skills' => $this->whenLoaded('requiredSkills', fn () => $project->requiredSkills->map(fn ($rs) => [
                 'skill_id' => $rs->skill_id,
                 'skill_name' => $rs->skill?->name,
+                'minimum_level' => (float) $rs->minimum_level,
+                'is_critical_entry' => (bool) $rs->is_critical_entry,
             ])),
             'created_at' => $project->created_at?->toIso8601String(),
             'updated_at' => $project->updated_at?->toIso8601String(),

@@ -708,4 +708,285 @@ class ProjectCatalogTest extends TestCase
         $response->assertStatus(200)
             ->assertJsonFragment(['title' => 'Accessible Laravel Project']);
     }
+
+    public function test_authenticated_learner_can_access_valid_project_details(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $project = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Detail Project',
+            'type' => 'simulation',
+            'domain' => 'backend',
+            'work_mode' => 'remote',
+            'difficulty' => 3.5,
+            'capacity' => 4,
+            'min_team_size' => 2,
+        ]);
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Project details retrieved successfully.')
+            ->assertJsonPath('data.id', $project->id)
+            ->assertJsonPath('data.title', 'Detail Project')
+            ->assertJsonPath('data.type', 'simulation')
+            ->assertJsonPath('data.domain', 'backend')
+            ->assertJsonPath('data.work_mode', 'remote')
+            ->assertJsonPath('data.difficulty', 3.5)
+            ->assertJsonPath('data.capacity', 4)
+            ->assertJsonPath('data.min_team_size', 2)
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'data' => [
+                    'id',
+                    'title',
+                    'description',
+                    'type',
+                    'domain',
+                    'objectives',
+                    'learning_outcomes',
+                    'difficulty',
+                    'work_mode',
+                    'role',
+                    'schedule',
+                    'capacity',
+                    'min_team_size',
+                    'application_deadline',
+                    'start_date',
+                    'end_date',
+                    'status',
+                    'confidentiality',
+                    'version',
+                    'organization',
+                    'required_skills',
+                ],
+                'request_id',
+            ]);
+    }
+
+    public function test_unauthenticated_project_details_request_is_rejected(): void
+    {
+        $this->getJson('/api/v1/projects/1')
+            ->assertStatus(401);
+    }
+
+    public function test_non_learner_cannot_access_project_details(): void
+    {
+        $user = User::forceCreate([
+            'name' => 'Admin User',
+            'email' => 'admin-details@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $user->roles()->attach(Role::where('slug', 'admin')->first()->id);
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/v1/projects/1')
+            ->assertStatus(403);
+    }
+
+    public function test_missing_learner_profile_project_details_rejected(): void
+    {
+        $user = User::forceCreate([
+            'name' => 'No Profile',
+            'email' => 'noprofile-details@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $user->roles()->attach(Role::where('slug', 'learner')->first()->id);
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/v1/projects/1')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'STUDENT_PROFILE_NOT_FOUND');
+    }
+
+    public function test_nonexistent_project_returns_404(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/999999')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROJECT_NOT_FOUND');
+    }
+
+    public function test_learner_cannot_access_another_organizations_restricted_project(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $otherOrg = Organization::create(['name' => 'Other Details Org', 'type' => 'company']);
+        $owner = User::forceCreate([
+            'name' => 'Other Owner',
+            'email' => 'other-owner-details@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $restricted = Project::create([
+            'organization_id' => $otherOrg->id,
+            'owner_id' => $owner->id,
+            'title' => 'Restricted Project',
+            'description' => 'Restricted description',
+            'type' => 'company_sponsored',
+            'status' => 'open',
+            'confidentiality' => 'restricted',
+            'start_date' => now()->subDays(5)->toDateString(),
+            'end_date' => now()->addDays(30)->toDateString(),
+            'application_deadline' => now()->addDays(10)->toDateString(),
+            'version' => 1,
+        ]);
+
+        $this->getJson('/api/v1/projects/'.$restricted->id)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_UNAUTHORIZED');
+    }
+
+    public function test_learner_can_access_allowed_restricted_project(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        $orgId = $learner->organization_id;
+
+        $owner = User::forceCreate([
+            'name' => 'Same Org Owner',
+            'email' => 'same-org-owner@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $restricted = Project::create([
+            'organization_id' => $orgId,
+            'owner_id' => $owner->id,
+            'title' => 'Own Org Restricted Project',
+            'description' => 'Restricted but in learner org',
+            'type' => 'company_sponsored',
+            'status' => 'open',
+            'confidentiality' => 'restricted',
+            'start_date' => now()->subDays(5)->toDateString(),
+            'end_date' => now()->addDays(30)->toDateString(),
+            'application_deadline' => now()->addDays(10)->toDateString(),
+            'version' => 1,
+        ]);
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$restricted->id)
+            ->assertStatus(200)
+            ->assertJsonPath('data.id', $restricted->id)
+            ->assertJsonPath('data.confidentiality', 'restricted');
+    }
+
+    public function test_closed_project_details_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $project = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Closed Detail Project',
+            'status' => 'closed',
+        ]);
+
+        $this->getJson('/api/v1/projects/'.$project->id)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_UNAUTHORIZED');
+    }
+
+    public function test_expired_project_details_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $project = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Expired Detail Project',
+            'end_date' => now()->subDays(5)->toDateString(),
+        ]);
+
+        $this->getJson('/api/v1/projects/'.$project->id)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_UNAUTHORIZED');
+    }
+
+    public function test_direct_project_id_cannot_bypass_authorization(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $otherOrg = Organization::create(['name' => 'Bypass Org', 'type' => 'company']);
+        $owner = User::forceCreate([
+            'name' => 'Bypass Owner',
+            'email' => 'bypass-owner@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $hidden = Project::create([
+            'organization_id' => $otherOrg->id,
+            'owner_id' => $owner->id,
+            'title' => 'Hidden Project',
+            'description' => 'Must stay hidden',
+            'type' => 'simulation',
+            'status' => 'open',
+            'confidentiality' => 'restricted',
+            'start_date' => now()->subDays(5)->toDateString(),
+            'end_date' => now()->addDays(30)->toDateString(),
+            'application_deadline' => now()->addDays(10)->toDateString(),
+            'version' => 1,
+        ]);
+
+        // Even though the ID is valid and the project exists, the learner
+        // is not authorized — must NOT be exposed via the details endpoint.
+        $this->getJson('/api/v1/projects/'.$hidden->id)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_UNAUTHORIZED');
+    }
+
+    public function test_required_skills_are_returned_with_levels(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-details']);
+        $js = Skill::create(['name' => 'JavaScript', 'slug' => 'js-details']);
+
+        $project = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Skill Project',
+        ]);
+
+        ProjectRequiredSkill::create(['project_id' => $project->id, 'skill_id' => $php->id, 'minimum_level' => 3.0, 'is_critical_entry' => true]);
+        ProjectRequiredSkill::create(['project_id' => $project->id, 'skill_id' => $js->id, 'minimum_level' => 2.0, 'is_critical_entry' => false]);
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id);
+
+        $response->assertStatus(200)
+            ->assertJsonCount(2, 'data.required_skills')
+            ->assertJsonFragment([
+                'skill_id' => $php->id,
+                'skill_name' => 'PHP',
+                'minimum_level' => 3.0,
+                'is_critical_entry' => true,
+            ])
+            ->assertJsonFragment([
+                'skill_id' => $js->id,
+                'skill_name' => 'JavaScript',
+                'minimum_level' => 2.0,
+                'is_critical_entry' => false,
+            ]);
+    }
 }
