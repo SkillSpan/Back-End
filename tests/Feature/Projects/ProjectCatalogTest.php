@@ -4,7 +4,9 @@ namespace Tests\Feature\Projects;
 
 use App\Models\Organization;
 use App\Models\Project;
+use App\Models\ProjectRequiredSkill;
 use App\Models\Role;
+use App\Models\Skill;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -372,5 +374,338 @@ class ProjectCatalogTest extends TestCase
         $this->getJson('/api/v1/projects')
             ->assertStatus(422)
             ->assertJsonPath('code', 'STUDENT_PROFILE_NOT_FOUND');
+    }
+
+    /**
+     * Build a learner and two public open projects with distinct
+     * text/type/domain/work_mode/difficulty values for filter tests.
+     */
+    private function createFilterFixtures(): array
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $laravel = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Laravel API Service',
+            'description' => 'Build a backend REST API with Laravel.',
+            'type' => 'company_sponsored',
+            'domain' => 'backend',
+            'work_mode' => 'remote',
+            'difficulty' => 3.5,
+        ]);
+
+        $react = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'React Marketing Dashboard',
+            'description' => 'Frontend dashboard built with React.',
+            'type' => 'simulation',
+            'domain' => 'frontend',
+            'work_mode' => 'hybrid',
+            'difficulty' => 2.5,
+        ]);
+
+        return ['learner' => $learner, 'laravel' => $laravel, 'react' => $react];
+    }
+
+    public function test_no_filters_returns_all_accessible_projects(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_search_filters_by_keyword(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?search=laravel');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_search_matches_description(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?search=frontend');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'React Marketing Dashboard'])
+            ->assertJsonMissing(['title' => 'Laravel API Service']);
+    }
+
+    public function test_type_filter(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?type=simulation');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'React Marketing Dashboard'])
+            ->assertJsonMissing(['title' => 'Laravel API Service']);
+    }
+
+    public function test_domain_filter(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?domain=backend');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_work_mode_filter(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?work_mode=remote');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_difficulty_filter(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?difficulty=3.5');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_combined_filters(): void
+    {
+        $this->createFilterFixtures();
+
+        $response = $this->getJson('/api/v1/projects?type=simulation&domain=frontend');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'React Marketing Dashboard'])
+            ->assertJsonMissing(['title' => 'Laravel API Service']);
+    }
+
+    public function test_invalid_type_filter_is_rejected(): void
+    {
+        $this->createFilterFixtures();
+
+        $this->getJson('/api/v1/projects?type=hackathon')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_invalid_difficulty_filter_is_rejected(): void
+    {
+        $this->createFilterFixtures();
+
+        $this->getJson('/api/v1/projects?difficulty=99')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_non_existent_organization_id_is_rejected(): void
+    {
+        $this->createFilterFixtures();
+
+        $this->getJson('/api/v1/projects?organization_id=999999')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_skill_filter_returns_only_matching_projects(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php']);
+        $js = Skill::create(['name' => 'JavaScript', 'slug' => 'javascript']);
+
+        $phpProject = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'PHP Backend Service',
+        ]);
+        $jsProject = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'JS Frontend App',
+        ]);
+
+        ProjectRequiredSkill::create(['project_id' => $phpProject->id, 'skill_id' => $php->id, 'minimum_level' => 3.0]);
+        ProjectRequiredSkill::create(['project_id' => $jsProject->id, 'skill_id' => $js->id, 'minimum_level' => 2.0]);
+
+        $response = $this->getJson('/api/v1/projects?skill_ids[]='.$php->id);
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'PHP Backend Service'])
+            ->assertJsonMissing(['title' => 'JS Frontend App']);
+    }
+
+    public function test_skill_filter_requires_all_skills(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-two']);
+        $js = Skill::create(['name' => 'JavaScript', 'slug' => 'javascript-two']);
+
+        // Only project A requires both PHP + JS.
+        $projectA = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Full Stack App',
+        ]);
+        $projectB = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'PHP Only App',
+        ]);
+
+        ProjectRequiredSkill::create(['project_id' => $projectA->id, 'skill_id' => $php->id, 'minimum_level' => 3.0]);
+        ProjectRequiredSkill::create(['project_id' => $projectA->id, 'skill_id' => $js->id, 'minimum_level' => 2.0]);
+        ProjectRequiredSkill::create(['project_id' => $projectB->id, 'skill_id' => $php->id, 'minimum_level' => 3.0]);
+
+        $response = $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&skill_ids[]='.$js->id);
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Full Stack App'])
+            ->assertJsonMissing(['title' => 'PHP Only App']);
+    }
+
+    public function test_minimum_level_filter(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-level']);
+        $js = Skill::create(['name' => 'JavaScript', 'slug' => 'js-level']);
+
+        // Project A requires PHP at level 2; project B requires PHP at level 4.
+        $projectA = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Easy PHP App',
+        ]);
+        $projectB = $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Hard PHP App',
+        ]);
+
+        ProjectRequiredSkill::create(['project_id' => $projectA->id, 'skill_id' => $php->id, 'minimum_level' => 2.0]);
+        ProjectRequiredSkill::create(['project_id' => $projectB->id, 'skill_id' => $php->id, 'minimum_level' => 4.0]);
+
+        $response = $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&minimum_level=3');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Hard PHP App'])
+            ->assertJsonMissing(['title' => 'Easy PHP App']);
+    }
+
+    public function test_non_existent_skill_id_is_rejected(): void
+    {
+        $this->createFilterFixtures();
+
+        $this->getJson('/api/v1/projects?skill_ids[]=999999')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_matching_unauthorized_restricted_project_stays_excluded(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $hiddenOrg = Organization::create(['name' => 'Hidden Org', 'type' => 'company']);
+        $owner = User::forceCreate([
+            'name' => 'Hidden Owner',
+            'email' => 'hiddenowner@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        Project::create([
+            'organization_id' => $hiddenOrg->id,
+            'owner_id' => $owner->id,
+            'title' => 'Secret Restricted Project',
+            'description' => 'A secret project matching the search term.',
+            'type' => 'simulation',
+            'domain' => 'backend',
+            'status' => 'open',
+            'confidentiality' => 'restricted',
+            'start_date' => now()->subDays(5)->toDateString(),
+            'end_date' => now()->addDays(30)->toDateString(),
+            'application_deadline' => now()->addDays(10)->toDateString(),
+            'version' => 1,
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?search=secret');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data', [])
+            ->assertJsonMissing(['title' => 'Secret Restricted Project']);
+    }
+
+    public function test_matching_closed_project_stays_excluded(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Closed Laravel Project',
+            'type' => 'simulation',
+            'domain' => 'backend',
+            'status' => 'closed',
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?search=laravel');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data', []);
+    }
+
+    public function test_matching_expired_project_stays_excluded(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Expired Laravel Project',
+            'type' => 'simulation',
+            'domain' => 'backend',
+            'status' => 'open',
+            'end_date' => now()->subDays(5)->toDateString(),
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?search=laravel');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data', []);
+    }
+
+    public function test_learner_still_retrieves_valid_projects_with_filters(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject([
+            'organization_id' => $learner->organization_id,
+            'title' => 'Accessible Laravel Project',
+            'type' => 'simulation',
+            'domain' => 'backend',
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?search=laravel&type=simulation');
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Accessible Laravel Project']);
     }
 }

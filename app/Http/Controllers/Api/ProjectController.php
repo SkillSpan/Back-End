@@ -57,6 +57,56 @@ class ProjectController extends Controller
                     });
             });
 
+        /** @var array<string, mixed> $filters */
+        $filters = $this->validatedFilters($request, $requestId);
+
+        if ($filters instanceof JsonResponse) {
+            return $filters;
+        }
+
+        // Keyword search across the visible project text fields.
+        if (! empty($filters['search'])) {
+            $like = $this->likePattern($filters['search']);
+
+            $query->where(function ($q) use ($like) {
+                $q->where('title', 'like', $like)
+                    ->orWhere('description', 'like', $like)
+                    ->orWhere('objectives', 'like', $like);
+            });
+        }
+
+        // Exact-match filters on columns that exist in the current schema.
+        foreach (['type', 'domain', 'work_mode'] as $column) {
+            if (array_key_exists($column, $filters) && $filters[$column] !== null) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        if (array_key_exists('difficulty', $filters) && $filters['difficulty'] !== null) {
+            $query->where('difficulty', $filters['difficulty']);
+        }
+
+        if (! empty($filters['organization_id'])) {
+            $query->where('organization_id', $filters['organization_id']);
+        }
+
+        // Required-skill filters: the project must require ALL of the
+        // supplied skill ids (joined through the pivot table).
+        if (! empty($filters['skill_ids'])) {
+            $skillIds = $filters['skill_ids'];
+
+            $query->whereHas('requiredSkills', function ($q) use ($skillIds) {
+                $q->whereIn('skill_id', $skillIds);
+            }, '=', count($skillIds));
+
+            if (array_key_exists('minimum_level', $filters) && $filters['minimum_level'] !== null) {
+                $query->whereHas('requiredSkills', function ($q) use ($skillIds, $filters) {
+                    $q->whereIn('skill_id', $skillIds)
+                        ->where('minimum_level', '>=', $filters['minimum_level']);
+                }, '=', count($skillIds));
+            }
+        }
+
         $projects = $query->orderBy('created_at', 'desc')
             ->limit(50)
             ->get();
@@ -67,6 +117,45 @@ class ProjectController extends Controller
             'data' => ProjectResource::collection($projects),
             'request_id' => $requestId,
         ]);
+    }
+
+    private function likePattern(string $term): string
+    {
+        return '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($term)).'%';
+    }
+
+    /**
+     * Validate the supported project-catalog filter query parameters.
+     * Returns the validated array on success, or a JsonResponse with the
+     * standard project VALIDATION_ERROR contract on failure.
+     *
+     * @return array<string, mixed>|JsonResponse
+     */
+    private function validatedFilters(Request $request, string $requestId): array|JsonResponse
+    {
+        $validator = validator($request->query(), [
+            'search' => ['nullable', 'string', 'max:100'],
+            'type' => ['nullable', 'string', 'in:simulation,company_sponsored'],
+            'domain' => ['nullable', 'string', 'max:100'],
+            'work_mode' => ['nullable', 'string', 'max:50'],
+            'difficulty' => ['nullable', 'numeric', 'min:0', 'max:5'],
+            'organization_id' => ['nullable', 'integer', 'gt:0', 'exists:organizations,id'],
+            'skill_ids' => ['nullable', 'array'],
+            'skill_ids.*' => ['integer', 'gt:0', 'exists:skills,id'],
+            'minimum_level' => ['nullable', 'numeric', 'min:0', 'max:5'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse(
+                'VALIDATION_ERROR',
+                'The request could not be processed.',
+                422,
+                $requestId,
+                ['errors' => $validator->errors()->messages()],
+            );
+        }
+
+        return $validator->validated();
     }
 
     private function errorResponse(
