@@ -21,10 +21,14 @@ use Throwable;
  *  5. persist the interaction as PENDING (pre-call)
  *  6. call FastAPI through the §12.5-gated client
  *  7. persist SUCCEEDED, or FAILED with a stable failure code
+ *  8. return the reply to the caller **without storing it**
  *
  * Laravel owns authorisation, validation, persistence and routing. It does
  * NOT generate any assistant prose — that is FastAPI's responsibility
- * exclusively, and nothing here fabricates a fallback answer.
+ * exclusively, and nothing here fabricates a fallback answer. When the service
+ * reports that no provider answered, its own fallback text is relayed
+ * unchanged and the interaction is recorded as FAILED: the learner still sees
+ * something, and the outage is still auditable.
  */
 class AssistantService
 {
@@ -54,11 +58,13 @@ class AssistantService
     ) {}
 
     /**
+     * Run one assistant turn and return both the audit record and the reply.
+     *
      * @param  array<string, mixed>  $input
      *
      * @throws AssistantException
      */
-    public function ask(StudentProfile $studentProfile, array $input, string $requestId): AssistantInteraction
+    public function ask(StudentProfile $studentProfile, array $input, string $requestId): AssistantAnswer
     {
         $intent = (string) $input['intent'];
 
@@ -145,16 +151,39 @@ class AssistantService
 
         try {
             $response = $this->client->ask(
-                $context['snapshot'],
+                (string) $studentProfile->user_id,
                 (string) $input['question'],
+                $context['snapshot'],
                 $requestId,
             );
 
+            /*
+             * `provider_used === null` means every provider in the service's
+             * failover chain failed and `reply` is its fallback text. The service
+             * returns HTTP 200 for that deliberately — the user did receive a
+             * valid reply — so the status code cannot carry the failure and this
+             * is the ONLY machine-readable signal. Recording it as SUCCEEDED
+             * would log a total outage as a working assistant.
+             *
+             * The reply is still relayed: it is a real, handled outcome, and the
+             * learner reading "temporarily unavailable" is better than an error
+             * state. What changes is the audit record, not the user's experience.
+             */
+            $providerUsed = $response['provider_used'] ?? null;
+            $answered = $providerUsed !== null;
+
             $interaction->update([
-                'response_status' => AssistantInteraction::STATUS_SUCCEEDED,
-                'algorithm_version' => isset($response['algorithm_version'])
-                    ? (string) $response['algorithm_version']
-                    : null,
+                'response_status' => $answered
+                    ? AssistantInteraction::STATUS_SUCCEEDED
+                    : AssistantInteraction::STATUS_FAILED,
+                'failure_code' => $answered
+                    ? null
+                    : 'ASSISTANT_PROVIDERS_UNAVAILABLE',
+                // Which prompt produced this answer. Distinct from
+                // algorithm_version, which records the *intelligence* algorithm
+                // behind the learner's stored data — the two are not
+                // interchangeable and both are needed to reproduce a decision.
+                'prompt_version' => $response['prompt_version'] ?? null,
             ]);
 
             Log::info('Assistant interaction completed.', [
@@ -163,9 +192,16 @@ class AssistantService
                 'student_profile_id' => $studentProfile->id,
                 'intent' => $intent,
                 'configuration_version' => $configurationVersion,
+                'provider_used' => $providerUsed,
+                'prompt_version' => $response['prompt_version'] ?? null,
             ]);
 
-            return $interaction;
+            return new AssistantAnswer(
+                interaction: $interaction,
+                reply: (string) $response['reply'],
+                providerUsed: $providerUsed,
+                promptVersion: $response['prompt_version'] ?? null,
+            );
         } catch (AssistantException $e) {
             // The attempt is recorded as failed with a stable code. No
             // fabricated answer is persisted or returned (REC-07).

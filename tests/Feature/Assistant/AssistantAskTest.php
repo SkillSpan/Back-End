@@ -258,21 +258,33 @@ class AssistantAskTest extends TestCase
         $this->assertSame(0, AssistantInteraction::query()->count());
     }
 
-    // --------------------------------------------------- contract pending
+    // ------------------------------------------------------- transport wiring
 
-    public function test_with_the_gate_open_the_missing_contract_is_reported_honestly(): void
+    public function test_with_the_gate_open_but_no_service_token_it_fails_locally(): void
     {
+        /*
+         * The transport must refuse before any network I/O when the credential
+         * is missing, so a misconfigured deployment can never call the service
+         * unauthenticated. This replaces the old ASSISTANT_CONTRACT_PENDING
+         * assertion: the contract is no longer pending, but the failure mode it
+         * guarded — reaching the network without a credential — still is.
+         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
         $this->approveGate();
+        config(['services.assistant.service_token' => null]);
+
+        Http::fake();
 
         $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'explain_readiness',
             'question' => 'Why is my readiness score low?',
         ])
             ->assertStatus(503)
-            ->assertJsonPath('code', 'ASSISTANT_CONTRACT_PENDING');
+            ->assertJsonPath('code', 'ASSISTANT_NOT_CONFIGURED');
+
+        Http::assertNothingSent();
     }
 
     // ------------------------------------------------------------ audit
@@ -283,6 +295,10 @@ class AssistantAskTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->approveGate();
+        $this->configureTransport();
+
+        // The service itself is down. The attempt must still be auditable.
+        Http::fake(['*' => Http::response(['detail' => 'boom'], 500)]);
 
         $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'explain_readiness',
@@ -294,32 +310,39 @@ class AssistantAskTest extends TestCase
         $this->assertSame($profile->id, $interaction->student_profile_id);
         $this->assertSame('explain_readiness', $interaction->intent);
         $this->assertSame(AssistantInteraction::STATUS_FAILED, $interaction->response_status);
-        $this->assertSame('ASSISTANT_CONTRACT_PENDING', $interaction->failure_code);
+        $this->assertSame('ASSISTANT_UNAVAILABLE', $interaction->failure_code);
         $this->assertNotNull($interaction->configuration_version);
         $this->assertNotEmpty($interaction->request_id);
     }
 
-    public function test_the_audit_row_stores_no_conversation_content(): void
+    public function test_neither_the_question_nor_the_reply_is_ever_persisted(): void
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
         $this->approveGate();
+        $this->configureTransport();
+        Http::fake(['*' => Http::response($this->assistantResponse(), 200)]);
 
         $question = 'My email is learner@example.com — why is my readiness low?';
 
         $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'explain_readiness',
             'question' => $question,
-        ])->assertStatus(503);
+        ])->assertStatus(201);
 
         $interaction = AssistantInteraction::query()->firstOrFail();
+        $serialised = (string) json_encode($interaction->getAttributes());
 
-        // §12.5 data minimisation: the question is never persisted.
-        $serialised = json_encode($interaction->getAttributes());
-
-        $this->assertStringNotContainsString('learner@example.com', (string) $serialised);
-        $this->assertStringNotContainsString($question, (string) $serialised);
+        /*
+         * §12.5 data minimisation: the conversation is never stored, on success
+         * or on failure. Relaying the reply to the caller is deliberately not
+         * the same as keeping it — this assertion is what would catch someone
+         * adding a `reply` column and quietly populating it.
+         */
+        $this->assertStringNotContainsString('learner@example.com', $serialised);
+        $this->assertStringNotContainsString($question, $serialised);
+        $this->assertStringNotContainsString($this->assistantResponse()['reply'], $serialised);
 
         // A provenance fingerprint IS stored instead.
         $this->assertStringStartsWith('ctx-', (string) $interaction->context_reference);
@@ -331,17 +354,46 @@ class AssistantAskTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->approveGate();
+        $this->configureTransport();
+        Http::fake(['*' => Http::response($this->assistantResponse(), 200)]);
 
         $this->postJson(
             '/api/v1/assistant/ask',
             ['intent' => 'explain_roadmap', 'question' => 'What should I do next?'],
             ['X-Request-ID' => 'req-correlation-1'],
-        )->assertStatus(503);
+        )->assertStatus(201);
 
         $this->assertSame(
             'req-correlation-1',
             AssistantInteraction::query()->firstOrFail()->request_id,
         );
+    }
+
+    public function test_the_orchestrator_passes_the_learners_identity_question_and_snapshot(): void
+    {
+        [$user, $profile] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+
+        $client = $this->fakeClientReturning($this->assistantResponse());
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])->assertStatus(201);
+
+        $this->assertCount(1, $client->calls);
+
+        $call = $client->calls[0];
+
+        $this->assertSame((string) $profile->user_id, $call['user_id']);
+        $this->assertSame('Which gap should I close first?', $call['message']);
+        $this->assertNotEmpty($call['request_id']);
+
+        // The approved snapshot travels as structured data, not as prose the
+        // model would have to interpret.
+        $this->assertSame($profile->id, $call['context']['student_profile_id']);
     }
 
     // --------------------------------------------------------- happy path
@@ -352,7 +404,7 @@ class AssistantAskTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->approveGate();
-        $this->fakeClientReturning(['algorithm_version' => 'assistant-v1']);
+        $this->fakeClientReturning($this->assistantResponse());
 
         $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'explain_skill_gap',
@@ -361,7 +413,7 @@ class AssistantAskTest extends TestCase
             ->assertStatus(201)
             ->assertJsonPath('data.intent', 'explain_skill_gap')
             ->assertJsonPath('data.response_status', AssistantInteraction::STATUS_SUCCEEDED)
-            ->assertJsonPath('data.algorithm_version', 'assistant-v1');
+            ->assertJsonPath('data.prompt_version', 'v1');
 
         $interaction = AssistantInteraction::query()->firstOrFail();
 
@@ -370,28 +422,83 @@ class AssistantAskTest extends TestCase
         $this->assertNull($interaction->failure_code);
     }
 
-    public function test_the_response_never_contains_a_generated_answer(): void
+    public function test_the_reply_is_relayed_to_the_caller(): void
+    {
+        /*
+         * The regression this exists for: the endpoint used to drop the reply
+         * entirely, so the UI had nothing to render even when the assistant had
+         * answered correctly. Relaying is not the same as storing.
+         */
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse());
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.reply', $this->assistantResponse()['reply'])
+            ->assertJsonPath('data.provider_used', 'gemini');
+    }
+
+    public function test_a_total_provider_outage_is_recorded_as_failed_but_still_relays_the_fallback(): void
+    {
+        /*
+         * The service returns HTTP 200 with its fallback text when every
+         * provider in its chain fails, so the status code cannot carry the
+         * failure — `provider_used: null` is the only machine-readable signal.
+         * Recording that as SUCCEEDED would log a total outage as a working
+         * assistant.
+         *
+         * The reply is still relayed. It is a real, handled outcome, and the
+         * learner reading "temporarily unavailable" beats an error state; what
+         * changes is the audit record, not the user's experience.
+         */
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'reply' => "I'm temporarily unavailable. Please try again shortly.",
+            'provider_used' => null,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.response_status', AssistantInteraction::STATUS_FAILED)
+            ->assertJsonPath('data.failure_code', 'ASSISTANT_PROVIDERS_UNAVAILABLE')
+            ->assertJsonPath('data.provider_used', null)
+            ->assertJsonPath('data.reply', "I'm temporarily unavailable. Please try again shortly.");
+
+        $interaction = AssistantInteraction::query()->firstOrFail();
+
+        $this->assertSame(AssistantInteraction::STATUS_FAILED, $interaction->response_status);
+        $this->assertSame('ASSISTANT_PROVIDERS_UNAVAILABLE', $interaction->failure_code);
+    }
+
+    public function test_the_service_token_is_never_exposed_to_the_client(): void
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
         $this->approveGate();
-        $this->fakeClientReturning([
-            'algorithm_version' => 'assistant-v1',
-            'answer' => 'You should focus on SQL first.',
-        ]);
+        $this->configureTransport();
+        $this->fakeClientReturning($this->assistantResponse());
 
         $response = $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'explain_skill_gap',
             'question' => 'Which gap should I close first?',
         ])->assertStatus(201);
 
-        // Laravel stores no conversation content and echoes none back.
-        $this->assertNull($response->json('data.answer'));
-        $this->assertStringNotContainsString(
-            'You should focus on SQL first.',
-            (string) $response->getContent(),
-        );
+        // A token shipped to a browser is public. It must never appear in a
+        // response the learner can read.
+        $this->assertStringNotContainsString('test-service-token', (string) $response->getContent());
     }
 
     // ------------------------------------------------------------ helpers
@@ -404,17 +511,75 @@ class AssistantAskTest extends TestCase
         ]);
     }
 
-    private function fakeClientReturning(array $response): void
+    /**
+     * Point the transport at a fake service with a known credential.
+     *
+     * Set explicitly rather than inherited from .env, so a developer with a real
+     * ASSISTANT_SERVICE_TOKEN gets the same results as CI.
+     */
+    private function configureTransport(): void
     {
-        $this->instance(AssistantClient::class, new class($response) extends AssistantClient
+        config([
+            'services.assistant.url' => 'http://assistant.test',
+            'services.assistant.path' => '/chat',
+            'services.assistant.service_token' => 'test-service-token',
+            'services.assistant.timeout' => 5,
+        ]);
+    }
+
+    /**
+     * A well-formed response from the assistant service, per its real contract.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function assistantResponse(array $overrides = []): array
+    {
+        return array_merge([
+            'reply' => 'Your readiness score is weighted across three dimensions.',
+            'provider_used' => 'gemini',
+            'prompt_version' => 'v1',
+            'timestamp' => '2026-09-22T10:00:00+00:00',
+        ], $overrides);
+    }
+
+    /**
+     * Swap the transport for a stub returning a fixed response, and hand it back
+     * so the test can inspect what the orchestrator actually sent.
+     *
+     * The wire contract itself is covered by AssistantClientTest against
+     * Http::fake(); this exists so orchestration can be tested without also
+     * pretending to be the service.
+     */
+    private function fakeClientReturning(array $response): AssistantClient
+    {
+        $client = new class($response) extends AssistantClient
         {
+            /** @var list<array<string, mixed>> */
+            public array $calls = [];
+
             public function __construct(private readonly array $stub) {}
 
-            public function ask(array $contextSnapshot, string $question, string $requestId): array
-            {
+            public function ask(
+                string $userId,
+                string $message,
+                array $contextSnapshot,
+                string $requestId,
+            ): array {
+                $this->calls[] = [
+                    'user_id' => $userId,
+                    'message' => $message,
+                    'context' => $contextSnapshot,
+                    'request_id' => $requestId,
+                ];
+
                 return $this->stub;
             }
-        });
+        };
+
+        $this->instance(AssistantClient::class, $client);
+
+        return $client;
     }
 
     /**

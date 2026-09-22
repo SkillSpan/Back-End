@@ -45,6 +45,7 @@ class AssistantInteraction extends Model
         'report_reason',
         'reported_at',
         'algorithm_version',
+        'prompt_version',
         'configuration_version',
         'failure_code',
         'request_id',

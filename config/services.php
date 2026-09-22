@@ -103,9 +103,10 @@ return [
     | (REC-06 / BR-REC-07): off by default, and not enableable without
     | approval metadata.
     |
-    | The endpoint path and the request/response schema are intentionally
-    | absent: no assistant contract exists yet, and inventing one would
-    | violate REC-07. See App\Services\Assistant\AssistantClient.
+    | Laravel is the ONLY permitted caller of the assistant service. The
+    | service requires a bearer token on every /chat and allows no browser
+    | origins, so the frontend cannot reach it directly — which is what makes
+    | the gate above meaningful rather than one door of two.
     |
     */
     'assistant' => [
@@ -115,6 +116,22 @@ return [
         // email thread, governance record). Must be non-empty before any
         // learner context may leave the platform.
         'approval_reference' => env('ASSISTANT_APPROVAL_REFERENCE'),
+
+        // FastAPI chatbot service (POST /chat). Default port 8010 matches the
+        // service's README; 8000 is frequently already taken locally.
+        'url' => env('ASSISTANT_SERVICE_URL', 'http://127.0.0.1:8010'),
+        'path' => env('ASSISTANT_SERVICE_PATH', '/chat'),
+
+        // Service-to-service credential (US-INT-01 §4 pattern). Never a
+        // learner Sanctum token, never exposed to the frontend. Must match
+        // SERVICE_TOKEN in the assistant service's environment.
+        'service_token' => env('ASSISTANT_SERVICE_TOKEN'),
+
+        // The service fails over across three providers with a 30s cap each,
+        // so its worst case is ~90s. A ceiling below that can cut off a
+        // request the service would eventually have answered; lowering the
+        // service's own per-provider timeout is the better fix.
+        'timeout' => (int) env('ASSISTANT_SERVICE_TIMEOUT', 60),
     ],
 
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence

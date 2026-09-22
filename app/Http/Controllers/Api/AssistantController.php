@@ -22,7 +22,9 @@ use Throwable;
  * Routes sit behind auth:sanctum + account.active + role:learner.
  *
  * This class never generates assistant prose. Laravel is the gateway:
- * authorisation, scope, persistence, and routing only.
+ * authorisation, scope, persistence, and routing only. It does relay the
+ * service's reply to the caller — the one thing it may pass through verbatim —
+ * because a gateway that swallows the answer is not a gateway.
  */
 class AssistantController extends Controller
 {
@@ -45,13 +47,27 @@ class AssistantController extends Controller
         }
 
         try {
-            $interaction = $this->assistantService->ask(
+            $answer = $this->assistantService->ask(
                 $studentProfile,
                 $request->validated(),
                 $requestId,
             );
 
-            return (new AssistantInteractionResource($interaction))
+            /*
+             * The reply is attached to the resource rather than written to the
+             * model: §12.5 data minimisation means it is never persisted, but it
+             * still has to reach the client or the UI has nothing to render.
+             *
+             * 201 because a resource was genuinely created and is being
+             * returned. `data.response_status` is the field that says whether a
+             * model answered — the two answer different questions, and a 201
+             * with response_status "failed" is a coherent pair (see
+             * AssistantService::ask()).
+             */
+            $resource = new AssistantInteractionResource($answer->interaction);
+            $resource->answer = $answer;
+
+            return $resource
                 ->response()
                 ->setStatusCode(201)
                 ->header('X-Request-ID', $requestId);

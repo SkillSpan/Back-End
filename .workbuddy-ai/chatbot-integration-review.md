@@ -216,6 +216,20 @@ tests all compile, and the app imports cleanly.
 
 ## 8. ⚠️ The finding that changes the integration: the frontend calls this service directly
 
+> **CORRECTION (later session) — this inference was wrong, and it is worth recording why.**
+> I read the Vercel origin in `CORS_ALLOWED_ORIGINS` as proof that the browser called `/chat`.
+> A CORS entry is evidence of an *intended* browser path, not of an *actual* caller — and here the
+> intended path was never built. Direct inspection of the frontend repo found **zero** files
+> mentioning "chat" or "assistant", no chatbot host or port, no service token, and no assistant UI
+> at all; its only base URL is `VITE_API_BASE_URL` → the Laravel API. Its own `.env.example` reads
+> *"React never talks to FastAPI directly - every request goes through Laravel."*
+>
+> So the §12.5 gate was not being bypassed — it was **inert**, because nothing could reach the
+> service *through Laravel* either: `AssistantClient` sent fields the service never accepted and
+> threw before opening a socket. The recommendation below (Laravel-mediated only) still stands and
+> is now enforced; the severity assessment does not. Lesson: an allow-list describes intent, not
+> traffic — go and read the caller.
+
 The startup log printed the real CORS configuration, and `.env` holds:
 
 ```
@@ -288,3 +302,120 @@ retrieval on every call, and `context` becomes a redundant second channel. If it
 the service stays stateless exactly as designed and `context` is the only channel. The second is
 closer to the current architecture — but it is a decision, not a default.
 
+
+
+## 10. RAG built — and what "built" does and does not mean
+
+I implemented (b) the pipeline and (c) the seam from §9. **(a) the corpus is still missing, and it is
+still the blocker.** So the honest status is: *retrieval is complete and inert*. The code is written
+and tested; it grounds nothing until someone writes the documentation.
+
+### What was added to `E:/SkillSpan/chatbot`
+
+| File | Responsibility |
+|---|---|
+| `rag/chunking.py` | Paragraph packing → sentence splitting → hard-split fallback, with overlap. Pure: no network, no model |
+| `rag/embeddings.py` | `Embedder` Protocol + `GeminiEmbedder`; `RETRIEVAL_DOCUMENT` vs `RETRIEVAL_QUERY` kept separate |
+| `rag/index.py` | `VectorIndex`: build / save / load / cosine search. JSON, in-process |
+| `rag/retrieval.py` | The request-path `Retriever` and the failure policy |
+| `rag/ingest.py` | CLI: `--stats` (free), `--check` (verify the model), default (build + save) |
+| `CORPUS.md` | What belongs in the corpus, who writes it, what must never go in it |
+
+Wiring: `main.py` retrieves only when the caller supplied no `context`; `models.py` gained a
+`retrieval` field on `/health`; `config.py` gained `rag_enabled` / `corpus_dir` / `index_path` /
+`embedding_model` / `top_k` and a `retrieval_configured` property.
+
+### The decisions, and why
+
+**In the service, not in Laravel.** The user chose "RAG كامل بالخدمة". This does contradict §9's
+observation that Laravel-side retrieval keeps the service stateless — but the service was already
+receiving no learner data, and the corpus is *public platform documentation*, not learner data. So
+retrieval in the service does not widen the §12.5 surface with respect to *learners*. It does widen
+it with respect to *the corpus* — see below.
+
+**Fail soft, always.** Retrieval is an enhancement, never a dependency. A missing index, a stale
+index, an index built by another embedding model, or an embedding-provider outage all return no
+context, and the turn still succeeds. A retrieval outage must never turn a working chat into a 500 —
+that is the single most important property in `tests/test_retrieval.py`.
+
+**A caller-supplied `context` wins.** Retrieval only fills the gap, which is what keeps the change
+additive: an existing caller sending its own context sees byte-identical behaviour.
+
+**An index built by a different model is refused at load time.** Mismatched vectors do not raise —
+they return plausible nonsense, which is the worst possible failure mode for a system whose whole job
+is grounding. `index.json` records its model; `/health` reports `unavailable` rather than quietly
+retrieving garbage.
+
+**Off by default.** `RAG_ENABLED` unset ⇒ `/health` says `retrieval: "off"` and `/chat` behaves
+exactly as it did before retrieval existed. A deployment cannot accidentally ground in a half-built
+corpus.
+
+### ⚠️ RAG creates a new external-data flow, so §12.5 applies to the corpus
+
+Before retrieval, the service sent Gemini only the user's typed message. After retrieval it also
+sends **whatever is in the corpus**, on every question, to a third-party model. That is a new
+insertion of data into an external AI service, and §12.5 governs it.
+
+The corpus is therefore constrained the same way learner data is: no secrets, no credentials, no
+learner data, no internal-only material. `CORPUS.md` states this, and `CORPUS.md` is deliberately
+placed **outside** `corpus/` — anything inside `corpus/` is ingested and becomes grounding text,
+including a guidelines file. That is a trap worth avoiding explicitly.
+
+### Deployment gap
+
+`index.json` is gitignored (a derived artifact; committing it lets a stale index outlive the docs it
+describes). A fresh Render instance therefore has no index, so `RAG_ENABLED=true` alone yields
+`retrieval: "unavailable"`. The build command must run `python -m rag.ingest` once the corpus exists.
+Documented in `README.md` and flagged in `render.yaml`.
+
+### Still blocked, unchanged
+
+1. **The corpus (§9a).** Content ownership. Nobody can write the Readiness Score weights except the
+   people who own the Readiness Score. Until then this code retrieves nothing.
+2. **The access architecture (§8).** Whether the browser keeps calling the service directly. This
+   still determines whether the §12.5 gate is real, and it is still a decision rather than a change.
+3. **Where learner data goes (§12.5, §6).** Still unanswered, so `AssistantClient` in Laravel is
+   still deliberately unwired.
+
+Verification: **88 tests pass** (`pytest -q`), including the full retrieval pipeline; `python -m
+rag.ingest --stats` on a two-document corpus reports chunks and sizes correctly and writes nothing;
+on the empty real corpus it exits 2 and reports that nothing was built.
+
+---
+
+## 11. Access architecture decided and enforced (Laravel-mediated only)
+
+The §8 decision was made: **all assistant traffic is Laravel-mediated, with no browser path.**
+Implemented across both sides.
+
+**Service (`E:/SkillSpan/chatbot`).** `SERVICE_TOKEN` is now **mandatory with no unauthenticated
+mode** — missing or wrong credential → 401, token not configured → **503** (fail closed, not open).
+Constant-time comparison via `hmac.compare_digest`; scheme matched case-insensitively per RFC 7235.
+`/health` stays open for Render but folds `auth_enabled` into `status`, so a token-less deploy
+reports `degraded` instead of `ok`. `CORS_ALLOWED_ORIGINS` emptied in `.env`, `.env.example` and
+`render.yaml` — the Vercel origin is gone. The `/chat` contract is unchanged.
+
+**Laravel.** `AssistantClient` was sending `{context_snapshot, question, request_id}` and reading
+`algorithm_version`, none of which the service has ever accepted or returned. It therefore threw
+before opening a socket — which is why the §12.5 gate had never actually been exercised. It now
+sends `{user_id, message, context}` with the bearer token server-side plus `X-Request-ID`. New
+`AssistantAnswer` value object carries the reply to the caller **without persisting it** (the
+service returned a reply that Laravel silently dropped; not storing it was correct, not returning
+it was a bug). `provider_used === null` is now a soft failure — `status=failed` with
+`ASSISTANT_PROVIDERS_UNAVAILABLE`, fallback text still relayed. A `prompt_version` column was added,
+distinct from `algorithm_version`.
+
+**Verification.** Laravel **299 passed / 1068 assertions** (was 280/1016), chatbot **103 passed**
+(was 88), Pint clean on 291 files. Live: `/chat` with no token → 401; with the correct token → 200;
+CORS preflight from the Vercel origin → 405 with no `Access-Control-*` headers. The CORS tests were
+proved able to fail by re-running with the origin re-added (2 failures).
+
+### Still blocked, revised
+
+1. **The corpus (§9a).** Unchanged — content ownership.
+2. ~~The access architecture (§8).~~ **Resolved** — see above.
+3. **Where learner data goes (§12.5, §6).** Unchanged.
+4. **`E:/SkillSpan/chatbot` is not a git repository.** Every service-side change in this session and
+   the last is uncommitted and unversioned. This is now the most fragile thing in the integration.
+5. **The frontend has no assistant UI.** Closing the service does not create one; whoever builds it
+   must call `POST /api/v1/assistant/ask` and must never receive the service URL or token.
