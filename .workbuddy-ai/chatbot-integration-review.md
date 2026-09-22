@@ -7,6 +7,14 @@ wrong shape — and, more seriously, the service is grounded on *documentation*,
 own data, so US-REC-01's central promise ("explain **my** readiness / **my** gaps") is not
 deliverable through it without a decision from the team.
 
+> **Update — service-side fixes applied.** Findings 3, 4, 6, 7 and 8 below are fixed, and a test
+> suite now exists (29 tests, all passing). See §7. Findings 1 and 2 are addressed only partially,
+> and §8 explains why: the deployed frontend calls this service **directly**, which invalidates the
+> fix I would otherwise have made.
+>
+> **Update — RAG is blocked on a missing corpus.** See §9. There is no SkillSpan documentation
+> anywhere in the tree to retrieve over.
+
 ---
 
 ## 0. Correction first — this was my error
@@ -178,3 +186,105 @@ are not mine to choose.
    gate is not ceremony.
 
 Answer 1 and 2 and I can wire the client, adjust the response resource, and re-run the suite.
+
+---
+
+## 7. Service-side fixes applied
+
+All changes are inside `E:\SkillSpan\chatbot`. **No rollback point was created**, because the
+directory is not a git repository — the pre-change sources are recoverable from
+`E:\SkillSpan\chatbot.zip` (it holds all five original `.py` files).
+
+| Finding | Fix |
+| --- | --- |
+| 3 — `/health` said `ok` with no keys | `status` is now `"ok"` or `"degraded"`, plus a `providers` list. Still HTTP 200: a missing key is a config problem, not a dead process, so a Render restart would not fix it. |
+| 4 — `SYSTEM_PROMPT_VERSION` never returned | `prompt_version` is now a **required** field on `ChatResponse`, and is set on the success, fallback and 500 paths. This is what fills the `algorithm_version` column my audit table already had. |
+| 6 — no tests | `tests/` with 29 tests (orchestrator, prompt, endpoints) + `requirements-dev.txt` + `pytest.ini` + `conftest.py`. They stub the chain, so they need no API keys and make no network calls. |
+| 7 — minor | `not_blank` now returns the stripped value; `@app.on_event("startup")` replaced with the `lifespan` context manager. |
+| 1 — no auth | **Partial.** Optional shared token: when `SERVICE_TOKEN` is set, `/chat` requires `Authorization: Bearer …`; `/health` stays open so Render's probe works. Deliberately optional rather than required — see §8. |
+| 2 — outage indistinguishable from success | **Partial.** `provider_used: null` is now documented in the code, the README and the docstring as *the* failure signal. I did **not** change the 200, because that is a deliberate UI decision, not mine to reverse. |
+
+A test also caught a real bug while writing it: `build_user_prompt` treated whitespace-only
+`context` as present, so it injected an empty documentation block. The API path was safe because
+`ChatRequest` normalises it to `None` first, but the function was wrong on its own. Fixed in
+`prompt.py`.
+
+**Verified:** `29 passed`. `main.py`, `config.py`, `models.py`, `prompt.py`, `providers.py` and the
+tests all compile, and the app imports cleanly.
+
+---
+
+## 8. ⚠️ The finding that changes the integration: the frontend calls this service directly
+
+The startup log printed the real CORS configuration, and `.env` holds:
+
+```
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8010,https://skillspan-iota.vercel.app
+```
+
+That last origin is the **deployed Vercel frontend**. So the browser is allowed to call `/chat`
+itself — which contradicts the README's own diagram (`React frontend -> Laravel backend -> [this
+service]`). The service is wired for direct browser access, not for Laravel-in-the-middle.
+
+Three consequences, in order of severity:
+
+1. **The §12.5 gate can be bypassed entirely.** If the browser composes the request, the browser
+   composes `context` and `message`. Learner data would reach Gemini/Groq/Cerebras **without passing
+   through Laravel at all** — so the governance gate I built guards a path that is not the only
+   path. A gate on one of two doors is not a gate.
+2. **A shared token cannot be the answer.** A token shipped to the browser is public. So the auth
+   fix is necessarily incomplete: either Laravel proxies all assistant traffic (making the token
+   viable), or the service needs real per-user authentication, or it stays open and we accept that
+   quota is spendable by anyone. That is a decision, and it is why I made the token optional rather
+   than required — requiring it would have broken the deployed frontend on deploy.
+3. **CORS is not access control.** It constrains browsers only. Any `curl` can call `/chat` today
+   regardless of that list. Combined with (2), the endpoint is effectively public.
+
+**Recommendation:** decide whether the assistant is Laravel-mediated (then remove the Vercel origin
+from `CORS_ALLOWED_ORIGINS`, set `SERVICE_TOKEN`, and route all traffic through Laravel — which is
+also what US-REC-01's audit trail and §12.5 gate assume) or browser-direct (then Laravel's audit
+table records only what it is told, and the gate needs rethinking). **The current state is both at
+once, and that is the actual problem.**
+
+---
+
+## 9. RAG is blocked on a missing corpus
+
+"Full RAG in the service" needs three things: a corpus, a retrieval pipeline, and wiring into the
+prompt. I can build the last two. **The first does not exist.**
+
+I searched the whole tree for candidate content:
+
+```
+find /e/SkillSpan -iname "*.md" -o -iname "*.pdf" -o -iname "*.txt"   (excluding vendor/.venv/node_modules)
+```
+
+Everything found is developer-facing: READMEs, `docs/api/skill_gap_api.md`, and session notes. There
+is **no SkillSpan user documentation** — no Help Center content, no feature guide, no platform
+manual. `data-science-service/docs/` contains a single API doc.
+
+This matters more than it looks, because the system prompt is unambiguous:
+
+> *"Base your answer solely on the official SkillSpan documentation provided as context."*
+> *"If the context does not contain the answer, respond exactly: 'I don't have enough information…'"*
+
+So the bot's entire grounding rests on a corpus that has not been written. I will **not** invent one:
+a bot confidently answering from fabricated documentation is strictly worse than one that says it
+does not know, and it is the exact failure the grounding rules exist to prevent.
+
+What that leaves:
+
+- **(a) The corpus** — content ownership. Someone must write and approve the SkillSpan documentation.
+  I can propose a structure and a chunking/ingestion pipeline, but not the facts.
+- **(b) The pipeline** — chunking, embeddings (Gemini `text-embedding-*` is already available via the
+  existing `GEMINI_API_KEY`, so no new vendor), a vector index, and top-k retrieval injected as
+  `context`. For a corpus of this size an in-process index is sufficient; a hosted vector database
+  would be unnecessary cost.
+- **(c) The seam** — `build_user_prompt` already delimiters and labels retrieved context as reference
+  material, so retrieval plugs in without touching the injection guard.
+
+Note also that (b) interacts with §8: if RAG runs **in the service**, the service needs its own
+retrieval on every call, and `context` becomes a redundant second channel. If it runs **in Laravel**,
+the service stays stateless exactly as designed and `context` is the only channel. The second is
+closer to the current architecture — but it is a decision, not a default.
+
