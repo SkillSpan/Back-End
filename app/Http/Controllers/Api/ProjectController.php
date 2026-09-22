@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Services\Projects\ProjectAvailabilityService;
+use App\Services\Projects\ProjectEligibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,10 +18,12 @@ class ProjectController extends Controller
     private const PROJECT_WITH = [
         'organization:id,title',
         'requiredSkills.skill:id,name',
+        'eligibilityConstraints',
     ];
 
     public function __construct(
         private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService(),
+        private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService(),
     ) {}
 
     public function index(Request $request): JsonResponse
