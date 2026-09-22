@@ -89,6 +89,34 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | US-REC-01 — Intelligent Assistant (§12.5 governance gate)
+    |--------------------------------------------------------------------------
+    |
+    | SRS v1.1 §12.5: "Sensitive data shall not be inserted into external AI
+    | services without explicit technical and governance approval."
+    |
+    | This gate FAILS CLOSED. The assistant stays disabled unless it is both
+    | explicitly enabled AND a reference to the recorded approval is present,
+    | mirroring the approved pattern already used for collaborative signals
+    | (REC-06 / BR-REC-07): off by default, and not enableable without
+    | approval metadata.
+    |
+    | The endpoint path and the request/response schema are intentionally
+    | absent: no assistant contract exists yet, and inventing one would
+    | violate REC-07. See App\Services\Assistant\AssistantClient.
+    |
+    */
+    'assistant' => [
+        'enabled' => (bool) env('ASSISTANT_ENABLED', false),
+
+        // Free-text reference to the recorded §12.5 approval (ticket id,
+        // email thread, governance record). Must be non-empty before any
+        // learner context may leave the platform.
+        'approval_reference' => env('ASSISTANT_APPROVAL_REFERENCE'),
+    ],
+
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
     // calculation from evidence. Configurable and versioned per the
     // "Configurability" algorithm design principle (Table 46).

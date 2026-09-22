@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
+use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
@@ -32,7 +33,6 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:10,1');
     });
 
-    // US-AUTH-06: logout requires a valid session, unlike the routes above.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/logout-all', [AuthController::class, 'logoutAll']);
@@ -69,6 +69,19 @@ Route::prefix('v1')->group(function () {
         Route::get('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'show']);
         Route::patch('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'progress']);
         Route::post('/baseline-assessments/{assessment}/submit', [BaselineAssessmentController::class, 'submit']);
+    });
+
+    // US-REC-01 — intelligent assistant. Read-only explanation of the
+    // learner's OWN stored decisions (readiness, skill gaps, roadmap, next
+    // best action, project recommendations). It never writes to
+    // authoritative records, and it never generates prose — that is
+    // FastAPI's responsibility exclusively.
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('assistant')->group(function () {
+        Route::post('/ask', [AssistantController::class, 'ask']);
+
+        // §12.6 incident flow / REC-08 — report a response as unsafe,
+        // irrelevant, unfair or incorrect.
+        Route::put('/interactions/{interaction}/report', [AssistantController::class, 'report']);
     });
 
     // Public reference data for onboarding dropdowns (no auth needed).
