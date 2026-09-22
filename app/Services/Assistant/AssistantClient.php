@@ -7,25 +7,42 @@ use App\Services\Intelligence\IntelligenceClient;
 use Illuminate\Support\Facades\Log;
 
 /**
- * US-REC-01 — FastAPI assistant client.
+ * US-REC-01 — assistant service client.
  *
- * ⚠️ AWAITING THE FASTAPI CONTRACT.
+ * ⚠️ NOT WIRED YET — and the reason is NOT a missing contract.
  *
- * No assistant endpoint exists in any approved source: not in SRS v1.1,
- * not in SkillSpan_New_Endpoints.pdf, and not in the data-science-service
- * tree. The request/response shape is therefore deliberately NOT guessed —
- * inventing it would break §12.5 and REC-07 ("does not fabricate
- * evidence"), and would produce a client that silently misreads whatever
- * the service actually returns.
+ * Correction: an earlier revision of this docblock claimed no assistant
+ * endpoint existed in any source. That was wrong — it was a search
+ * failure. The service exists at `E:\SkillSpan\chatbot` (FastAPI):
+ *
+ *     POST /chat   { user_id, message, context? }
+ *              -> { reply, provider_used, timestamp }
+ *     GET  /health -> { status: "ok" }
+ *
+ * It fails over Gemini -> Groq -> Cerebras, returns 422 on validation,
+ * and returns 200 with a fallback reply when every provider fails.
+ *
+ * What is still genuinely open is the *integration* contract, and it is a
+ * decision for the team rather than for this class:
+ *
+ *   1. The service is grounded on SkillSpan DOCUMENTATION (`context` is a
+ *      RAG blob), and has no field for the learner's own data. US-REC-01
+ *      needs the learner's readiness/gaps/roadmap explained, so either
+ *      Laravel composes that data into the prompt — which means personal
+ *      data reaches three external LLM providers, exactly what §12.5
+ *      governs — or the service gains a field for it.
+ *   2. The response carries `reply`, but this endpoint currently relays
+ *      no reply text to the client. See the review for the full list.
+ *
+ * Full analysis: `.workbuddy-ai/chatbot-integration-review.md`.
  *
  * What IS final and enforced here is the part that must never depend on
  * the contract: the §12.5 governance gate. It fails closed, before any
  * network I/O, so a misconfiguration can never result in learner context
  * leaving the platform.
  *
- * When the Data Science team publishes the contract, implement
- * {@see ask()} — the transport should mirror
- * {@see IntelligenceClient::post()} exactly
+ * Once the integration is agreed, implement {@see ask()} — the transport
+ * should mirror {@see IntelligenceClient::post()} exactly
  * (service token, X-Request-ID, configured timeout, the same failure
  * taxonomy). Nothing else in this class needs to change.
  */
@@ -84,18 +101,20 @@ class AssistantClient
         $this->assertGovernanceApproval();
 
         /*
-         * The contract boundary. This is the ONE place to change once the
-         * assistant endpoint is agreed; the failure code is stable and
+         * The integration boundary. The service and its HTTP shape are
+         * known; what is not yet agreed is how the learner's own data
+         * reaches it without breaching §12.5. The code stays stable and
          * actionable so the endpoint reports "not wired yet" rather than
-         * fabricating an answer (REC-07, AC-16 equivalent).
+         * fabricating an answer (REC-07).
          */
         throw new AssistantException(
-            'The FastAPI assistant contract has not been agreed yet.',
+            'The assistant service is not wired yet.',
             503,
             'ASSISTANT_CONTRACT_PENDING',
             [
-                'awaiting' => 'assistant endpoint path and request/response schema',
-                'owner' => 'Data Science team',
+                'awaiting' => 'the decision on how learner context reaches the assistant service',
+                'owner' => 'Backend + Data Science',
+                'service' => 'E:\SkillSpan\chatbot (POST /chat)',
             ],
         );
     }
