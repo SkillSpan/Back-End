@@ -48,6 +48,11 @@ class StudentProfile extends Model
         return $this->hasMany(DecisionSnapshot::class);
     }
 
+    public function projectMatchingSnapshots()
+    {
+        return $this->hasMany(ProjectMatchingSnapshot::class);
+    }
+
     public function roadmaps()
     {
         return $this->hasMany(Roadmap::class);
