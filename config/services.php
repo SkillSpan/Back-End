@@ -49,20 +49,30 @@ return [
 
         'api_version' => env('DATA_SCIENCE_API_VERSION', 'v1'),
 
-        // Versioned SRS contract paths (US-INT-01 §26). Defaults target
-        // the new intelligence API; legacy local FastAPI deployments can
-        // override per-path without touching business logic.
+        // Versioned contract paths (US-INT-01 §26). These defaults were
+        // verified against the deployed service's own OpenAPI document,
+        // NOT against the SRS text: the live "SkillSpan Intelligence
+        // Service" exposes unprefixed paths and has no /api/v1/intelligence/*
+        // namespace at all.
+        //
+        // There is deliberately no `readiness_path`: the deployed service
+        // has no standalone readiness endpoint. /api/v1/skill-gap returns
+        // the readiness block (readiness_score, base_readiness_score,
+        // critical_skill_cap_applied, met_skills, …) in the SAME response
+        // as the per-skill gaps, so a second call would be a duplicate.
         'skill_gap_path' => env(
             'DATA_SCIENCE_SKILL_GAP_PATH',
-            '/api/v1/intelligence/skill-gap',
+            '/api/v1/skill-gap',
         ),
-        'readiness_path' => env(
-            'DATA_SCIENCE_READINESS_PATH',
-            '/api/v1/intelligence/readiness',
-        ),
+
+        // UNVERIFIED: the deployed service exposes no roadmap endpoint in
+        // any form (prefixed or not), so this path cannot be confirmed
+        // against a live contract yet. It is inert while
+        // `roadmap_enabled` is false, and whoever enables roadmap
+        // generation must confirm this path against the service first.
         'roadmap_path' => env(
             'DATA_SCIENCE_ROADMAP_PATH',
-            '/api/v1/intelligence/roadmap',
+            '/api/v1/roadmap',
         ),
 
         // Skill Match v1 contract confirmed by Data Science — used by the

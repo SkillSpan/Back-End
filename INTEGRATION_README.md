@@ -37,43 +37,62 @@ If `career_role_id` is omitted, Laravel uses `student_profiles.primary_career_ro
 The role must exist (404 `CAREER_ROLE_NOT_FOUND`), be `approved` (422
 `CAREER_ROLE_NOT_APPROVED`), and have required skills (422 `CAREER_ROLE_NO_SKILLS`).
 
-## FastAPI contract (versioned SRS paths)
+## FastAPI contract (deployed paths)
 
-Laravel calls — all POST JSON, all authenticated (see below):
+Laravel calls — POST JSON, authenticated (see below):
 
-- `POST {DATA_SCIENCE_SERVICE_URL}/api/v1/intelligence/skill-gap`
-- `POST {DATA_SCIENCE_SERVICE_URL}/api/v1/intelligence/readiness`
-- `POST {DATA_SCIENCE_SERVICE_URL}/api/v1/intelligence/roadmap` (gated by `DATA_SCIENCE_ROADMAP_ENABLED`)
+- `POST {DATA_SCIENCE_SERVICE_URL}/api/v1/skill-gap` — per-skill gaps **and**
+  the readiness block in one response
+- `POST {DATA_SCIENCE_SERVICE_URL}/api/v1/roadmap` (gated by
+  `DATA_SCIENCE_ROADMAP_ENABLED`)
 
-The legacy readiness flow (`/api/v1/readiness/calculate`) reuses the configured
-`skill_gap_path` (default `/api/v1/intelligence/skill-gap`). A legacy local
-FastAPI deployment can point any path back via environment variables without
-code changes — legacy paths are never hardcoded in business logic.
+There is **no `/api/v1/intelligence/*` namespace** in the deployed service, and
+**no standalone readiness endpoint**: the readiness block (`readiness_score`,
+`base_readiness_score`, `critical_skill_cap_applied`, `critical_skill_gap_count`,
+`critical_skill_names`, …) arrives inside the `/api/v1/skill-gap` response, so a
+calculation is a single round-trip rather than two.
 
-### Request identity contract
+These paths were verified against the service's own OpenAPI document
+(`GET {DATA_SCIENCE_SERVICE_URL}/openapi.json`), not against the SRS text.
+The roadmap endpoint is the exception: **it is not deployed in any form**, so
+its path is unverified and enabling `DATA_SCIENCE_ROADMAP_ENABLED` will fail
+until Data Science publishes it.
 
-Every request body carries the learner/role identity that the response must
-echo exactly (mismatch = 502 `INTELLIGENCE_RESPONSE_MISMATCH`, nothing stored):
+The separate readiness flow (`POST /api/v1/readiness/calculate`) does **not**
+use these paths. It calls `/api/v1/skill-match` (`skill-match-v1`) via
+`skill_match_path` and computes the Composite Readiness and the Critical Cap in
+Laravel — Laravel owns both, so that flow never asks the service for a
+readiness score. Any path can be overridden by environment variable without
+code changes.
+
+### Request body contract
+
+The body is FLAT, matching the deployed `SkillGapRequest`. The response must
+echo the identity fields exactly (mismatch = 502
+`INTELLIGENCE_RESPONSE_MISMATCH`, nothing stored):
 
 ```json
 {
-  "learner": { "student_profile_id": 1, "user_id": 8, "availability": "full_time" },
-  "role": { "id": 3, "title": "Data Analyst", "version": 1 },
+  "student_profile_id": 1,
+  "career_role_id": 3,
+  "career_role_version": 1,
+  "user_id": 8,
+  "target_role": "Data Analyst",
   "skills": [
     {
       "skill_id": 5, "skill_name": "SQL",
       "current_level": 2.5, "required_level": 4.0,
-      "importance_weight": 0.45, "is_critical": true,
-      "confidence": 90.0,
-      "evidence": { "total": 2, "verified": 1, "pending": 1, "rejected": 0,
-                    "latest_reference": "...", "latest_evidence_date": "2026-09-01" },
-      "prerequisite_skill_ids": [7]
+      "importance_weight": 0.45, "is_critical": true
     }
-  ],
-  "algorithm_version": "skill-gap-v1",
-  "configuration_version": "config-v1"
+  ]
 }
 ```
+
+Only the fields the contract declares are sent. Laravel's richer internal
+payload — availability, per-skill `confidence`, the `evidence` summary, and
+`prerequisite_skill_ids` — is kept for the decision snapshot and the response
+validator, and is deliberately **not** transmitted, because the service is not
+relied upon to ignore unknown keys.
 
 Skill levels are on the project-standard `0..5` scale; invalid values are
 rejected before the call (422 `INTELLIGENCE_VALIDATION_ERROR`). No PII, no
@@ -81,24 +100,30 @@ tokens, no evidence contents are ever sent.
 
 ### Response requirements
 
-Common (all three endpoints): echo `student_profile_id`, `career_role_id`,
-`career_role_version`, and a non-empty `algorithm_version`.
+Common: echo `student_profile_id`, `career_role_id`, `career_role_version`, and
+a non-empty `algorithm_version`. Note the service owns its algorithm version and
+echoes its own — Laravel records what came back, never what it asked for.
 
 Skill gap: `skill_results[]` with exactly one complete entry per request skill —
 `skill_id`, `current_level`, `required_level`, `importance_weight`, `is_critical`,
 `gap`, `status` — echoing the request values. Unknown or duplicate skills,
 negative gaps, or mismatched levels are rejected (502).
 
-Readiness: `readiness_score` and `base_readiness_score` in `0..100`,
-`critical_skill_cap_applied` (bool), `critical_skill_gap_count`,
-`critical_skill_names[]`, and consistent `total_skills` / `met_skills` /
-`skills_with_gap` counts. Scores outside 0..100 are rejected (502).
+Readiness (same response as the skill gap): `readiness_score` and
+`base_readiness_score` in `0..100`, and consistent `total_skills` /
+`met_skills` / `skills_with_gap` counts. Scores outside 0..100 are rejected
+(502). The critical-cap fields (`critical_skill_cap_applied`,
+`critical_skill_gap_count`, `critical_skill_names`) are validated **when
+present but never required** — the cap is Laravel's decision, so the service
+is not obliged to report it.
 
 Roadmap: `roadmap_version` (int ≥ 1), `status`, `phases[]` with `actions[]`
 (`action_id` unique, `action_type`, `title`, optional `target_skill_id` /
 `prerequisite_skill_ids` referencing request skills only, `priority_score` in
 0..1, positive effort estimates). An invalid or unknown reference rejects the
-whole decision (502) — no partial persistence.
+whole decision (502) — no partial persistence. The roadmap contract is
+unverified: no endpoint is deployed, so this is the intended shape rather than
+a confirmed one.
 
 ## Service authentication
 
@@ -215,9 +240,9 @@ DATA_SCIENCE_SERVICE_URL=http://127.0.0.1:8001
 DATA_SCIENCE_SERVICE_TIMEOUT=10
 DATA_SCIENCE_SERVICE_TOKEN=   # REQUIRED — see Service authentication
 DATA_SCIENCE_API_VERSION=v1
-DATA_SCIENCE_SKILL_GAP_PATH=/api/v1/intelligence/skill-gap
-DATA_SCIENCE_READINESS_PATH=/api/v1/intelligence/readiness
-DATA_SCIENCE_ROADMAP_PATH=/api/v1/intelligence/roadmap
+DATA_SCIENCE_SKILL_GAP_PATH=/api/v1/skill-gap
+DATA_SCIENCE_SKILL_MATCH_PATH=/api/v1/skill-match
+DATA_SCIENCE_ROADMAP_PATH=/api/v1/roadmap   # unverified — no endpoint deployed
 DATA_SCIENCE_ROADMAP_ENABLED=false
 DATA_SCIENCE_ALGORITHM_VERSION=skill-gap-v1
 ```
