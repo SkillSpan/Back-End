@@ -2,10 +2,12 @@
 
 return [
     // NOTE: this is the Laravel readiness formula/weights version — NOT the
-    // FastAPI skill-gap algorithm version. It is stored on readiness_results
-    // as `configuration_version`. The FastAPI algorithm version is stored
+    // FastAPI algorithm version. It is stored on readiness_results as
+    // `configuration_version`. The FastAPI algorithm version is stored
     // separately as `algorithm_version`, taken directly from the FastAPI
-    // response at calculation time (see ReadinessService::calculate()).
+    // response at calculation time (see ReadinessService::calculate()). It is
+    // `skill-match-v1`: the Composite is built on the Skill Match contract,
+    // never on the older skill-gap contract.
     'configuration_version' => 'readiness-v1',
 
     'weights' => [

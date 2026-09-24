@@ -364,6 +364,91 @@ class ReadinessTest extends TestCase
         $this->assertEquals(82.0, $response->json('data.score'));
     }
 
+    /**
+     * Regression: the critical-skill cap is Laravel's decision, so Laravel
+     * must be the one to report it.
+     *
+     * Skill Match v1 returns no cap metadata at all — only per-skill
+     * `is_critical` and `match_ratio`. ReadinessService therefore applies the
+     * cap itself and records the outcome under
+     * `snapshot.critical_skill_rule`.
+     *
+     * ReadinessResultResource used to read those fields from
+     * `snapshot.fastapi_result` — the service response — where they can never
+     * exist. Every capped learner was told a cap had been applied while the
+     * cap value, the offending skills and their count came back as null / [] /
+     * 0. That hid the reason for the decision and made it impossible to
+     * dispute (§12.6 / REC-08).
+     */
+    public function test_a_capped_result_reports_the_cap_and_the_offending_skills(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        // SQL is critical with required_level 4.0. Drop it to 1.9 so its
+        // match_ratio is 0.475 — below readiness.critical_skill.minimum_match
+        // (0.50) — while the composite still lands above the cap at ~71.21, so
+        // the cap genuinely binds rather than being incidental.
+        $sqlRoleSkill = $roleSkills->first(fn ($roleSkill) => $roleSkill->skill->name === 'SQL');
+
+        SkillEvaluation::forceCreate([
+            'student_profile_id' => $profile->id,
+            'skill_id' => $sqlRoleSkill->skill_id,
+            'level' => 1.9,
+            'confidence' => 90,
+            'algorithm_version' => 'test-v1',
+            'calculated_at' => now()->addMicroseconds(2000),
+        ]);
+
+        Http::fake([
+            '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
+
+        $response->assertStatus(201);
+
+        $data = $response->json('data');
+
+        $this->assertTrue($data['critical_cap_applied']);
+        $this->assertEquals(69.0, $data['score']);
+
+        // The three fields that were permanently null / [] / 0 before the fix.
+        $this->assertEquals(69.0, $data['critical_skill_readiness_cap']);
+        $this->assertEquals(['SQL'], $data['critical_skill_names']);
+        $this->assertEquals(1, $data['critical_skill_gap_count']);
+
+        // The count is derived from the same array, so the two cannot drift.
+        $this->assertCount($data['critical_skill_gap_count'], $data['critical_skill_names']);
+
+        // `skills_with_gap` used to read a key Skill Match never returns.
+        $this->assertIsInt($data['skills_with_gap']);
+
+        /*
+         * Pin the reason the old implementation could not work, so the read
+         * cannot be reintroduced: the service response genuinely carries none
+         * of these keys, so sourcing them from `fastapi_result` could only
+         * ever produce null / [] / 0.
+         */
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $fastApiResult = $result->snapshot['fastapi_result'];
+
+        $this->assertArrayNotHasKey('critical_skill_names', $fastApiResult);
+        $this->assertArrayNotHasKey('critical_skill_readiness_cap', $fastApiResult);
+        $this->assertArrayNotHasKey('critical_skill_gap_count', $fastApiResult);
+
+        // ...whereas Laravel's own record of the decision does carry them.
+        $this->assertEquals(
+            ['SQL'],
+            $result->snapshot['critical_skill_rule']['critical_skill_names'],
+        );
+        $this->assertEquals(69.0, $result->snapshot['critical_skill_rule']['cap']);
+    }
+
     private function createScenario(string $status = 'approved'): array
     {
         $user = $this->createUserWithRole($this->learnerRole);
