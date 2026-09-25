@@ -55,6 +55,13 @@ EXPOSE 10000
 #
 # `exec` makes the server replace this shell, so it becomes PID 1 and gets
 # Render's SIGTERM directly instead of the shell swallowing it.
+#
+# NOTE on CACHE_STORE: not set here on purpose. An exported var would be baked
+# into `config:cache` and would then WIN over the Render dashboard (verified:
+# a cached value cannot be overridden by a later env var), which would make the
+# cache store unchangeable without a redeploy. The safe default lives in
+# config/cache.php instead — see the note there for why 'file' replaced
+# Laravel's 'database' default on this remote-DB deployment.
 CMD php artisan migrate --force \
     && php artisan config:cache \
     && (php artisan db:seed --force > /var/log/seed.log 2>&1 &) \

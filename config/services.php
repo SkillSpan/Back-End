@@ -41,7 +41,16 @@ return [
 
     'data_science' => [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
-        'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 10),
+
+        /*
+         * The fallback is 60, not 10. The Data Science service runs on Render's
+         * free tier, which idles the instance out after ~15 minutes, and a cold
+         * start measures 24.7-33.8 s. A 20 s timeout therefore made the first
+         * call after every idle period fail with DATA_SCIENCE_UNAVAILABLE even
+         * though the service was healthy — a false outage that disappears on
+         * retry and is easy to misread as a network or credentials problem.
+         */
+        'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 60),
 
         // Service-to-service credential (US-INT-01 §4). Never a learner
         // Sanctum token, never exposed to the frontend.
