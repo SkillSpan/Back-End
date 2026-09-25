@@ -39,12 +39,23 @@ EXPOSE 10000
 # يبلش يستمع، مش قبله — هيك Render بيشوف البورت مفتوح فورًا، والسيدينج
 # بيكمل بهدوء بدون ما يوقف أي شي.
 #
-# DEBUG (temporary): seed output used to be redirected to
-# /var/log/seed.log, which is invisible on Render's free tier (no Shell
-# access to read it). Left un-redirected here on purpose so success/error
-# output flows into the same stdout Render's Logs tab already captures —
-# this does not change timing or behavior, only visibility.
+# REGRESSION (fixed 2026-09-25): the seeder must NEVER write to stdout.
+#
+# Commit 601c1f5 removed the `> /var/log/seed.log 2>&1` redirect so seed
+# output would appear in Render's Logs tab. That broke the deploy with
+# "Port scan timeout reached, no open ports detected": the reference-data
+# seeder emits a lot of text, and pushing it through Render's log pipeline
+# keeps the single vCPU busy long enough that the server's own startup
+# misses Render's port-scan window.
+#
+# This is the same failure the redirect was originally added to fix
+# (16af3ef "unblock Render deploy by starting server before seeding"), so
+# the redirect is load-bearing, not cosmetic. Log visibility is not worth a
+# failed deploy — to read seed output, re-add it temporarily and redeploy.
+#
+# `exec` makes the server replace this shell, so it becomes PID 1 and gets
+# Render's SIGTERM directly instead of the shell swallowing it.
 CMD php artisan migrate --force \
     && php artisan config:cache \
-    && (php artisan db:seed --force &) \
-    && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+    && (php artisan db:seed --force > /var/log/seed.log 2>&1 &) \
+    && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
