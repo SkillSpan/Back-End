@@ -1,14 +1,46 @@
 <?php
 
 return [
-    // NOTE: this is the Laravel readiness formula/weights version — NOT the
-    // FastAPI algorithm version. It is stored on readiness_results as
-    // `configuration_version`. The FastAPI algorithm version is stored
-    // separately as `algorithm_version`, taken directly from the FastAPI
-    // response at calculation time (see ReadinessService::calculate()). It is
-    // `skill-match-v1`: the Composite is built on the Skill Match contract,
-    // never on the older skill-gap contract.
-    'configuration_version' => 'readiness-v1',
+    /*
+    |--------------------------------------------------------------------------
+    | Composite Readiness — versioning (ADR-001)
+    |--------------------------------------------------------------------------
+    |
+    | Laravel is the sole owner and orchestrator of Composite Readiness.
+    | FastAPI supplies ONE component (Skill Match) and never computes the
+    | composite. Three orthogonal identifiers are recorded for every
+    | composite result and must never be conflated:
+    |
+    |  - composite_algorithm_version — the STRUCTURE of the composite: which
+    |    components exist, how they are aggregated, how unavailable
+    |    components are excluded and their weights redistributed, the
+    |    Critical Skill rule, and the Banding rule. Bumped ONLY when the
+    |    structure changes (e.g. a fifth component is added, or the
+    |    redistribution policy changes) — NOT when a weight, cap or band
+    |    boundary is tuned.
+    |
+    |  - configuration_version — the NUMBERS: the active
+    |    AlgorithmConfiguration row, recorded as `config-v{n}`. Bumped when
+    |    any weight, the critical-skill cap or a band threshold is tuned.
+    |
+    |  - algorithm_version — FastAPI's Skill Match algorithm version, taken
+    |    from the validated service response. It versions ONE component, not
+    |    the composite.
+    |
+    | The former `configuration_version => 'readiness-v1'` key was a dead
+    | alias for the composite structure (nothing read it) and was removed in
+    | favour of `composite_algorithm_version` (ADR-001 §3.2).
+    */
+    'composite_algorithm_version' => 'composite-readiness-v1',
+
+    // FastAPI's Skill Match component algorithm. Used ONLY as the
+    // placeholder recorded on the PENDING decision snapshot before the
+    // service call — the persisted algorithm_version always comes from the
+    // validated response (ReadinessService::calculate()). The Composite is
+    // built on the Skill Match contract, never on the older skill-gap one.
+    'skill_match' => [
+        'algorithm_version' => 'skill-match-v1',
+    ],
 
     'weights' => [
         'skill_match' => 0.65,

@@ -83,8 +83,19 @@ return [
             '/api/v1/skill-match',
         ),
 
-        // Compatibility fallback (US-INT-01 §11): used only when the
-        // service response carries no algorithm_version metadata.
+        // Payload hint / pending-snapshot placeholder ONLY — never the value
+        // persisted with a result. The stored `algorithm_version` always comes
+        // from the validated service response, and both flows *require* it
+        // (ReadinessService::validateDataScienceResult(),
+        // IntelligenceResponseValidator::validateAlgorithmVersion()), so a
+        // response that dropped the field fails loudly instead of silently
+        // inheriting this constant (ADR-001 §5.3, note on the fallback).
+        //
+        // It names the INTELLIGENCE (skill-gap) flow's algorithm. The Composite
+        // Readiness flow deliberately does NOT read this key — it uses its own
+        // component hint, `readiness.skill_match.algorithm_version`, because
+        // `skill-gap-v1` is a different, independently versioned algorithm that
+        // the composite never calls (ADR-001 §3.1).
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
 
         // Which intelligence endpoints are enabled. Roadmap generation is

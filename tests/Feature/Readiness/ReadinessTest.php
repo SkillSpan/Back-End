@@ -449,6 +449,107 @@ class ReadinessTest extends TestCase
         $this->assertEquals(69.0, $result->snapshot['critical_skill_rule']['cap']);
     }
 
+    /**
+     * ADR-001 §3.2 / §4 — the composite STRUCTURE version is recorded, and it
+     * is genuinely a third identifier: not the numeric configuration version,
+     * not FastAPI's Skill Match component algorithm.
+     *
+     * Without it a historical score cannot be replayed once the aggregation
+     * policy moves on, and the value cannot be back-filled later.
+     */
+    public function test_the_composite_structure_version_is_recorded_and_distinct(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
+        ]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(201);
+
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        // The three orthogonal identifiers, none of them sharing a value.
+        $this->assertSame('composite-readiness-v1', $result->composite_algorithm_version);
+        $this->assertSame('config-v1', $result->configuration_version);
+        $this->assertSame('skill-match-v1', $result->algorithm_version);
+
+        $this->assertNotSame($result->composite_algorithm_version, $result->configuration_version);
+        $this->assertNotSame($result->composite_algorithm_version, $result->algorithm_version);
+
+        // Recorded on both audit trails, not just the result row.
+        $this->assertSame(
+            'composite-readiness-v1',
+            $result->snapshot['composite_algorithm_version'],
+        );
+
+        $this->assertSame(
+            'composite-readiness-v1',
+            $result->decisionSnapshot->snapshot['composite_algorithm_version'],
+        );
+    }
+
+    /**
+     * ADR-001 §5.1 — a score is reproducible only when the EFFECTIVE weights
+     * (after redistribution) and the excluded component set are recorded, not
+     * merely the nominal weights and the `is_provisional` boolean.
+     */
+    public function test_a_provisional_result_records_effective_weights_and_the_excluded_set(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+
+        // Drop the practical-experience fixture only, so the policy has to
+        // exclude that component and redistribute its 0.20 weight.
+        Evaluation::query()->delete();
+        Submission::query()->delete();
+
+        Sanctum::actingAs($user);
+        Http::fake(['*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200)]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(201);
+
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $snapshot = $result->snapshot;
+
+        // The nominal weights are unchanged...
+        $this->assertEqualsWithDelta(0.65, $snapshot['formula']['weights']['skill_match'], 0.000001);
+        $this->assertEqualsWithDelta(0.20, $snapshot['formula']['weights']['practical_experience'], 0.000001);
+
+        // ...while the effective weights are renormalized over the available
+        // components only: 0.65/0.80, 0.10/0.80, 0.05/0.80.
+        $effective = $snapshot['formula']['effective_weights'];
+        $this->assertEqualsWithDelta(0.8125, $effective['skill_match'], 0.000001);
+        $this->assertEqualsWithDelta(0.125, $effective['assessment_reliability'], 0.000001);
+        $this->assertEqualsWithDelta(0.0625, $effective['profile_completeness'], 0.000001);
+        $this->assertArrayNotHasKey('practical_experience', $effective);
+        $this->assertEqualsWithDelta(1.0, array_sum($effective), 0.000001);
+
+        // The excluded set is recorded by name, not just as a boolean.
+        $this->assertSame(
+            ['practical_experience'],
+            $snapshot['missing_component_policy']['excluded_components'],
+        );
+        $this->assertTrue($snapshot['missing_component_policy']['is_provisional']);
+
+        // Every component's own version is recorded, so the composite can be
+        // replayed from its parts.
+        $this->assertSame('skill-match-v1', $snapshot['component_versions']['skill_match']['algorithm_version']);
+        $this->assertSame('weights-v1', $snapshot['component_versions']['skill_match']['config_version']);
+        $this->assertSame('practical-experience-v1', $snapshot['component_versions']['practical_experience']['algorithm_version']);
+        $this->assertSame('assessment-reliability-v1', $snapshot['component_versions']['assessment_reliability']['algorithm_version']);
+        $this->assertSame('profile-completeness-v1', $snapshot['component_versions']['profile_completeness']['algorithm_version']);
+    }
+
     private function createScenario(string $status = 'approved'): array
     {
         $user = $this->createUserWithRole($this->learnerRole);

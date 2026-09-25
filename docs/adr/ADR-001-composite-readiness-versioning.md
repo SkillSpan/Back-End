@@ -1,7 +1,7 @@
 # ADR-001 — Composite Readiness ownership & algorithm versioning
 
-**Status:** Proposed — awaiting team sign-off on §3 (the naming split)
-**Date:** 2026-09-24
+**Status:** **Accepted — implemented (Laravel side)** · 2026-09-25
+**Date:** 2026-09-24 · accepted and implemented 2026-09-25
 **Scope:** `Back-End-feature-authentication` (Laravel) and `chatbot` (FastAPI)
 **Supersedes:** nothing. **Superseded by:** nothing.
 
@@ -48,17 +48,21 @@ that `fastapi_result` genuinely carries none of those keys.
 ### Sign-off checklist — revised
 
 - [x] **§5.2b** — single owner chosen: **Laravel** (implemented)
-- [x] §3.2 naming split accepted
-- [ ] ~~**V2** — route name reconciled~~ **withdrawn: the route already matches the contract**
-- [ ] ~~**V3** — agreed identifier emitted~~ **withdrawn: `skill-match-v1` is already emitted**
-- [ ] **V1** — reframed: not a duplicate-cap defect. Only decide whether `skill-gap-v1` stays
-      published as an independent algorithm (Data Science's position: yes, unchanged).
-- [ ] **NEW** — `intelligence/*`: deploy the namespace, or point Laravel at the unprefixed paths
-- [ ] `readiness-v1` alias deprecated or removed from `config/readiness.php`
-- [ ] `composite_algorithm_version` column added to `readiness_results`
-- [ ] Historical `configuration_version` rows reconciled — the two meanings separated
-- [ ] §5.1 effective-weights + excluded-set persistence confirmed
-- [ ] Fallback in `config/services.php:78` made loud, or removed
+- [x] §3.2 naming split accepted — `composite-readiness-v1`
+- [x] ~~**V2** — route name reconciled~~ **withdrawn: the route already matches the contract**
+- [x] ~~**V3** — agreed identifier emitted~~ **withdrawn: `skill-match-v1` is already emitted**
+- [x] **V1** — resolved, no change: `skill-gap-v1` stays published as an independent,
+      independently-versioned algorithm (Data Science's position). Laravel's Composite never calls
+      it, so its 60.0 cap cannot conflict with Laravel's 69.0.
+- [x] ~~**NEW** — `intelligence/*`~~ — resolved in `49e56b1`: Laravel's intelligence flow now calls
+      the deployed unprefixed `/api/v1/skill-gap`, not the non-existent `/api/v1/intelligence/*`.
+- [x] `readiness-v1` alias removed from `config/readiness.php`
+- [x] `composite_algorithm_version` column added to `readiness_results`
+- [ ] Historical `configuration_version` rows reconciled — **forward-only**: rows written before the
+      split keep their original value; the two meanings are separated for every row written from
+      now on. Back-filling is impossible (§4).
+- [x] §5.1 effective-weights + excluded-set + per-component-version persistence implemented
+- [x] `config/services.php` fallback documented as a payload hint only, never the persisted value
 
 ---
 
@@ -297,15 +301,15 @@ silently start writing a constant rather than failing. Worth making the fallback
 ## 7. Sign-off checklist
 
 - [x] §3.2 naming split accepted — `composite-readiness-v1` agreed by both teams
-- [ ] `readiness-v1` alias deprecated or removed from `config/readiness.php`
-- [ ] `composite_algorithm_version` column added to `readiness_results`
-- [ ] Historical `configuration_version` rows reconciled — the two meanings separated
-- [ ] §5.1 effective-weights + excluded-set persistence confirmed
-- [ ] **V1** — duplicate critical-skill cap resolved (FastAPI `60.0` vs Laravel `69.0`)
-- [ ] **V2** — route name reconciled (`/api/v1/skill-gap` vs agreed `/api/v1/skill-match`)
-- [ ] **V3** — agreed identifier (`skill-match-v1`) actually emitted and stored
-- [ ] **§5.2b** — single owner chosen for `critical_skill_gap_count` / `critical_skill_names`
-- [ ] Fallback in `config/services.php:78` made loud, or removed
+- [x] `readiness-v1` alias removed from `config/readiness.php`
+- [x] `composite_algorithm_version` column added to `readiness_results`
+- [ ] Historical `configuration_version` rows reconciled — forward-only (see §0)
+- [x] §5.1 effective-weights + excluded-set persistence implemented
+- [x] **V1** — no change required: `skill-gap-v1` is independent and is never called by the Composite
+- [x] **V2** — withdrawn; the route already matches the contract
+- [x] **V3** — withdrawn; `skill-match-v1` is already emitted and stored
+- [x] **§5.2b** — Laravel is the single owner of `critical_skill_gap_count` / `critical_skill_names`
+- [x] `config/services.php` fallback documented as a hint, never the persisted value
 
 ---
 
@@ -358,3 +362,46 @@ undocumented.
 This was accurate when written. It is now superseded: a name was proposed and adopted,
 so the only remaining question is the one above — the **scope** of what the name covers,
 not its spelling.
+
+---
+
+## 9. Implementation record — 2026-09-25
+
+Both teams agreed the naming split, and the Laravel-side items are now in the code. No
+FastAPI runtime change was required.
+
+| File | Change |
+|---|---|
+| `config/readiness.php` | Removed the dead `configuration_version => 'readiness-v1'` alias. Added `composite_algorithm_version => 'composite-readiness-v1'` and a `skill_match.algorithm_version` component hint. |
+| `database/migrations/2026_09_25_000000_add_composite_algorithm_version_to_readiness_results_table.php` | **New.** Idempotent, nullable `composite_algorithm_version` column on `readiness_results`. |
+| `app/Models/ReadinessResult.php` | `composite_algorithm_version` added to `$fillable`. |
+| `app/Services/Readiness/ReadinessService.php` | Resolves the composite version from config; persists it on the row and on both the pending and succeeded decision snapshots. Records §5.1 replay data: `formula.effective_weights` (post-redistribution), `missing_component_policy.excluded_components`, and `component_versions` per component. The pending-snapshot `algorithm_version` placeholder now comes from `readiness.skill_match.algorithm_version` instead of the shared `services.data_science.algorithm_version` hint, which defaults to `skill-gap-v1` — a different flow's algorithm. |
+| `config/services.php` | The `algorithm_version` key is documented as a payload hint / pending placeholder only, never the persisted value. |
+| `tests/Feature/Readiness/ReadinessTest.php` | +2 tests: the composite version is recorded and distinct from the other two identifiers; a provisional result records the effective weights, the excluded set and every component version. |
+
+### What the three stored identifiers now mean
+
+For a single composite result row:
+
+```
+composite_algorithm_version = composite-readiness-v1   # structure  (ADR-001 §3.2)
+configuration_version       = config-v{n}              # numbers    (AlgorithmConfiguration row)
+algorithm_version           = skill-match-v1           # FastAPI's Skill Match component
+```
+
+Tuning a weight, the cap or a band boundary bumps `config-*` only. Adding a component or
+changing the exclusion/redistribution policy bumps `composite-readiness-*`.
+
+### Deliberately NOT done
+
+- **No public response field.** `composite_algorithm_version` is persisted in audit
+  metadata only (§4). Exposing it is additive and can happen at any time; recording it
+  could not wait.
+- **No back-fill of historical `configuration_version` rows.** They keep their original
+  value; the split applies to rows written from now on.
+- **No change to `skill-gap-v1`.** It remains a published, independently versioned
+  algorithm. Laravel's Composite never calls it.
+
+### Verification
+
+`php artisan test` — full suite green, including the two new regression tests.
