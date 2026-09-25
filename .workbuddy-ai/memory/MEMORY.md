@@ -42,7 +42,23 @@ changing this area; they carry verified corrections against the deployed service
   `INTELLIGENCE_CONFIGURATION_INVALID`.
 - `phpunit.xml` pins SQLite `:memory:`; keep it that way so the suite can never touch a live DB.
 - The deployed DS service does **not** enforce auth; `DATA_SCIENCE_SERVICE_TOKEN` is a
-  Laravel-side-only requirement and is currently unset locally (503 before any network call).
+  Laravel-side-only requirement. It **is** set locally (64 chars, raw — never `Bearer xxx`,
+  since `withToken()` prepends the scheme itself) and `APP_DEBUG=false`. The path is live:
+  `readiness/calculate` returns 201 with a real score. `DATA_SCIENCE_SERVICE_TIMEOUT=20` is
+  **shorter than a Render cold start (~34 s)**, so the first call after idle can 503
+  `DATA_SCIENCE_UNAVAILABLE` — raise it or ping `/health` to keep the instance warm.
+- **There are TWO snapshots per calculation, and §5.1 replay data is on only one of them.**
+  `DecisionSnapshot.snapshot` = audit (flow, payload, `fastapi_result`, version triple,
+  `component_versions`). `ReadinessResult.snapshot` = the replayable one (adds `components`,
+  `missing_component_policy`, `formula.effective_weights`, `critical_skill_rule`). Reading
+  `effective_weights` off the decision snapshot silently yields `null`.
+- **`critical_skill_gap_count` counts a critical skill only when `match_ratio < minimum_match`
+  (`0.50`)** — not "a critical skill that isn't fully met". A `partial` critical skill at
+  ratio 0.625 is **not** a gap, so the `69.0` cap is correctly not applied. `0` is often right.
+- **Verify integrations live, not only with fakes.** `phpunit.xml` leaves `DATA_SCIENCE_*` alone,
+  so a temporary test that skips `Http::fake()` really calls the deployed service. Seeding must be
+  copied from `ReadinessTest::createScenario()` (its helpers are `private`, so it can't be
+  subclassed). Delete the temp test afterwards.
 
 ## Verify a change with all three
 
