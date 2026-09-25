@@ -185,8 +185,8 @@ class BaselineAssessmentTest extends TestCase
 
         $response = $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => [
-                ['question' => 1, 'answer' => 'python-3'],
-                ['question' => 2, 'answer' => 'sql-2'],
+                ['item_id' => 'q1', 'answer' => 'python-3'],
+                ['item_id' => 'q2', 'answer' => 'sql-2'],
             ],
         ]);
 
@@ -244,6 +244,52 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonValidationErrors(['responses']);
     }
 
+    public function test_submit_rejects_an_object_shaped_responses_payload(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $assessment = BaselineAssessment::forceCreate([
+            'student_profile_id' => $this->learnerProfile($user)->id,
+            'assessment_type' => 'baseline',
+            'assessment_version' => 'v1.0',
+            'status' => 'in_progress',
+        ]);
+
+        /*
+         * A PHP associative array satisfies `array` and then json_encodes to
+         * the OBJECT {"q1":"a"}. The FastAPI contract requires an ARRAY of
+         * {item_id, answer} objects, so this must be rejected here rather
+         * than surfacing as an opaque upstream 422.
+         */
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => ['q1' => 'a'],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['responses']);
+    }
+
+    public function test_submit_rejects_responses_missing_item_id_or_answer(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $assessment = BaselineAssessment::forceCreate([
+            'student_profile_id' => $this->learnerProfile($user)->id,
+            'assessment_type' => 'baseline',
+            'assessment_version' => 'v1.0',
+            'status' => 'in_progress',
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => [
+                ['answer' => 'B'],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['responses.0.item_id']);
+    }
+
     public function test_submit_fails_safely_when_intelligence_not_configured(): void
     {
         Config::set('services.data_science.baseline.enabled', false);
@@ -258,7 +304,9 @@ class BaselineAssessmentTest extends TestCase
         ]);
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => ['q1' => 'a'],
+            'responses' => [
+                ['item_id' => 'sql-001', 'answer' => 'B'],
+            ],
         ])
             ->assertStatus(503)
             ->assertJsonPath('code', 'BASELINE_INTEGRATION_NOT_CONFIGURED');
@@ -286,7 +334,9 @@ class BaselineAssessmentTest extends TestCase
         ]);
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => ['q1' => 'a'],
+            'responses' => [
+                ['item_id' => 'sql-001', 'answer' => 'B'],
+            ],
         ])
             ->assertStatus(503)
             ->assertJsonPath('code', 'INTELLIGENCE_SERVICE_ERROR');
@@ -318,7 +368,9 @@ class BaselineAssessmentTest extends TestCase
         Log::spy();
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => ['q1' => 'a'],
+            'responses' => [
+                ['item_id' => 'sql-001', 'answer' => 'B'],
+            ],
         ])
             ->assertStatus(503)
             ->assertJsonPath('code', 'INTELLIGENCE_SERVICE_ERROR');
@@ -362,7 +414,9 @@ class BaselineAssessmentTest extends TestCase
         ]);
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => ['q1' => 'a'],
+            'responses' => [
+                ['item_id' => 'sql-001', 'answer' => 'B'],
+            ],
         ])
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
@@ -391,7 +445,9 @@ class BaselineAssessmentTest extends TestCase
         ]);
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => ['q1' => 'a'],
+            'responses' => [
+                ['item_id' => 'sql-001', 'answer' => 'B'],
+            ],
         ])
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
@@ -419,7 +475,7 @@ class BaselineAssessmentTest extends TestCase
             ], 200),
         ]);
 
-        $payload = ['responses' => ['q1' => 'a']];
+        $payload = ['responses' => [['item_id' => 'sql-001', 'answer' => 'B']]];
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", $payload)
             ->assertStatus(200);

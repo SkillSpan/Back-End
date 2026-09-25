@@ -24,7 +24,9 @@ use Throwable;
  *   "student_profile_id": 1,
  *   "user_id": 2,
  *   "assessment_version": "v1.0",
- *   "responses": { ... }
+ *   "responses": [
+ *     { "item_id": "sql-001", "answer": "B" }
+ *   ]
  * }
  *
  * Response 200:

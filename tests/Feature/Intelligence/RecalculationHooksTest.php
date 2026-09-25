@@ -137,7 +137,7 @@ class RecalculationHooksTest extends TestCase
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => [
-                ['question' => 1, 'answer' => 'sql-2'],
+                ['item_id' => 'q1', 'answer' => 'sql-2'],
             ],
         ])->assertOk();
 
