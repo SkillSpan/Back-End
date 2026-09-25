@@ -74,7 +74,29 @@ changing this area; they carry verified corrections against the deployed service
   `{"q1":"a"}` — an object — which their schema correctly rejects with 422.
   `SubmitBaselineAssessmentRequest` now validates `['required','array','list','min:1']` plus
   per-entry `item_id`/`answer`. **The defect was always ours; their schema was right.**
-- **There are TWO snapshots per calculation, and §5.1 replay data is on only one of them.**
+- **`CACHE_STORE` must NOT be left at its `database` default — the DB is REMOTE.**
+  `config/cache.php:18` defaults to `database`, and `.env` points at a remote MySQL
+  (`clever-cloud.com`). Every `throttle:*` request then does read + write + lock over the network:
+  benchmarked **742 ms per cache op vs 26 ms for `file` (×28)**. That is ~3.4 s of added latency on
+  **every throttled route** — all of `/api/auth/*`, `/setup/create-admin`, and
+  `/api/v1/internal/baseline-items`. It silently broke the Data Science integration: the mapping
+  endpoint took 3.7–5.6 s against the DS service's 8 s `BASELINE_MAPPING_TIMEOUT_SECONDS`, so any
+  jitter produced an **intermittent** upstream `503`
+  `{"detail":"Backend baseline mapping service returned an unexpected status."}` → surfacing in our
+  API as `503 INTELLIGENCE_SERVICE_ERROR`. **`CACHE_STORE=file`** (or redis) in every environment.
+- **Diagnose latency with `curl -w` before theorising.** `ttfb` vs `connect`/`tls` separates slow
+  server from slow wire in one command:
+  `curl -s -o /dev/null -w 'conn=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer}\n'`.
+  Here `conn=0.002s`/`tls=0.06s` but `ttfb=3.7–5.6s` → the server, not the network. A differential
+  against a sibling route on the same host (unthrottled `/up` 0.34 s vs throttled mapping 3.7 s)
+  then isolates the cause to one variable.
+- **Check existing indexes before proposing a new one.** A plausible "missing index" theory was
+  wrong — `baseline_assessment_items` already had `unique(['assessment_version','item_id'])`.
+- **`DATA_SCIENCE_SERVICE_TIMEOUT=60`** (raised from 20): a Render free-tier cold start measures
+  24.7–33.8 s. The DS service's own budget for calling *us* is
+  `BASELINE_MAPPING_TIMEOUT_SECONDS=8.0`.
+
+
   `DecisionSnapshot.snapshot` = audit (flow, payload, `fastapi_result`, version triple,
   `component_versions`). `ReadinessResult.snapshot` = the replayable one (adds `components`,
   `missing_component_policy`, `formula.effective_weights`, `critical_skill_rule`). Reading
