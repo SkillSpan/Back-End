@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -290,6 +291,49 @@ class BaselineAssessmentTest extends TestCase
             ->assertStatus(503)
             ->assertJsonPath('code', 'INTELLIGENCE_SERVICE_ERROR');
 
+        $this->assertDatabaseHas('baseline_assessments', [
+            'id' => $assessment->id,
+            'status' => 'in_progress',
+        ]);
+    }
+
+    public function test_upstream_5xx_body_is_logged_so_the_cause_is_not_hidden(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $assessment = BaselineAssessment::forceCreate([
+            'student_profile_id' => $this->learnerProfile($user)->id,
+            'assessment_type' => 'baseline',
+            'assessment_version' => 'v1.0',
+            'status' => 'in_progress',
+        ]);
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'detail' => 'Data Science service authentication is not configured.',
+            ], 503),
+        ]);
+
+        Log::spy();
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => ['q1' => 'a'],
+        ])
+            ->assertStatus(503)
+            ->assertJsonPath('code', 'INTELLIGENCE_SERVICE_ERROR');
+
+        // Regression guard: the upstream body used to be thrown away, which
+        // left the generic 503 with no way to distinguish a service-side
+        // configuration failure from a genuine server crash.
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []): bool => $message === 'Baseline intelligence request failed.'
+                && ($context['http_status'] ?? null) === 503
+                && str_contains($context['failure_reason'] ?? '', 'authentication is not configured')
+                && ! empty($context['request_id']))
+            ->once();
+
+        // Still no partial write: a failed submission must not complete.
         $this->assertDatabaseHas('baseline_assessments', [
             'id' => $assessment->id,
             'status' => 'in_progress',

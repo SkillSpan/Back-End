@@ -151,7 +151,24 @@ class BaselineDataScienceClient
         }
 
         if ($status >= 500) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Intelligence server error');
+            // Never let an upstream 5xx become a black box.
+            //
+            // The response body is the only place the service explains
+            // itself. FastAPI answers a 503 with a plain
+            // {"detail": "..."} — and discarding that detail is exactly what
+            // turned a one-line configuration problem into an opaque
+            // "intelligence service failed to process the request".
+            //
+            // The body is logged, not returned: the public response shape
+            // stays as it was, and the service token travels in a request
+            // header that the intelligence service never echoes back.
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Intelligence server error: '.$this->bodyExcerpt($response),
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence service failed to process the request.',
@@ -202,6 +219,23 @@ class BaselineDataScienceClient
         $data = $response->json();
 
         return is_array($data) ? $data : [];
+    }
+
+    /**
+     * A bounded, single-line excerpt of the upstream body, for the log only.
+     *
+     * Bounded so a pathological response cannot flood the log, and collapsed
+     * to one line so the JSON stays greppable next to the request id.
+     */
+    private function bodyExcerpt(Response $response): string
+    {
+        $body = trim((string) $response->body());
+
+        if ($body === '') {
+            return '<empty body>';
+        }
+
+        return mb_substr(preg_replace('/\s+/', ' ', $body) ?? $body, 0, 500);
     }
 
     private function logFailure(
