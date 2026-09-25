@@ -364,6 +364,192 @@ class ReadinessTest extends TestCase
         $this->assertEquals(82.0, $response->json('data.score'));
     }
 
+    /**
+     * Regression: the critical-skill cap is Laravel's decision, so Laravel
+     * must be the one to report it.
+     *
+     * Skill Match v1 returns no cap metadata at all — only per-skill
+     * `is_critical` and `match_ratio`. ReadinessService therefore applies the
+     * cap itself and records the outcome under
+     * `snapshot.critical_skill_rule`.
+     *
+     * ReadinessResultResource used to read those fields from
+     * `snapshot.fastapi_result` — the service response — where they can never
+     * exist. Every capped learner was told a cap had been applied while the
+     * cap value, the offending skills and their count came back as null / [] /
+     * 0. That hid the reason for the decision and made it impossible to
+     * dispute (§12.6 / REC-08).
+     */
+    public function test_a_capped_result_reports_the_cap_and_the_offending_skills(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        // SQL is critical with required_level 4.0. Drop it to 1.9 so its
+        // match_ratio is 0.475 — below readiness.critical_skill.minimum_match
+        // (0.50) — while the composite still lands above the cap at ~71.21, so
+        // the cap genuinely binds rather than being incidental.
+        $sqlRoleSkill = $roleSkills->first(fn ($roleSkill) => $roleSkill->skill->name === 'SQL');
+
+        SkillEvaluation::forceCreate([
+            'student_profile_id' => $profile->id,
+            'skill_id' => $sqlRoleSkill->skill_id,
+            'level' => 1.9,
+            'confidence' => 90,
+            'algorithm_version' => 'test-v1',
+            'calculated_at' => now()->addMicroseconds(2000),
+        ]);
+
+        Http::fake([
+            '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
+
+        $response->assertStatus(201);
+
+        $data = $response->json('data');
+
+        $this->assertTrue($data['critical_cap_applied']);
+        $this->assertEquals(69.0, $data['score']);
+
+        // The three fields that were permanently null / [] / 0 before the fix.
+        $this->assertEquals(69.0, $data['critical_skill_readiness_cap']);
+        $this->assertEquals(['SQL'], $data['critical_skill_names']);
+        $this->assertEquals(1, $data['critical_skill_gap_count']);
+
+        // The count is derived from the same array, so the two cannot drift.
+        $this->assertCount($data['critical_skill_gap_count'], $data['critical_skill_names']);
+
+        // `skills_with_gap` used to read a key Skill Match never returns.
+        $this->assertIsInt($data['skills_with_gap']);
+
+        /*
+         * Pin the reason the old implementation could not work, so the read
+         * cannot be reintroduced: the service response genuinely carries none
+         * of these keys, so sourcing them from `fastapi_result` could only
+         * ever produce null / [] / 0.
+         */
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $fastApiResult = $result->snapshot['fastapi_result'];
+
+        $this->assertArrayNotHasKey('critical_skill_names', $fastApiResult);
+        $this->assertArrayNotHasKey('critical_skill_readiness_cap', $fastApiResult);
+        $this->assertArrayNotHasKey('critical_skill_gap_count', $fastApiResult);
+
+        // ...whereas Laravel's own record of the decision does carry them.
+        $this->assertEquals(
+            ['SQL'],
+            $result->snapshot['critical_skill_rule']['critical_skill_names'],
+        );
+        $this->assertEquals(69.0, $result->snapshot['critical_skill_rule']['cap']);
+    }
+
+    /**
+     * ADR-001 §3.2 / §4 — the composite STRUCTURE version is recorded, and it
+     * is genuinely a third identifier: not the numeric configuration version,
+     * not FastAPI's Skill Match component algorithm.
+     *
+     * Without it a historical score cannot be replayed once the aggregation
+     * policy moves on, and the value cannot be back-filled later.
+     */
+    public function test_the_composite_structure_version_is_recorded_and_distinct(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
+        ]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(201);
+
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        // The three orthogonal identifiers, none of them sharing a value.
+        $this->assertSame('composite-readiness-v1', $result->composite_algorithm_version);
+        $this->assertSame('config-v1', $result->configuration_version);
+        $this->assertSame('skill-match-v1', $result->algorithm_version);
+
+        $this->assertNotSame($result->composite_algorithm_version, $result->configuration_version);
+        $this->assertNotSame($result->composite_algorithm_version, $result->algorithm_version);
+
+        // Recorded on both audit trails, not just the result row.
+        $this->assertSame(
+            'composite-readiness-v1',
+            $result->snapshot['composite_algorithm_version'],
+        );
+
+        $this->assertSame(
+            'composite-readiness-v1',
+            $result->decisionSnapshot->snapshot['composite_algorithm_version'],
+        );
+    }
+
+    /**
+     * ADR-001 §5.1 — a score is reproducible only when the EFFECTIVE weights
+     * (after redistribution) and the excluded component set are recorded, not
+     * merely the nominal weights and the `is_provisional` boolean.
+     */
+    public function test_a_provisional_result_records_effective_weights_and_the_excluded_set(): void
+    {
+        [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
+
+        // Drop the practical-experience fixture only, so the policy has to
+        // exclude that component and redistribute its 0.20 weight.
+        Evaluation::query()->delete();
+        Submission::query()->delete();
+
+        Sanctum::actingAs($user);
+        Http::fake(['*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200)]);
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id])
+            ->assertStatus(201);
+
+        $result = ReadinessResult::query()
+            ->where('student_profile_id', $profile->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $snapshot = $result->snapshot;
+
+        // The nominal weights are unchanged...
+        $this->assertEqualsWithDelta(0.65, $snapshot['formula']['weights']['skill_match'], 0.000001);
+        $this->assertEqualsWithDelta(0.20, $snapshot['formula']['weights']['practical_experience'], 0.000001);
+
+        // ...while the effective weights are renormalized over the available
+        // components only: 0.65/0.80, 0.10/0.80, 0.05/0.80.
+        $effective = $snapshot['formula']['effective_weights'];
+        $this->assertEqualsWithDelta(0.8125, $effective['skill_match'], 0.000001);
+        $this->assertEqualsWithDelta(0.125, $effective['assessment_reliability'], 0.000001);
+        $this->assertEqualsWithDelta(0.0625, $effective['profile_completeness'], 0.000001);
+        $this->assertArrayNotHasKey('practical_experience', $effective);
+        $this->assertEqualsWithDelta(1.0, array_sum($effective), 0.000001);
+
+        // The excluded set is recorded by name, not just as a boolean.
+        $this->assertSame(
+            ['practical_experience'],
+            $snapshot['missing_component_policy']['excluded_components'],
+        );
+        $this->assertTrue($snapshot['missing_component_policy']['is_provisional']);
+
+        // Every component's own version is recorded, so the composite can be
+        // replayed from its parts.
+        $this->assertSame('skill-match-v1', $snapshot['component_versions']['skill_match']['algorithm_version']);
+        $this->assertSame('weights-v1', $snapshot['component_versions']['skill_match']['config_version']);
+        $this->assertSame('practical-experience-v1', $snapshot['component_versions']['practical_experience']['algorithm_version']);
+        $this->assertSame('assessment-reliability-v1', $snapshot['component_versions']['assessment_reliability']['algorithm_version']);
+        $this->assertSame('profile-completeness-v1', $snapshot['component_versions']['profile_completeness']['algorithm_version']);
+    }
+
     private function createScenario(string $status = 'approved'): array
     {
         $user = $this->createUserWithRole($this->learnerRole);

@@ -41,7 +41,16 @@ return [
 
     'data_science' => [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
-        'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 10),
+
+        /*
+         * The fallback is 60, not 10. The Data Science service runs on Render's
+         * free tier, which idles the instance out after ~15 minutes, and a cold
+         * start measures 24.7-33.8 s. A 20 s timeout therefore made the first
+         * call after every idle period fail with DATA_SCIENCE_UNAVAILABLE even
+         * though the service was healthy — a false outage that disappears on
+         * retry and is easy to misread as a network or credentials problem.
+         */
+        'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 60),
 
         // Service-to-service credential (US-INT-01 §4). Never a learner
         // Sanctum token, never exposed to the frontend.
@@ -49,20 +58,30 @@ return [
 
         'api_version' => env('DATA_SCIENCE_API_VERSION', 'v1'),
 
-        // Versioned SRS contract paths (US-INT-01 §26). Defaults target
-        // the new intelligence API; legacy local FastAPI deployments can
-        // override per-path without touching business logic.
+        // Versioned contract paths (US-INT-01 §26). These defaults were
+        // verified against the deployed service's own OpenAPI document,
+        // NOT against the SRS text: the live "SkillSpan Intelligence
+        // Service" exposes unprefixed paths and has no /api/v1/intelligence/*
+        // namespace at all.
+        //
+        // There is deliberately no `readiness_path`: the deployed service
+        // has no standalone readiness endpoint. /api/v1/skill-gap returns
+        // the readiness block (readiness_score, base_readiness_score,
+        // critical_skill_cap_applied, met_skills, …) in the SAME response
+        // as the per-skill gaps, so a second call would be a duplicate.
         'skill_gap_path' => env(
             'DATA_SCIENCE_SKILL_GAP_PATH',
-            '/api/v1/intelligence/skill-gap',
+            '/api/v1/skill-gap',
         ),
-        'readiness_path' => env(
-            'DATA_SCIENCE_READINESS_PATH',
-            '/api/v1/intelligence/readiness',
-        ),
+
+        // UNVERIFIED: the deployed service exposes no roadmap endpoint in
+        // any form (prefixed or not), so this path cannot be confirmed
+        // against a live contract yet. It is inert while
+        // `roadmap_enabled` is false, and whoever enables roadmap
+        // generation must confirm this path against the service first.
         'roadmap_path' => env(
             'DATA_SCIENCE_ROADMAP_PATH',
-            '/api/v1/intelligence/roadmap',
+            '/api/v1/roadmap',
         ),
 
         // Skill Match v1 contract confirmed by Data Science — used by the
@@ -73,8 +92,19 @@ return [
             '/api/v1/skill-match',
         ),
 
-        // Compatibility fallback (US-INT-01 §11): used only when the
-        // service response carries no algorithm_version metadata.
+        // Payload hint / pending-snapshot placeholder ONLY — never the value
+        // persisted with a result. The stored `algorithm_version` always comes
+        // from the validated service response, and both flows *require* it
+        // (ReadinessService::validateDataScienceResult(),
+        // IntelligenceResponseValidator::validateAlgorithmVersion()), so a
+        // response that dropped the field fails loudly instead of silently
+        // inheriting this constant (ADR-001 §5.3, note on the fallback).
+        //
+        // It names the INTELLIGENCE (skill-gap) flow's algorithm. The Composite
+        // Readiness flow deliberately does NOT read this key — it uses its own
+        // component hint, `readiness.skill_match.algorithm_version`, because
+        // `skill-gap-v1` is a different, independently versioned algorithm that
+        // the composite never calls (ADR-001 §3.1).
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
 
         // Which intelligence endpoints are enabled. Roadmap generation is
@@ -87,6 +117,51 @@ return [
             'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
             'enabled' => (bool) env('DATA_SCIENCE_BASELINE_ENABLED', false),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | US-REC-01 — Intelligent Assistant (§12.5 governance gate)
+    |--------------------------------------------------------------------------
+    |
+    | SRS v1.1 §12.5: "Sensitive data shall not be inserted into external AI
+    | services without explicit technical and governance approval."
+    |
+    | This gate FAILS CLOSED. The assistant stays disabled unless it is both
+    | explicitly enabled AND a reference to the recorded approval is present,
+    | mirroring the approved pattern already used for collaborative signals
+    | (REC-06 / BR-REC-07): off by default, and not enableable without
+    | approval metadata.
+    |
+    | Laravel is the ONLY permitted caller of the assistant service. The
+    | service requires a bearer token on every /chat and allows no browser
+    | origins, so the frontend cannot reach it directly — which is what makes
+    | the gate above meaningful rather than one door of two.
+    |
+    */
+    'assistant' => [
+        'enabled' => (bool) env('ASSISTANT_ENABLED', false),
+
+        // Free-text reference to the recorded §12.5 approval (ticket id,
+        // email thread, governance record). Must be non-empty before any
+        // learner context may leave the platform.
+        'approval_reference' => env('ASSISTANT_APPROVAL_REFERENCE'),
+
+        // FastAPI chatbot service (POST /chat). Default port 8010 matches the
+        // service's README; 8000 is frequently already taken locally.
+        'url' => env('ASSISTANT_SERVICE_URL', 'http://127.0.0.1:8010'),
+        'path' => env('ASSISTANT_SERVICE_PATH', '/chat'),
+
+        // Service-to-service credential (US-INT-01 §4 pattern). Never a
+        // learner Sanctum token, never exposed to the frontend. Must match
+        // SERVICE_TOKEN in the assistant service's environment.
+        'service_token' => env('ASSISTANT_SERVICE_TOKEN'),
+
+        // The service fails over across three providers with a 30s cap each,
+        // so its worst case is ~90s. A ceiling below that can cut off a
+        // request the service would eventually have answered; lowering the
+        // service's own per-provider timeout is the better fix.
+        'timeout' => (int) env('ASSISTANT_SERVICE_TIMEOUT', 60),
     ],
 
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence

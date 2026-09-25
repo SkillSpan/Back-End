@@ -129,6 +129,16 @@ class ReadinessService
         $configurationVersion = 'config-v'.$configuration->version;
 
         /*
+         * ADR-001 — the composite STRUCTURE version, recorded alongside the
+         * numeric configuration version so a historical score stays
+         * replayable. Resolved from configuration, never fabricated.
+         */
+        $compositeVersion = (string) config(
+            'readiness.composite_algorithm_version',
+            'composite-readiness-v1'
+        );
+
+        /*
          * US-INT-01 §6: capture the validated input state BEFORE the
          * FastAPI call. The snapshot starts as pending and is marked
          * succeeded only after the FastAPI response is validated and
@@ -142,10 +152,16 @@ class ReadinessService
                 'user_id' => (int) $studentProfile->user_id,
                 'target_role' => (string) $careerRole->title,
                 'flow' => 'readiness_legacy',
+                // Placeholder only — the persisted value always comes from
+                // the validated response below. Deliberately NOT the shared
+                // `services.data_science.algorithm_version` hint, which
+                // defaults to `skill-gap-v1`: that is a different flow's
+                // algorithm, which this composite never calls.
                 'algorithm_version' => (string) config(
-                    'services.data_science.algorithm_version',
+                    'readiness.skill_match.algorithm_version',
                     'skill-match-v1'
                 ),
+                'composite_algorithm_version' => $compositeVersion,
                 'configuration_version' => $configurationVersion,
             ]),
             (string) Str::uuid(),
@@ -258,6 +274,19 @@ class ReadinessService
         $finalScore = min(max($finalScore, 0.0), 100.0);
 
         /*
+         * ADR-001 §5.1 — the NOMINAL weights above are not what actually
+         * produced the score once a component is excluded: the policy
+         * redistributes the excluded component's weight proportionally over
+         * the available ones. Record the EFFECTIVE weights so a historical
+         * result is reproducible rather than merely labelled.
+         */
+        $effectiveWeights = [];
+
+        foreach ($availableComponents as $name => $component) {
+            $effectiveWeights[$name] = round($component['weight'] / $availableWeightSum, 6);
+        }
+
+        /*
          * Critical-skill cap.
          */
         $criticalMinimumMatch = (float) config(
@@ -304,6 +333,31 @@ class ReadinessService
          */
         $algorithmVersion = (string) $result['algorithm_version'];
 
+        /*
+         * ADR-001 §5.1 — each component's own algorithm/config version, so a
+         * historical composite can be replayed from its parts. skill_match's
+         * algorithm_version is FastAPI's validated response value; its config
+         * version is the service's own weight configuration.
+         */
+        $componentVersions = [
+            'skill_match' => [
+                'algorithm_version' => $algorithmVersion,
+                'config_version' => $result['weight_configuration_version'] ?? null,
+            ],
+            'practical_experience' => [
+                'algorithm_version' => $practicalExperience['algorithm_version'] ?? null,
+                'config_version' => $practicalExperience['config_version'] ?? null,
+            ],
+            'assessment_reliability' => [
+                'algorithm_version' => $assessmentReliability['algorithm_version'] ?? null,
+                'config_version' => $assessmentReliability['config_version'] ?? null,
+            ],
+            'profile_completeness' => [
+                'algorithm_version' => $profileCompleteness['algorithm_version'] ?? null,
+                'config_version' => $profileCompleteness['config_version'] ?? null,
+            ],
+        ];
+
         $calculatedAt = now();
 
         return DB::transaction(function () use (
@@ -322,6 +376,9 @@ class ReadinessService
             $excludedComponents,
             $band,
             $algorithmVersion,
+            $compositeVersion,
+            $componentVersions,
+            $effectiveWeights,
             $configurationVersion,
             $calculatedAt,
             $requestId,
@@ -348,7 +405,9 @@ class ReadinessService
                     'payload' => $payload,
                     'fastapi_result' => $result,
                     'algorithm_version' => $algorithmVersion,
+                    'composite_algorithm_version' => $compositeVersion,
                     'configuration_version' => $configurationVersion,
+                    'component_versions' => $componentVersions,
                     'request_id' => $requestId,
                     'calculated_at' => $calculatedAt->toIso8601String(),
                 ],
@@ -377,6 +436,7 @@ class ReadinessService
                 'band' => $band,
 
                 'algorithm_version' => $algorithmVersion,
+                'composite_algorithm_version' => $compositeVersion,
                 'configuration_version' => $configurationVersion,
                 'request_id' => $requestId,
                 'calculated_at' => $calculatedAt,
@@ -393,6 +453,13 @@ class ReadinessService
                         'profile_completeness' => $profileCompletenessScore,
                     ],
 
+                    /*
+                     * ADR-001 §5.1 — which components were unavailable and
+                     * therefore excluded, plus the exact weights applied after
+                     * redistribution. Together with the version triple
+                     * (composite / configuration / algorithm) these make the
+                     * score reproducible rather than merely labelled.
+                     */
                     'missing_component_policy' => [
                         'excluded_components' => $excludedComponents,
                         'is_provisional' => $isProvisional,
@@ -400,8 +467,11 @@ class ReadinessService
 
                     'formula' => [
                         'weights' => $weights,
+                        'effective_weights' => $effectiveWeights,
                         'final_score' => $finalScore,
                     ],
+
+                    'component_versions' => $componentVersions,
 
                     'critical_skill_rule' => [
                         'minimum_match' => $criticalMinimumMatch,
@@ -411,6 +481,7 @@ class ReadinessService
                     ],
 
                     'algorithm_version' => $algorithmVersion,
+                    'composite_algorithm_version' => $compositeVersion,
                     'configuration_version' => $configurationVersion,
                     'request_id' => $requestId,
                     'calculated_at' => $calculatedAt->toIso8601String(),
