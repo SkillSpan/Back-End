@@ -167,7 +167,6 @@ class RecalculationHooksTest extends TestCase
         ])->values()->all();
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-                    $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => $responses,
 
         ])->assertOk();
