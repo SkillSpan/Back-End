@@ -66,4 +66,23 @@ class BaselineAssessmentException extends Exception
             ],
         );
     }
+
+    /**
+     * A question selected for the assessment is unusable: it has no
+     * authored prompt, or its content does not satisfy its own item type
+     * (e.g. a `single_choice` question with no options).
+     *
+     * This is a question-bank data error. The assessment is refused
+     * outright rather than silently shipping a question the learner
+     * cannot read or answer — no placeholder text is ever invented.
+     */
+    public static function invalidQuestionContent(array $invalidQuestions): self
+    {
+        return new self(
+            'One or more selected questions have invalid content and cannot be used in an assessment.',
+            422,
+            'INVALID_QUESTION_CONTENT',
+            ['invalid_questions' => $invalidQuestions],
+        );
+    }
 }

@@ -315,21 +315,33 @@ class BaselineAssessmentTest extends TestCase
         ])->assertStatus(200);
     }
 
-    public function test_question_text_is_null_when_not_authored(): void
+    public function test_question_without_authored_text_is_rejected_not_invented(): void
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
         $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
         $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
-        // No question text supplied — the API must not invent one.
-        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B']);
+        // No question text supplied — the API must not invent one, and
+        // must not ship a question the learner cannot read.
+        BaselineAssessmentItem::updateOrCreate(
+            ['assessment_version' => 'v1.0', 'item_id' => 'sql-001'],
+            [
+                'item_type' => 'single_choice',
+                'question_text' => null,
+                'skill_id' => $sql->id,
+                'options' => ['A', 'B'],
+                'correct_answer' => 'A',
+                'scoring_rule' => null,
+                'weight' => 1.000,
+                'is_active' => true,
+            ],
+        );
 
-        $response = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
-            ->assertStatus(201);
-
-        $this->assertNull($response->json('data.questions.0.question_text'));
-        $this->assertArrayHasKey('question_text', $response->json('data.questions.0'));
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'INVALID_QUESTION_CONTENT')
+            ->assertJsonPath('details.invalid_questions.0.problems', ['missing_question_text']);
     }
 
     public function test_snapshot_is_immutable_after_question_bank_changes(): void
@@ -1184,8 +1196,8 @@ class BaselineAssessmentTest extends TestCase
         $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
         $python = Skill::firstOrCreate(['slug' => 'python'], ['name' => 'Python', 'status' => 'active']);
 
-        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B', 'C', 'D']);
-        $this->item('python-001', $python->id, 'single_choice', ['A', 'B', 'C', 'D']);
+        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B', 'C', 'D'], 'Which SQL clause filters rows?');
+        $this->item('python-001', $python->id, 'single_choice', ['A', 'B', 'C', 'D'], 'What does len() return?');
     }
 
     private function item(
@@ -1199,7 +1211,10 @@ class BaselineAssessmentTest extends TestCase
             ['assessment_version' => 'v1.0', 'item_id' => $itemId],
             [
                 'item_type' => $type,
-                'question_text' => $questionText,
+                // Content validity is enforced at selection time, so the
+                // default fixture authors a real prompt. Tests that
+                // deliberately exercise invalid content pass null.
+                'question_text' => $questionText ?? "Baseline prompt for {$itemId}.",
                 'skill_id' => $skillId,
                 'options' => $options,
                 'correct_answer' => $type === 'single_choice' ? $options[0] : null,

@@ -181,9 +181,9 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             [$minor, ['is_critical' => false, 'importance_weight' => 0.2]],
         ]);
 
-        $this->item('critical-1', $critical, 'single_choice', ['A']);
-        $this->item('critical-2', $critical, 'single_choice', ['A']);
-        $this->item('minor-1', $minor, 'single_choice', ['A']);
+        $this->item('critical-1', $critical, 'single_choice', ['A', 'B']);
+        $this->item('critical-2', $critical, 'single_choice', ['A', 'B']);
+        $this->item('minor-1', $minor, 'single_choice', ['A', 'B']);
 
         $selected = $this->service->select($role, 'v1.0');
 
@@ -211,10 +211,10 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             [$minor, ['is_critical' => false, 'importance_weight' => 0.2]],
         ]);
 
-        $this->item('critical-1', $critical, 'single_choice', ['A']);
-        $this->item('critical-2', $critical, 'single_choice', ['A']);
-        $this->item('minor-1', $minor, 'single_choice', ['A']);
-        $this->item('minor-2', $minor, 'single_choice', ['A']);
+        $this->item('critical-1', $critical, 'single_choice', ['A', 'B']);
+        $this->item('critical-2', $critical, 'single_choice', ['A', 'B']);
+        $this->item('minor-1', $minor, 'single_choice', ['A', 'B']);
+        $this->item('minor-2', $minor, 'single_choice', ['A', 'B']);
 
         $selected = $this->service->select($role, 'v1.0');
 
@@ -240,9 +240,9 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             [$a, []], [$b, []], [$c, []],
         ]);
 
-        $this->item('a-1', $a, 'single_choice', ['A']);
-        $this->item('b-1', $b, 'single_choice', ['A']);
-        $this->item('c-1', $c, 'single_choice', ['A']);
+        $this->item('a-1', $a, 'single_choice', ['A', 'B']);
+        $this->item('b-1', $b, 'single_choice', ['A', 'B']);
+        $this->item('c-1', $c, 'single_choice', ['A', 'B']);
 
         try {
             $this->service->select($role, 'v1.0');
@@ -316,6 +316,10 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             'assessment_version' => 'v1.0',
             'item_id' => $itemId,
             'item_type' => $type,
+            // Content validity is enforced at selection time, so the
+            // fixture authors a real prompt (see
+            // BaselineQuestionSelectionService::assertQuestionContentIsValid).
+            'question_text' => "Baseline prompt for {$itemId}.",
             'skill_id' => $skill->id,
             'options' => $options,
             'correct_answer' => $type === 'single_choice' ? $options[0] : null,

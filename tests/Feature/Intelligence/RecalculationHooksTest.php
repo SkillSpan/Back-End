@@ -135,6 +135,7 @@ class RecalculationHooksTest extends TestCase
             ['assessment_version' => 'v1.0', 'item_id' => 'sql-hook-001'],
             [
                 'item_type' => 'single_choice',
+                'question_text' => 'Which SQL clause filters rows?',
                 'skill_id' => $skill->id,
                 'options' => ['A', 'B', 'C', 'D'],
                 'correct_answer' => 'A',

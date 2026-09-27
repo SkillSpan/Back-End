@@ -181,6 +181,12 @@ class BaselineQuestionSelectionService
             );
         }
 
+        // Content validity is checked before the count/cap logic: a
+        // question the learner cannot read or answer is not a usable
+        // question, and inventing text to fill the gap would corrupt the
+        // assessment. Refuse the whole assessment instead.
+        $this->assertQuestionContentIsValid($selected);
+
         /*
          * Total cap — coverage is a hard constraint.
          *
@@ -214,6 +220,64 @@ class BaselineQuestionSelectionService
         }
 
         return $selected->values();
+    }
+
+    /**
+     * Every selected question must be self-sufficient: a readable prompt
+     * plus options that match its declared type.
+     *
+     * Rules:
+     *   - `question_text` must be a non-empty string. We never substitute
+     *     a generated or placeholder prompt.
+     *   - `single_choice` must carry at least two distinct options, since
+     *     the answer is validated against them.
+     *   - `scale` must carry at least one anchor.
+     *
+     * All violations are collected and reported together so a question
+     * bank can be fixed in one pass rather than one error at a time.
+     *
+     * @param  Collection<int, array<string, mixed>>  $selected
+     *
+     * @throws BaselineAssessmentException
+     */
+    private function assertQuestionContentIsValid(Collection $selected): void
+    {
+        $invalid = [];
+
+        foreach ($selected as $question) {
+            $problems = [];
+
+            $text = $question['question_text'];
+            if (! is_string($text) || trim($text) === '') {
+                $problems[] = 'missing_question_text';
+            }
+
+            $options = $question['options'];
+            $distinctOptions = array_unique(
+                array_map('strval', is_array($options) ? $options : [])
+            );
+
+            if ($question['item_type'] === 'single_choice') {
+                if (count($distinctOptions) < 2) {
+                    $problems[] = 'insufficient_distinct_options';
+                }
+            } elseif ($distinctOptions === []) {
+                $problems[] = 'missing_options';
+            }
+
+            if ($problems !== []) {
+                $invalid[] = [
+                    'item_id' => $question['item_id'],
+                    'skill_id' => (int) $question['skill_id'],
+                    'item_type' => $question['item_type'],
+                    'problems' => $problems,
+                ];
+            }
+        }
+
+        if ($invalid !== []) {
+            throw BaselineAssessmentException::invalidQuestionContent($invalid);
+        }
     }
 
     /**

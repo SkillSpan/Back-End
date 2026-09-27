@@ -305,12 +305,13 @@ Request (added fields marked `←`):
 | File | Purpose |
 |---|---|
 | `app/Models/BaselineQuestionSnapshot.php` | Immutable snapshot model |
-| `app/Services/Baseline/BaselineQuestionSelectionService.php` | Role-based selection, coverage-preserving cap, snapshot validation + frozen-content accessors |
+| `app/Services/Baseline/BaselineQuestionSelectionService.php` | Role-based selection, coverage-preserving cap, snapshot validation + frozen-content accessors, **content validity enforcement (`assertQuestionContentIsValid`)** |
 | `database/migrations/2026_09_28_000001_add_role_and_snapshot_to_baseline_assessments.php` | `career_role_id`, `question_count`, `skill_coverage`, `snapshot_metadata` |
 | `database/migrations/2026_09_28_000002_create_baseline_question_snapshots_table.php` | Snapshot table |
 | `database/migrations/2026_09_28_000003_add_question_text_to_baseline_assessment_items.php` | `question_text` on the item bank |
 | `database/migrations/2026_09_28_000004_freeze_content_on_baseline_question_snapshots.php` | frozen `item_id`, `item_type`, `question_text`, `options` on snapshots |
 | `database/migrations/2026_09_28_000005_scope_baseline_uniqueness_by_career_role.php` | uniqueness re-scoped to include `career_role_id` |
+| `database/migrations/2026_09_28_000006_protect_baseline_snapshot_integrity.php` | snapshot FKs made non-destructive (Task A) |
 
 No frontend or Data Science repository files were touched.
 
@@ -336,12 +337,31 @@ php artisan migrate
 - `2026_09_28_000005_scope_baseline_uniqueness_by_career_role`
   swaps `baseline_attempt_unique` for `baseline_attempt_role_unique`
   `(student_profile_id, assessment_type, assessment_version, career_role_id)`.
+- `2026_09_28_000006_protect_baseline_snapshot_integrity` **(Task A)**
+  makes the snapshot's foreign keys non-destructive:
+
+  | Column | Before | After | Why |
+  |---|---|---|---|
+  | `baseline_assessment_item_id` | `cascadeOnDelete` | nullable + `nullOnDelete` | Deleting a bank question must not erase assessment history; the snapshot carries its own frozen content, so it detaches instead. |
+  | `skill_id` | `cascadeOnDelete` | `restrictOnDelete` | A skill is a stable taxonomy node — refuse the delete rather than orphan the snapshot's skill mapping. |
+  | `baseline_assessment_id` | `cascadeOnDelete` | *unchanged* | Deleting the parent assessment legitimately removes its own snapshots. |
+  | `career_role_id` | `cascadeOnDelete` | *unchanged* | A retired role takes its role-scoped assessments with it. |
+
+  The unique index `bqs_assessment_item_unique` is dropped: with item
+  references nullable, NULLs no longer collide, so the constraint would
+  silently stop enforcing anything while still costing writes. Selection
+  already guarantees one snapshot per item per assessment.
+
+  SQLite cannot `ALTER` an FK in place, so the driver rebuilds the table
+  via its own table-copy. `RefreshDatabase` runs the whole chain on
+  SQLite, so this path is covered by the suite, not just production MySQL.
 
 All `down()` methods are implemented and verified:
 `php artisan migrate:rollback --step=5` then `php artisan migrate` succeeds.
-Note: rolling `2026_09_28_000005` back will fail if a learner already holds two
-assessments for the same version under different roles — delete the extras
-first, or skip reverting that migration.
+`rollback --step=1` + `migrate` was additionally run for migration 6 and
+verified to round-trip. Note: rolling `2026_09_28_000005` back will fail if a
+learner already holds two assessments for the same version under different
+roles — delete the extras first, or skip reverting that migration.
 
 ## 7. Test commands and actual results
 
@@ -357,12 +377,16 @@ Results (PHP 8.2.12, SQLite in-memory, this branch):
 
 | Command | Result |
 |---|---|
-| `BaselineAssessmentTest` | **OK (42 tests, 184 assertions)** |
+| `BaselineAssessmentTest` | **OK (42 tests, 181 assertions)** |
 | `BaselineQuestionSelectionServiceTest` | **OK (10 tests, 28 assertions)** |
 | `BaselineItemsSecretTest` | **OK (7 tests, 12 assertions)** |
-| Full suite `php vendor/bin/phpunit` | **OK (275 tests, 1065 assertions)** |
-| `php vendor/bin/pint --test` | **PASS (283 files)** |
-| `php artisan migrate:fresh` + `rollback --step=5` + re-apply | all succeeded |
+| `SnapshotIntegrityTest` *(Task A)* | **OK (13 tests, 51 assertions)** |
+| `QuestionContentValidationTest` *(Task C)* | **OK (8 tests, 27 assertions)** |
+| `BaselineDataScienceContractTest` *(Task B)* | **OK (7 tests, 37 assertions)** |
+| `BaselineSubmissionAndReadinessTest` *(Tasks D+E)* | **OK (9 tests, 39 assertions)** |
+| Full suite `php artisan test` | **OK (312 tests, 1219 assertions)** |
+| `php vendor/bin/pint --test` | **PASS (288 files)** |
+| `php artisan migrate:fresh` + `rollback --step=1` + re-apply | all succeeded |
 
 ### Pre-existing failures (before this task) — all now resolved
 
@@ -410,18 +434,31 @@ covered by regression tests:
 6. Check `BASELINE_MAX_TOTAL_QUESTIONS` is `>=` the largest role's required-skill
    count, else starts fail with `INSUFFICIENT_QUESTION_CAPACITY`.
 7. Author `question_text` for the item bank if the frontend relies on
-   server-supplied prompts (`null` until authored).
+   server-supplied prompts. **Required, not optional** since Task C: a selected
+   question with a missing/blank prompt now fails the whole start with
+   `422 INVALID_QUESTION_CONTENT`. `single_choice` items also need at least two
+   distinct options; `scale` items need at least one anchor.
+8. Migration `2026_09_28_000006` changes foreign keys on an existing table. On
+   MySQL this is an `ALTER TABLE` and takes a metadata lock — run it in a
+   low-traffic window on large tables. It is safe with existing rows: item
+   references stay valid, they only become nullable.
 
 ### Rollback
 
 1. Roll back code to the previous release.
-2. `php artisan migrate:rollback --step=5` (drops the snapshot content columns,
-   `question_text`, the snapshot table, the assessment columns, and restores the
-   original uniqueness index). **Existing rows keep working** — `career_role_id`
-   is nullable, so legacy assessments are unaffected.
-   - Caveat: reverting migration `2026_09_28_000005` will fail if a learner
-     already holds two assessments for the same version under different roles.
+2. `php artisan migrate:rollback --step=6` (restores the destructive FKs,
+   drops the snapshot content columns, `question_text`, the snapshot table,
+   the assessment columns, and restores the original uniqueness index).
+   **Existing rows keep working** — `career_role_id` is nullable, so legacy
+   assessments are unaffected.
+   - Caveat: reverting `2026_09_28_000005` will fail if a learner already
+     holds two assessments for the same version under different roles.
      Remove the extra rows first, or leave that migration applied.
+   - Caveat: rolling back `2026_09_28_000006` restores
+     `baseline_assessment_item_id` as `NOT NULL` with `ON DELETE CASCADE`.
+     If any snapshot was already detached (`NULL`) because its source question
+     was deleted, that rollback will fail. Null those rows' references or
+     restore the questions first.
 3. Turn `DATA_SCIENCE_BASELINE_ENABLED` off to disable the dynamic path entirely.
 
 ## 9. Manual verification checklist
@@ -468,3 +505,94 @@ covered by regression tests:
 - [ ] After a successful submit, `POST /readiness/calculate` for a learner with
       all required-skill evaluations no longer returns `ASSESSMENT_INCOMPLETE`.
 - [ ] Another learner's `GET`/`PATCH`/`submit` → 404 `ASSESSMENT_NOT_FOUND`.
+- [ ] **(Task A)** Start an assessment, then delete one of its source questions
+      from `baseline_assessment_items` → the snapshot row survives with
+      `baseline_assessment_item_id = NULL`; `GET` still returns the frozen
+      question text and options; submit still succeeds.
+- [ ] **(Task A)** Edit a source question's `question_text`/`options`/`item_type`
+      and deactivate it → `GET` still returns the original frozen values, and an
+      answer valid only under the original options is still accepted.
+- [ ] **(Task A)** Try to delete a skill referenced by a snapshot → the delete is
+      refused (FK `RESTRICT`), not cascaded.
+- [ ] **(Task C)** Set a selected item's `question_text` to `''`/`NULL` → 422
+      `INVALID_QUESTION_CONTENT` with `details.invalid_questions[]`; no
+      assessment row created and no prompt invented.
+- [ ] **(Task C)** Give a `single_choice` item fewer than two distinct options →
+      422 `INVALID_QUESTION_CONTENT` (`insufficient_distinct_options`).
+- [ ] **(Task B)** Make the service return `skill_evaluations` instead of
+      `skills` → 502 `INTELLIGENCE_INVALID_RESPONSE`; nothing persisted.
+
+---
+
+## 10. Finalization pass (Tasks A–F)
+
+### Task A — snapshot integrity
+
+Source questions and skills are mutable editorial data; a snapshot is an
+append-only historical record. Migration
+`2026_09_28_000006_protect_baseline_snapshot_integrity` makes the
+relationship non-destructive:
+
+- `baseline_assessment_item_id` → **nullable + `ON DELETE SET NULL`**.
+  Deleting a bank question detaches the snapshot; the frozen content keeps
+  it readable and submittable.
+- `skill_id` → **`ON DELETE RESTRICT`**. Deleting a skill while snapshots
+  reference it now fails loudly instead of silently destroying assessment
+  history.
+- `baseline_assessment_id` and `career_role_id` keep `CASCADE` (the parent
+  owns its snapshots).
+- The `bqs_assessment_item_unique` index is dropped — with nullable item
+  references, `NULL`s would no longer collide, so the index would silently
+  stop enforcing anything.
+
+Covered by `SnapshotIntegrityTest` (13 tests).
+
+### Task B — Data Science contract
+
+**The Data Science service has no baseline endpoint.** Verified by reading
+`D:/Projects/SkillBridge/data-science_data-analysis/app/main.py` and the
+only router (`skill_gap.py`): a repo-wide, case-insensitive search for
+`baseline` returns zero matches. The integration is therefore **not
+verified compatible**, and is documented as such — see
+`DATASCIENCE_BASELINE_CONTRACT_VERIFICATION.md`.
+
+Laravel's side of the contract is pinned by
+`BaselineDataScienceContractTest` (7 tests):
+
+- sends `student_profile_id`, `user_id`, `assessment_version`,
+  `career_role_id`, `career_role_version`, `question_ids`, `responses`;
+- does **not** send `questions` or `skill_mappings` (documented decisions);
+- requires top-level `skills` — `skill_evaluations` is rejected with 502;
+- ignores extra response fields (`overall_score`, echoed ids) and never
+  lets a service-supplied `student_profile_id` hijack evaluation ownership.
+
+### Task C — question content validation
+
+`BaselineQuestionSelectionService::assertQuestionContentIsValid()` refuses
+the assessment (`422 INVALID_QUESTION_CONTENT`) when a selected question
+has a missing/blank prompt, a `single_choice` with fewer than two distinct
+options, or a `scale` item with no anchors. All violations are reported
+together in `details.invalid_questions[]`. No placeholder prompt is ever
+invented, and a broken question is never silently skipped.
+
+Covered by `QuestionContentValidationTest` (8 tests).
+
+### Task D — submission correctness
+
+Verified and regression-tested (`BaselineSubmissionAndReadinessTest`):
+another learner's assessment → 404; already-completed → 409; a question
+outside the snapshot → 422 `UNAUTHORIZED_QUESTION`; a persistence failure
+rolls back everything and leaves the assessment `in_progress`; a retry
+never duplicates evaluations; `completed` is set only after persistence
+succeeds.
+
+### Task E — readiness gating
+
+`ASSESSMENT_INCOMPLETE` cannot be bypassed: partial evaluations are
+persisted **as returned**, never fabricated, and readiness still refuses
+until every required role skill has an evaluation — then proceeds.
+
+### Task F — tests
+
+312 tests / 1219 assertions green; Pint PASS across 288 files; migration
+up/down/up verified. No commits, pushes, merges, or deployments performed.
