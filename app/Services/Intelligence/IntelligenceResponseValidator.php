@@ -206,8 +206,12 @@ class IntelligenceResponseValidator
     }
 
     /**
-     * Readiness contract: 0..100 scores, component invariants, critical
-     * cap metadata, and skill-level counts consistent with the gap data.
+     * Readiness contract: 0..100 scores, skill counts, and — when the service
+     * supplies them — the critical-cap metadata and its internal consistency.
+     *
+     * The cap metadata is validated but NOT required. Laravel owns the
+     * Composite and the Critical Cap, so the service must never be obliged to
+     * report them; see the note in the body.
      */
     public function validateReadiness(array $result, array $payload): void
     {
@@ -217,12 +221,8 @@ class IntelligenceResponseValidator
         $required = [
             'readiness_score',
             'base_readiness_score',
-            'critical_skill_cap_applied',
-            'critical_skill_gap_count',
-            'critical_skill_names',
             'total_skills',
             'met_skills',
-            'skills_with_gap',
         ];
 
         foreach ($required as $key) {
@@ -251,14 +251,6 @@ class IntelligenceResponseValidator
             }
         }
 
-        if (! is_bool($result['critical_skill_cap_applied'])) {
-            throw new IntelligenceException(
-                'The intelligence service response contains an invalid critical cap flag.',
-                502,
-                'INTELLIGENCE_INVALID_RESPONSE',
-            );
-        }
-
         if (! is_int($result['total_skills']) || $result['total_skills'] !== count($payload['skills'])) {
             throw new IntelligenceException(
                 'The intelligence service response contains an invalid total skill count.',
@@ -267,22 +259,55 @@ class IntelligenceResponseValidator
             );
         }
 
-        $metSkills = $result['met_skills'];
-        $skillsWithGap = $result['skills_with_gap'];
-
-        if (
-            ! is_int($metSkills) || ! is_int($skillsWithGap)
-            || $metSkills < 0 || $skillsWithGap < 0
-            || ($metSkills + $skillsWithGap) !== $result['total_skills']
-        ) {
+        if (! is_int($result['met_skills']) || $result['met_skills'] < 0) {
             throw new IntelligenceException(
-                'The intelligence service response contains inconsistent skill counts.',
+                'The intelligence service response contains an invalid met skill count.',
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
             );
         }
 
-        if (! is_array($result['critical_skill_names']) || ! is_int($result['critical_skill_gap_count'])) {
+        /*
+         * Critical-cap metadata is OPTIONAL, and that is deliberate.
+         *
+         * Skill Match v1 returns per-skill `is_critical` and `match_ratio` and
+         * no cap metadata at all. Laravel is the owner of the Composite and of
+         * the Critical Cap, so the service must never be *required* to report
+         * the outcome of a decision Laravel makes. Requiring these fields
+         * pinned us to a contract the service does not implement.
+         *
+         * Each field is still validated whenever the service does send it, so
+         * tolerating absence costs no coverage.
+         */
+        if (array_key_exists('critical_skill_cap_applied', $result)
+            && ! is_bool($result['critical_skill_cap_applied'])
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response contains an invalid critical cap flag.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+            );
+        }
+
+        if (array_key_exists('skills_with_gap', $result)) {
+            $skillsWithGap = $result['skills_with_gap'];
+
+            if (
+                ! is_int($skillsWithGap) || $skillsWithGap < 0
+                || ($result['met_skills'] + $skillsWithGap) !== $result['total_skills']
+            ) {
+                throw new IntelligenceException(
+                    'The intelligence service response contains inconsistent skill counts.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                );
+            }
+        }
+
+        $hasCriticalNames = array_key_exists('critical_skill_names', $result);
+        $hasCriticalCount = array_key_exists('critical_skill_gap_count', $result);
+
+        if ($hasCriticalNames && ! is_array($result['critical_skill_names'])) {
             throw new IntelligenceException(
                 'The intelligence service response contains invalid critical skill metadata.',
                 502,
@@ -290,7 +315,19 @@ class IntelligenceResponseValidator
             );
         }
 
-        if ($result['critical_skill_gap_count'] !== count($result['critical_skill_names'])) {
+        if ($hasCriticalCount && ! is_int($result['critical_skill_gap_count'])) {
+            throw new IntelligenceException(
+                'The intelligence service response contains invalid critical skill metadata.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+            );
+        }
+
+        // Only meaningful when both are present; either may be omitted.
+        if (
+            $hasCriticalNames && $hasCriticalCount
+            && $result['critical_skill_gap_count'] !== count($result['critical_skill_names'])
+        ) {
             throw new IntelligenceException(
                 'The intelligence service response contains inconsistent critical skill counts.',
                 502,

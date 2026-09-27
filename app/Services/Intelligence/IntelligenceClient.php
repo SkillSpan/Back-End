@@ -67,7 +67,7 @@ class IntelligenceClient
     /**
      * Send one intelligence request and return the decoded JSON body.
      *
-     * @param  non-empty-string  $path  Versioned SRS path, e.g. /api/v1/intelligence/skill-gap
+     * @param  non-empty-string  $path  Contract path, e.g. /api/v1/skill-gap
      */
     public function post(string $path, array $payload, string $requestId, string $operation): array
     {
@@ -125,21 +125,52 @@ class IntelligenceClient
     public function calculateSkillGap(array $payload, string $requestId): array
     {
         return $this->post(
-            (string) config('services.data_science.skill_gap_path', '/api/v1/intelligence/skill-gap'),
-            $payload,
+            (string) config('services.data_science.skill_gap_path', '/api/v1/skill-gap'),
+            $this->toSkillGapRequest($payload),
             $requestId,
             'skill_gap',
         );
     }
 
-    public function calculateReadiness(array $payload, string $requestId): array
+    /**
+     * Map the canonical internal payload onto the deployed
+     * `SkillGapRequest` contract (POST /api/v1/skill-gap).
+     *
+     * The internal payload is nested (`learner` / `role`) because it is
+     * also the decision-snapshot record and the reference the response
+     * validator checks identity against. The deployed contract is FLAT,
+     * so the two cannot be the same array.
+     *
+     * Only fields the contract declares are sent: we do not rely on the
+     * service's model being configured to ignore unknown keys, because
+     * that is a deployment detail we do not control.
+     *
+     * @param  array<string, mixed>  $payload  canonical nested payload
+     * @return array<string, mixed> the flat SkillGapRequest body
+     */
+    private function toSkillGapRequest(array $payload): array
     {
-        return $this->post(
-            (string) config('services.data_science.readiness_path', '/api/v1/intelligence/readiness'),
-            $payload,
-            $requestId,
-            'readiness',
-        );
+        $skills = [];
+
+        foreach ($payload['skills'] ?? [] as $skill) {
+            $skills[] = [
+                'skill_id' => (int) $skill['skill_id'],
+                'skill_name' => (string) $skill['skill_name'],
+                'current_level' => (float) $skill['current_level'],
+                'required_level' => (float) $skill['required_level'],
+                'importance_weight' => (float) $skill['importance_weight'],
+                'is_critical' => (bool) $skill['is_critical'],
+            ];
+        }
+
+        return [
+            'student_profile_id' => (int) $payload['learner']['student_profile_id'],
+            'career_role_id' => (int) $payload['role']['id'],
+            'career_role_version' => (int) $payload['role']['version'],
+            'user_id' => (int) $payload['learner']['user_id'],
+            'target_role' => (string) $payload['role']['title'],
+            'skills' => $skills,
+        ];
     }
 
     public function generateRoadmap(array $payload, string $requestId): array
@@ -152,8 +183,15 @@ class IntelligenceClient
             );
         }
 
+        /*
+         * UNVERIFIED PATH. The deployed service exposes no roadmap endpoint
+         * in any form, so unlike skill-gap this cannot be confirmed against
+         * a live contract. The body is Laravel's nested internal payload,
+         * also unconfirmed. Enabling roadmap generation without first
+         * confirming both against the service will fail.
+         */
         return $this->post(
-            (string) config('services.data_science.roadmap_path', '/api/v1/intelligence/roadmap'),
+            (string) config('services.data_science.roadmap_path', '/api/v1/roadmap'),
             $payload,
             $requestId,
             'roadmap',
@@ -214,16 +252,16 @@ class IntelligenceClient
             );
         }
 
-        Log::info('Intelligence service request completed.', [
-            'request_id' => $requestId,
-            'operation' => $operation,
-            'student_profile_id' => $payload['learner']['student_profile_id'] ?? null,
-            'career_role_id' => $payload['role']['id'] ?? null,
-            'career_role_version' => $payload['role']['version'] ?? null,
-            'algorithm_version' => $data['algorithm_version'] ?? null,
-            'http_status' => $status,
-            'duration_ms' => $durationMs,
-        ]);
+        Log::info('Intelligence service request completed.', array_merge(
+            $this->correlationContext($payload),
+            [
+                'request_id' => $requestId,
+                'operation' => $operation,
+                'algorithm_version' => $data['algorithm_version'] ?? null,
+                'http_status' => $status,
+                'duration_ms' => $durationMs,
+            ],
+        ));
 
         return $data;
     }
@@ -233,6 +271,32 @@ class IntelligenceClient
         $data = $response->json();
 
         return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Correlation identifiers for structured logging.
+     *
+     * post() is shared by endpoints with different body shapes: the
+     * skill-gap call sends the deployed FLAT SkillGapRequest, while the
+     * (unverified) roadmap call still sends Laravel's nested internal
+     * payload. Reading both shapes keeps the correlation fields
+     * populated instead of silently logging nulls.
+     *
+     * @return array<string, int|string|null>
+     */
+    private function correlationContext(array $payload): array
+    {
+        return [
+            'student_profile_id' => $payload['student_profile_id']
+                ?? $payload['learner']['student_profile_id']
+                ?? null,
+            'career_role_id' => $payload['career_role_id']
+                ?? $payload['role']['id']
+                ?? null,
+            'career_role_version' => $payload['career_role_version']
+                ?? $payload['role']['version']
+                ?? null,
+        ];
     }
 
     /**
@@ -247,15 +311,15 @@ class IntelligenceClient
         string $reason,
         array $payload,
     ): void {
-        Log::warning('Intelligence service request failed.', [
-            'request_id' => $requestId,
-            'operation' => $operation,
-            'student_profile_id' => $payload['learner']['student_profile_id'] ?? null,
-            'career_role_id' => $payload['role']['id'] ?? null,
-            'career_role_version' => $payload['role']['version'] ?? null,
-            'http_status' => $status,
-            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-            'failure_reason' => $reason,
-        ]);
+        Log::warning('Intelligence service request failed.', array_merge(
+            $this->correlationContext($payload),
+            [
+                'request_id' => $requestId,
+                'operation' => $operation,
+                'http_status' => $status,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'failure_reason' => $reason,
+            ],
+        ));
     }
 }

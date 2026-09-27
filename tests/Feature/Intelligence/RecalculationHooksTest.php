@@ -5,6 +5,7 @@ namespace Tests\Feature\Intelligence;
 use App\Events\SkillDataChanged;
 use App\Models\AlgorithmConfiguration;
 use App\Models\BaselineAssessment;
+use App\Models\BaselineAssessmentItem;
 use App\Models\CareerGoalHistory;
 use App\Models\CareerRole;
 use App\Models\Role;
@@ -105,22 +106,49 @@ class RecalculationHooksTest extends TestCase
 
         config(['services.data_science.baseline.enabled' => true]);
         config(['services.data_science.baseline.version' => 'v1.0']);
+        // Deterministic selection so the snapshot question set is stable.
+        config(['services.baseline_assessment.deterministic_selection' => true]);
 
         $user = $this->createLearner();
         $profile = StudentProfile::forceCreate(['user_id' => $user->id]);
-        $skill = Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid(), 'status' => 'active']);
 
-        $assessment = BaselineAssessment::forceCreate([
-            'student_profile_id' => $profile->id,
-            'assessment_type' => 'baseline',
-            'assessment_version' => 'v1.0',
-            'status' => 'in_progress',
-            'progress' => [],
-            'responses' => null,
-            'result' => null,
-            'normalized_skills' => null,
-            'completed_at' => null,
+        Sanctum::actingAs($user);
+
+        // Dynamic flow: an approved role with a required skill that has an
+        // active question.
+        $skill = Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid(), 'status' => 'active']);
+        $role = CareerRole::create([
+            'title' => 'Data Analyst',
+            'slug' => 'data-analyst-'.uniqid(),
+            'version' => 1,
+            'status' => 'approved',
+            'effective_date' => now()->toDateString(),
         ]);
+        $role->roleSkills()->create([
+            'skill_id' => $skill->id,
+            'required_level' => 3.0,
+            'importance_weight' => 0.9,
+            'is_critical' => true,
+        ]);
+
+        BaselineAssessmentItem::updateOrCreate(
+            ['assessment_version' => 'v1.0', 'item_id' => 'sql-hook-001'],
+            [
+                'item_type' => 'single_choice',
+                'question_text' => 'Which SQL clause filters rows?',
+                'skill_id' => $skill->id,
+                'options' => ['A', 'B', 'C', 'D'],
+                'correct_answer' => 'A',
+                'weight' => 1.000,
+                'is_active' => true,
+            ],
+        );
+
+        $assessmentId = $this->postJson('/api/v1/baseline-assessments', [
+            'career_role_id' => $role->id,
+        ])->assertStatus(201)->json('data.id');
+
+        $assessment = BaselineAssessment::with('questionSnapshots.item')->findOrFail($assessmentId);
 
         Http::fake([
             '*/api/v1/baseline' => Http::response([
@@ -128,17 +156,19 @@ class RecalculationHooksTest extends TestCase
                 'student_profile_id' => $profile->id,
                 'overall_score' => 60,
                 'skills' => [
-                    ['skill_id' => $skill->id, 'slug' => $skill->slug, 'level' => 3.0, 'confidence' => 0.7],
+                    ['slug' => $skill->slug, 'level' => 3.0, 'confidence' => 0.7],
                 ],
             ], 200),
         ]);
 
-        Sanctum::actingAs($user);
+        $responses = $assessment->questionSnapshots->map(fn ($snapshot) => [
+            'question_id' => (string) $snapshot->item->item_id,
+            'answer' => (string) ($snapshot->item->options[0] ?? 'A'),
+        ])->values()->all();
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
-            'responses' => [
-                ['question' => 1, 'answer' => 'sql-2'],
-            ],
+            'responses' => $responses,
+
         ])->assertOk();
 
         Event::assertDispatched(SkillDataChanged::class, fn ($e) => $e->source === 'baseline_assessment_submit'
@@ -173,8 +203,12 @@ class RecalculationHooksTest extends TestCase
             'calculated_at' => now(),
         ]);
 
-        Http::fakeSequence()
-            ->push([
+        // ONE response: the deployed contract returns the per-skill gaps
+        // AND the readiness block from POST /api/v1/skill-gap together,
+        // so a calculation is a single round-trip. (A fakeSequence would
+        // leave the second queued response unconsumed.)
+        Http::fake([
+            '*/api/v1/skill-gap' => Http::response([
                 'student_profile_id' => $profile->id,
                 'career_role_id' => $role->id,
                 'career_role_version' => 1,
@@ -189,12 +223,6 @@ class RecalculationHooksTest extends TestCase
                     'gap' => 1.5,
                     'status' => 'gap',
                 ]],
-            ], 200)
-            ->push([
-                'student_profile_id' => $profile->id,
-                'career_role_id' => $role->id,
-                'career_role_version' => 1,
-                'algorithm_version' => 'intelligence-v1',
                 'base_readiness_score' => 50.0,
                 'readiness_score' => 50.0,
                 'critical_skill_cap_applied' => false,
@@ -203,7 +231,8 @@ class RecalculationHooksTest extends TestCase
                 'total_skills' => 1,
                 'met_skills' => 0,
                 'skills_with_gap' => 1,
-            ], 200);
+            ], 200),
+        ]);
 
         // QUEUE_CONNECTION=sync in tests: the listener runs inline.
         SkillDataChanged::dispatch($profile->fresh(), 'career_role_change');

@@ -97,7 +97,17 @@ class IntelligencePersistenceService
             'practical_experience_component' => $result['practical_experience_component'] ?? null,
             'assessment_reliability_component' => $result['assessment_reliability_component'] ?? null,
             'profile_completeness_component' => $result['profile_completeness_component'] ?? null,
-            'critical_cap_applied' => (bool) $result['critical_skill_cap_applied'],
+            /*
+             * Optional by design: the cap is Laravel's decision, so the
+             * service is not obliged to report it (see
+             * IntelligenceResponseValidator::validateReadiness()).
+             *
+             * Follow-up (US-INT-01): this path should derive the cap from the
+             * per-skill `is_critical` + `match_ratio` data the way
+             * ReadinessService does, rather than trusting the service. Until
+             * then an omitted flag is recorded as "not applied".
+             */
+            'critical_cap_applied' => (bool) ($result['critical_skill_cap_applied'] ?? false),
             'band' => $result['band'] ?? null,
             'algorithm_version' => $algorithmVersion,
             'configuration_version' => $configurationVersion,
