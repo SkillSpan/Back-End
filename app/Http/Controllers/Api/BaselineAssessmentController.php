@@ -8,6 +8,8 @@ use App\Http\Requests\SaveBaselineProgressRequest;
 use App\Http\Requests\StartBaselineAssessmentRequest;
 use App\Http\Requests\SubmitBaselineAssessmentRequest;
 use App\Models\BaselineAssessment;
+use App\Models\BaselineQuestionSnapshot;
+use App\Models\CareerRole;
 use App\Services\Baseline\BaselineAssessmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,8 +37,11 @@ class BaselineAssessmentController extends Controller
         }
 
         try {
+            $careerRole = CareerRole::findOrFail((int) $request->input('career_role_id'));
+
             $assessment = $this->assessmentService->start(
                 $studentProfile,
+                $careerRole,
                 $requestId,
             );
 
@@ -66,6 +71,13 @@ class BaselineAssessmentController extends Controller
             );
         }
 
+        // Eager-load the frozen question set: retrieval must return the
+        // exact questions selected at creation time, not the live bank.
+        $assessment->loadMissing([
+            'questionSnapshots.item',
+            'careerRole:id,title,slug,version',
+        ]);
+
         return response()->json([
             'success' => true,
             'message' => 'Baseline assessment retrieved successfully.',
@@ -94,6 +106,11 @@ class BaselineAssessmentController extends Controller
                 $request->input('responses'),
                 $requestId,
             );
+
+            $assessment->loadMissing([
+                'questionSnapshots.item',
+                'careerRole:id,title,slug,version',
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -128,6 +145,11 @@ class BaselineAssessmentController extends Controller
                 $requestId,
             );
 
+            $assessment->loadMissing([
+                'questionSnapshots.item',
+                'careerRole:id,title,slug,version',
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Baseline assessment completed successfully.',
@@ -146,20 +168,70 @@ class BaselineAssessmentController extends Controller
             && $assessment->studentProfile->user_id === $userId;
     }
 
+    /**
+     * Serialize an assessment for API consumers.
+     *
+     * `questions` is built from the immutable snapshot and deliberately
+     * omits `correct_answer` / `scoring_rule` — the backend never leaks
+     * grading keys to the client. `responses` is included only once the
+     * assessment is completed, so an in-progress attempt never echoes
+     * partially-submitted answers back over the wire.
+     */
     private function transform(BaselineAssessment $assessment): array
     {
+        $questions = $assessment->relationLoaded('questionSnapshots')
+            ? $assessment->questionSnapshots
+                ->sortBy(fn ($snapshot) => strtolower((string) $snapshot->item?->item_id))
+                ->map(fn ($snapshot) => $this->transformQuestion($snapshot))
+                ->values()
+                ->all()
+            : [];
+
+        $careerRole = $assessment->relationLoaded('careerRole') && $assessment->careerRole
+            ? [
+                'id' => $assessment->careerRole->id,
+                'title' => $assessment->careerRole->title,
+                'slug' => $assessment->careerRole->slug,
+                'version' => $assessment->careerRole->version,
+            ]
+            : null;
+
         return [
             'id' => $assessment->id,
             'assessment_type' => $assessment->assessment_type,
             'assessment_version' => $assessment->assessment_version,
+            'career_role_id' => $assessment->career_role_id,
+            'career_role' => $careerRole,
             'status' => $assessment->status,
+            'question_count' => $assessment->question_count,
+            'questions' => $questions,
+            'skill_coverage' => $assessment->skill_coverage,
+            'snapshot_metadata' => $assessment->snapshot_metadata,
             'progress' => $assessment->progress,
-            'responses' => $assessment->responses,
+            'responses' => $assessment->isCompleted() ? $assessment->responses : null,
             'result' => $assessment->result,
             'normalized_skills' => $assessment->normalized_skills,
             'completed_at' => $assessment->completed_at?->toIso8601String(),
             'created_at' => $assessment->created_at?->toIso8601String(),
             'updated_at' => $assessment->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @param  BaselineQuestionSnapshot  $snapshot
+     */
+    private function transformQuestion($snapshot): array
+    {
+        $item = $snapshot->item;
+
+        return [
+            'item_id' => $item?->item_id,
+            'item_type' => $item?->item_type,
+            'options' => is_array($item?->options) ? array_values($item->options) : [],
+            'skill_id' => (int) $snapshot->skill_id,
+            'skill_slug' => $snapshot->relationLoaded('skill') ? $snapshot->skill?->slug : null,
+            'importance_weight' => (float) $snapshot->importance_weight,
+            'is_critical' => (bool) $snapshot->is_critical,
         ];
     }
 

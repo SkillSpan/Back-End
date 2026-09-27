@@ -24,6 +24,9 @@ use Throwable;
  *   "student_profile_id": 1,
  *   "user_id": 2,
  *   "assessment_version": "v1.0",
+ *   "career_role_id": 3,
+ *   "career_role_version": 1,
+ *   "question_ids": ["sql-001", "python-002"],
  *   "responses": { ... }
  * }
  *
@@ -44,7 +47,10 @@ class BaselineDataScienceClient
         StudentProfile $studentProfile,
         string $assessmentVersion,
         array $responses,
-        string $requestId
+        string $requestId,
+        ?int $careerRoleId = null,
+        ?int $careerRoleVersion = null,
+        ?array $questionIds = null,
     ): array {
         $baseUrl = rtrim(
             (string) config('services.data_science.url'),
@@ -94,6 +100,16 @@ class BaselineDataScienceClient
             'assessment_version' => $assessmentVersion,
             'responses' => $responses,
         ];
+
+        if ($careerRoleId !== null) {
+            $payload['career_role_id'] = $careerRoleId;
+        }
+        if ($careerRoleVersion !== null) {
+            $payload['career_role_version'] = $careerRoleVersion;
+        }
+        if ($questionIds !== null) {
+            $payload['question_ids'] = $questionIds;
+        }
 
         $startedAt = microtime(true);
 

@@ -668,6 +668,112 @@
           }
         }
       ]
+    },
+    {
+      "name": "التقييم الأساسي الديناميكي (Dynamic Baseline Assessment)",
+      "description": "POST /baseline-assessments now requires career_role_id. Questions come from the assessment snapshot; correct answers are never returned.",
+      "item": [
+        {
+          "name": "بدء التقييم الأساسي (start)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/baseline-assessments",
+            "description": "201 -> data.questions[], data.skill_coverage, data.snapshot_metadata. 422 INSUFFICIENT_QUESTION_COVERAGE when a required skill has no active question.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"career_role_id\": 1\n}"
+            }
+          },
+          "description": "201 -> data.questions[], data.skill_coverage, data.snapshot_metadata. 422 INSUFFICIENT_QUESTION_COVERAGE when a required skill has no active question."
+        },
+        {
+          "name": "استرجاع التقييم (show)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}",
+            "description": "200 -> questions WITHOUT correct_answer/scoring_rule; responses is null while in_progress."
+          },
+          "description": "200 -> questions WITHOUT correct_answer/scoring_rule; responses is null while in_progress."
+        },
+        {
+          "name": "حفظ التقدم (progress)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}",
+            "description": "200 -> resume state. 409 ASSESSMENT_ALREADY_COMPLETED when completed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"progress\": {\n    \"current_question\": 2,\n    \"answered\": [\n      \"sql-001\"\n    ]\n  }\n}"
+            }
+          },
+          "description": "200 -> resume state. 409 ASSESSMENT_ALREADY_COMPLETED when completed."
+        },
+        {
+          "name": "إرسال التقييم (submit)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}/submit",
+            "description": "200 -> status completed + normalized_skills. 422 UNAUTHORIZED_QUESTION / DUPLICATE_RESPONSE / INVALID_ANSWER_OPTION / INCOMPLETE_RESPONSES. 502 INTELLIGENCE_SKILL_OUT_OF_SCOPE.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responses\": [\n    {\n      \"question_id\": \"sql-001\",\n      \"answer\": \"B\"\n    },\n    {\n      \"question_id\": \"python-001\",\n      \"answer\": \"A\"\n    }\n  ]\n}"
+            }
+          },
+          "description": "200 -> status completed + normalized_skills. 422 UNAUTHORIZED_QUESTION / DUPLICATE_RESPONSE / INVALID_ANSWER_OPTION / INCOMPLETE_RESPONSES. 502 INTELLIGENCE_SKILL_OUT_OF_SCOPE."
+        }
+      ]
     }
   ],
   "variable": [
