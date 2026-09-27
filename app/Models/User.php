@@ -87,6 +87,21 @@ class User extends Authenticatable
         return $this->hasMany(AccountVerification::class);
     }
 
+    public function mentorStudentConnectionsAsMentor()
+    {
+        return $this->hasMany(MentorStudentConnection::class, 'mentor_id');
+    }
+
+    public function mentorStudentConnectionsAsStudent()
+    {
+        return $this->hasMany(MentorStudentConnection::class, 'student_id');
+    }
+
+    public function sentMessages()
+    {
+        return $this->hasMany(Message::class, 'sender_id');
+    }
+
     public function hasRole(string $slug): bool
     {
         return $this->roles()->where('slug', $slug)->exists();
