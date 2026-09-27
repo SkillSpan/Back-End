@@ -117,6 +117,26 @@ return [
             'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
             'enabled' => (bool) env('DATA_SCIENCE_BASELINE_ENABLED', false),
         ],
+
+        /*
+         * US-INT-01 — dynamic baseline assessment question selection.
+         *
+         * Configurability principle (SRS "Configurability"): question
+         * counts per required skill are tunable without a code change.
+         * min_questions_per_skill is the floor we must be able to serve
+         * for every required skill (1 = coverage exists); the selection
+         * service still enforces real coverage and raises
+         * INSUFFICIENT_QUESTION_COVERAGE when the bank is too thin.
+         * max_questions_per_skill caps how many items a single skill can
+         * contribute so one large question bank cannot dominate the
+         * assessment.
+         */
+        'baseline_assessment' => [
+            'min_questions_per_skill' => (int) env('BASELINE_MIN_QUESTIONS_PER_SKILL', 1),
+            'max_questions_per_skill' => (int) env('BASELINE_MAX_QUESTIONS_PER_SKILL', 3),
+            'max_total_questions' => (int) env('BASELINE_MAX_TOTAL_QUESTIONS', 30),
+            'deterministic_selection' => (bool) env('BASELINE_DETERMINISTIC_SELECTION', false),
+        ],
     ],
 
     /*

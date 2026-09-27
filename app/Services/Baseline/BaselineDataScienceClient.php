@@ -19,15 +19,28 @@ use Throwable;
  * Expected contract (must be implemented by the FastAPI service):
  *
  * POST {url}/api/v1/baseline
+ *
  * Request:
  * {
  *   "student_profile_id": 1,
  *   "user_id": 2,
  *   "assessment_version": "v1.0",
+ *   "career_role_id": 3,
+ *   "career_role_version": 1,
+ *   "question_ids": ["sql-001", "python-002"],
  *   "responses": [
- *     { "item_id": "sql-001", "answer": "B" }
+ *     { "question_id": "sql-001", "answer": "B" },
+ *     { "question_id": "python-002", "answer": "A" }
  *   ]
  * }
+ *
+ * Identifier note:
+ * `question_ids` and every `responses[].question_id` are the SAME opaque
+ * string — the item bank's `item_id` (e.g. "sql-001"), never the numeric
+ * primary key. The Laravel API accepts that same value from the client as
+ * `question_id`, so the three stay aligned end-to-end. If the FastAPI
+ * service needs the numeric key it must resolve it itself via
+ * GET /api/v1/internal/baseline-items?version=v1.0.
  *
  * Response 200:
  * {
@@ -35,10 +48,15 @@ use Throwable;
  *   "student_profile_id": 1,
  *   "overall_score": 60,
  *   "skills": [
- *     { "skill_id": 7, "slug": "sql", "level": 2.5, "confidence": 0.7 },
- *     ...
+ *     { "skill_id": 7, "slug": "sql", "level": 2.5, "confidence": 0.7 }
  *   ]
  * }
+ *
+ * `algorithm_version` is mandatory. `skills` must be non-empty. When
+ * `skill_id` is present it MUST equal the id of the skill named by `slug`;
+ * a disagreement is rejected by the caller as INTELLIGENCE_SKILL_MISMATCH.
+ * Every returned skill must belong to the request's career role, or it is
+ * rejected as INTELLIGENCE_SKILL_OUT_OF_SCOPE.
  */
 class BaselineDataScienceClient
 {
@@ -46,7 +64,10 @@ class BaselineDataScienceClient
         StudentProfile $studentProfile,
         string $assessmentVersion,
         array $responses,
-        string $requestId
+        string $requestId,
+        ?int $careerRoleId = null,
+        ?int $careerRoleVersion = null,
+        ?array $questionIds = null,
     ): array {
         $baseUrl = rtrim(
             (string) config('services.data_science.url'),
@@ -67,7 +88,10 @@ class BaselineDataScienceClient
         }
 
         $path = ltrim(
-            (string) config('services.data_science.baseline.path', 'api/v1/baseline'),
+            (string) config(
+                'services.data_science.baseline.path',
+                'api/v1/baseline'
+            ),
             '/'
         );
 
@@ -80,7 +104,9 @@ class BaselineDataScienceClient
 
         // US-INT-01 §4: dedicated service credential, mandatory on every
         // Laravel -> FastAPI call — never a learner Sanctum token.
-        $serviceToken = trim((string) config('services.data_science.service_token', ''));
+        $serviceToken = trim(
+            (string) config('services.data_science.service_token', '')
+        );
 
         if ($serviceToken === '') {
             throw new BaselineAssessmentException(
@@ -97,6 +123,18 @@ class BaselineDataScienceClient
             'responses' => $responses,
         ];
 
+        if ($careerRoleId !== null) {
+            $payload['career_role_id'] = $careerRoleId;
+        }
+
+        if ($careerRoleVersion !== null) {
+            $payload['career_role_version'] = $careerRoleVersion;
+        }
+
+        if ($questionIds !== null) {
+            $payload['question_ids'] = $questionIds;
+        }
+
         $startedAt = microtime(true);
 
         try {
@@ -109,7 +147,13 @@ class BaselineDataScienceClient
                 ->withToken($serviceToken)
                 ->post($endpoint, $payload);
         } catch (ConnectionException $e) {
-            $this->logFailure($payload, $requestId, null, $startedAt, $e->getMessage());
+            $this->logFailure(
+                $payload,
+                $requestId,
+                null,
+                $startedAt,
+                $e->getMessage()
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence service is unavailable or timed out.',
@@ -119,7 +163,13 @@ class BaselineDataScienceClient
                 $e,
             );
         } catch (Throwable $e) {
-            $this->logFailure($payload, $requestId, null, $startedAt, $e->getMessage());
+            $this->logFailure(
+                $payload,
+                $requestId,
+                null,
+                $startedAt,
+                $e->getMessage()
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence integration failed unexpectedly.',
@@ -130,7 +180,12 @@ class BaselineDataScienceClient
             );
         }
 
-        return $this->parseResponse($response, $payload, $requestId, $startedAt);
+        return $this->parseResponse(
+            $response,
+            $payload,
+            $requestId,
+            $startedAt
+        );
     }
 
     private function parseResponse(
@@ -142,7 +197,13 @@ class BaselineDataScienceClient
         $status = $response->status();
 
         if ($status === 422) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Intelligence validation error');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Intelligence validation error'
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence service rejected the baseline request.',
@@ -180,7 +241,13 @@ class BaselineDataScienceClient
         }
 
         if (! $response->successful()) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Unexpected intelligence HTTP status');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Unexpected intelligence HTTP status'
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence service returned an unexpected HTTP status.',
@@ -192,7 +259,13 @@ class BaselineDataScienceClient
         $data = $response->json();
 
         if (! is_array($data)) {
-            $this->logFailure($payload, $requestId, $status, $startedAt, 'Invalid JSON response');
+            $this->logFailure(
+                $payload,
+                $requestId,
+                $status,
+                $startedAt,
+                'Invalid JSON response'
+            );
 
             throw new BaselineAssessmentException(
                 'The intelligence service returned an invalid JSON response.',
@@ -209,7 +282,9 @@ class BaselineDataScienceClient
                 'assessment_version' => $payload['assessment_version'] ?? null,
                 'algorithm_version' => $data['algorithm_version'] ?? null,
                 'http_status' => $status,
-                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'duration_ms' => (int) round(
+                    (microtime(true) - $startedAt) * 1000
+                ),
             ],
         );
 
@@ -237,7 +312,11 @@ class BaselineDataScienceClient
             return '<empty body>';
         }
 
-        return mb_substr(preg_replace('/\s+/', ' ', $body) ?? $body, 0, 500);
+        return mb_substr(
+            preg_replace('/\s+/', ' ', $body) ?? $body,
+            0,
+            500
+        );
     }
 
     private function logFailure(
@@ -254,7 +333,9 @@ class BaselineDataScienceClient
                 'student_profile_id' => $payload['student_profile_id'] ?? null,
                 'assessment_version' => $payload['assessment_version'] ?? null,
                 'http_status' => $status,
-                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'duration_ms' => (int) round(
+                    (microtime(true) - $startedAt) * 1000
+                ),
                 'failure_reason' => $reason,
             ],
         );

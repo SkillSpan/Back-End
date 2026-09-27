@@ -11,8 +11,10 @@ class BaselineAssessment extends Model
 
     protected $fillable = [
         'student_profile_id',
+        'career_role_id',
         'assessment_type',
         'assessment_version',
+        'question_count',
         'progress',
         'responses',
     ];
@@ -22,12 +24,24 @@ class BaselineAssessment extends Model
         'responses' => 'array',
         'result' => 'array',
         'normalized_skills' => 'array',
+        'skill_coverage' => 'array',
+        'snapshot_metadata' => 'array',
         'completed_at' => 'datetime',
     ];
 
     public function studentProfile()
     {
         return $this->belongsTo(StudentProfile::class);
+    }
+
+    public function careerRole()
+    {
+        return $this->belongsTo(CareerRole::class);
+    }
+
+    public function questionSnapshots()
+    {
+        return $this->hasMany(BaselineQuestionSnapshot::class);
     }
 
     public function isCompleted(): bool
