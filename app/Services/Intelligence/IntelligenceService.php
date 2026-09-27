@@ -19,10 +19,9 @@ use Throwable;
  *  2. gather validated learner skill state (single queries, no N+1)
  *  3. resolve algorithm/configuration versions
  *  4. build payload + persist the PENDING decision snapshot (pre-call)
- *  5. FastAPI skill-gap → validate
- *  6. FastAPI readiness  → validate
- *  7. FastAPI roadmap     → validate (when enabled)
- *  8. persist the COMPLETE decision atomically
+ *  5. FastAPI skill-gap → validate (per-skill gaps AND the readiness block)
+ *  6. FastAPI roadmap    → validate (when enabled; contract unverified)
+ *  7. persist the COMPLETE decision atomically
  *
  * Laravel stays authoritative: no result is trusted before validation,
  * and nothing is persisted unless every enabled call succeeded.
@@ -164,21 +163,38 @@ class IntelligenceService
             $skillGap = $this->client->calculateSkillGap($payload, $requestId);
             $this->validator->validateSkillGap($skillGap, $payload);
 
-            $readiness = $this->client->calculateReadiness($payload, $requestId);
+            /*
+             * The deployed skill-gap contract returns the readiness block
+             * (readiness_score, base_readiness_score, met_skills, …) in the
+             * SAME response as the per-skill gaps — the service has no
+             * standalone readiness endpoint. Both contracts are still
+             * validated independently, so a response satisfying one and not
+             * the other is rejected exactly as before; only the duplicate
+             * round-trip is gone.
+             */
+            $readiness = $skillGap;
             $this->validator->validateReadiness($readiness, $payload);
 
             $roadmap = null;
 
             if (config('services.data_science.roadmap_enabled', false)) {
+                /*
+                 * NOTE: the roadmap contract is UNVERIFIED. No roadmap
+                 * endpoint is deployed, so unlike skill-gap there is no
+                 * live schema to map onto — the internal payload is sent
+                 * as-is and this call is expected to fail until Data
+                 * Science publishes the endpoint. Enabling it without
+                 * confirming the contract first will produce a 502.
+                 */
                 $roadmapPayload = array_merge($payload, ['skill_gap_result' => $skillGap]);
                 $roadmap = $this->client->generateRoadmap($roadmapPayload, $requestId);
                 $this->validator->validateRoadmap($roadmap, $payload);
             }
 
-            // Algorithm version comes from the validated service
-            // responses — the same value across all of them.
+            // Algorithm version comes from the validated service response.
+            // The service owns its own algorithm version metadata and echoes
+            // it back, so this is never the value Laravel asked for.
             $algorithmVersion = (string) ($skillGap['algorithm_version']
-                ?? $readiness['algorithm_version']
                 ?? $payload['algorithm_version']);
 
             $result = $this->persistenceService->persistCompleteDecision(

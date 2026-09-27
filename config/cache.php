@@ -13,9 +13,30 @@ return [
     | framework. This connection is utilized if another isn't explicitly
     | specified when running a cache operation inside the application.
     |
+    | NOTE — the fallback is deliberately 'file', not Laravel's 'database'.
+    |
+    | DB_HOST here is a REMOTE MySQL, and the `throttle:*` middleware runs on
+    | every /api/auth/* route, on /setup/create-admin, and on
+    | /api/v1/internal/baseline-items. Each throttled request performs a cache
+    | read + write + lock, so on the 'database' store every one of them became
+    | a network round trip.
+    |
+    | Measured: 742 ms per cache operation on 'database' versus 26 ms on
+    | 'file' — a 28x difference, roughly 3.4 s added to every throttled
+    | request. That is what pushed the internal baseline-items endpoint to
+    | 3.7-5.6 s and past the Data Science service's 8 s mapping timeout
+    | (BASELINE_MAPPING_TIMEOUT_SECONDS), producing an INTERMITTENT upstream
+    | 503 that was repeatedly misdiagnosed as a secret mismatch.
+    |
+    | Relaxing the fallback (rather than only documenting CACHE_STORE in
+    | .env.example) means an environment that forgets to set it still gets the
+    | fast store instead of silently inheriting the slow one. Setting
+    | CACHE_STORE explicitly still takes precedence — use 'redis' for a
+    | multi-instance deploy that needs a shared store.
+    |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    'default' => env('CACHE_STORE', 'file'),
 
     /*
     |--------------------------------------------------------------------------

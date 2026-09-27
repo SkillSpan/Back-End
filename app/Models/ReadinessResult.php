@@ -24,6 +24,11 @@ class ReadinessResult extends Model
         'band',
         'algorithm_version',
         'configuration_version',
+        // ADR-001 — the STRUCTURE version of the composite (which components
+        // exist / how they aggregate), distinct from `configuration_version`
+        // (the tunable numbers) and `algorithm_version` (FastAPI's Skill
+        // Match component version).
+        'composite_algorithm_version',
         'request_id',
         'calculated_at',
         'snapshot',

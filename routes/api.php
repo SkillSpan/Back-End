@@ -1,12 +1,17 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
+use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
+use App\Http\Controllers\Api\ChatbotController;
+use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
+use App\Http\Controllers\Api\MentorStudentController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReadinessController;
@@ -32,7 +37,6 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:10,1');
     });
 
-    // US-AUTH-06: logout requires a valid session, unlike the routes above.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/logout-all', [AuthController::class, 'logoutAll']);
@@ -69,6 +73,19 @@ Route::prefix('v1')->group(function () {
         Route::get('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'show']);
         Route::patch('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'progress']);
         Route::post('/baseline-assessments/{assessment}/submit', [BaselineAssessmentController::class, 'submit']);
+    });
+
+    // US-REC-01 — intelligent assistant. Read-only explanation of the
+    // learner's OWN stored decisions (readiness, skill gaps, roadmap, next
+    // best action, project recommendations). It never writes to
+    // authoritative records, and it never generates prose — that is
+    // FastAPI's responsibility exclusively.
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('assistant')->group(function () {
+        Route::post('/ask', [AssistantController::class, 'ask']);
+
+        // §12.6 incident flow / REC-08 — report a response as unsafe,
+        // irrelevant, unfair or incorrect.
+        Route::put('/interactions/{interaction}/report', [AssistantController::class, 'report']);
     });
 
     // Public reference data for onboarding dropdowns (no auth needed).
@@ -114,6 +131,51 @@ Route::prefix('v1')->group(function () {
     // Sanctum token (e.g. by hitting the generic /api/auth/login endpoint).
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved'])->prefix('organization')->group(function () {
         Route::get('/profile', [OrganizationController::class, 'profile']);
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // Mentor–Student communication system.
+    // Mentor identity = verified ProfessionalProfile (type=mentor,
+    // verification_status=verified). Not a role-slug; the 'mentor'
+    // middleware checks the profile table directly.
+    // ──────────────────────────────────────────────────────────────
+
+    // Mentor-only endpoints: student discovery, project connections.
+    Route::middleware(['auth:sanctum', 'account.active', 'mentor'])->prefix('mentor')->group(function () {
+        Route::get('/students', [MentorStudentController::class, 'students']);
+        Route::get('/students/{student}', [MentorStudentController::class, 'studentSummary']);
+        Route::post('/connections', [MentorStudentController::class, 'connect']);
+        Route::get('/connections', [MentorStudentController::class, 'connections']);
+        Route::patch('/connections/{connection}', [MentorStudentController::class, 'updateConnection']);
+    });
+
+    // Conversation endpoints: both mentors and students access these.
+    // Authorization (participant check) happens in ConversationService,
+    // not at the middleware layer.
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
+        Route::post('/connections/{connection}/conversations', [ConversationController::class, 'store']);
+        Route::get('/conversations', [ConversationController::class, 'index']);
+        Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
+        Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
+        Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
+        Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead']);
+        Route::get('/conversations/{conversation}/status', [ConversationController::class, 'status']);
+
+        // Chatbot communication endpoints — automated messages tagged
+        // message_type=chatbot, participant-authorized like human messages.
+        Route::post('/conversations/{conversation}/chatbot/messages', [ChatbotController::class, 'send']);
+        Route::get('/conversations/{conversation}/chatbot/messages', [ChatbotController::class, 'messages']);
+    });
+
+    // Relevant notifications — the caller's own in-app notification feed
+    // plus per-category/channel delivery preferences.
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::get('/preferences', [NotificationController::class, 'preferences']);
+        Route::put('/preferences', [NotificationController::class, 'updatePreference']);
+        Route::post('/{notification}/read', [NotificationController::class, 'markAsRead']);
     });
 
     Route::post('/setup/create-admin', [SetupController::class, 'createAdmin'])

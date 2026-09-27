@@ -167,7 +167,9 @@ class RecalculationHooksTest extends TestCase
         ])->values()->all();
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+                    $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => $responses,
+
         ])->assertOk();
 
         Event::assertDispatched(SkillDataChanged::class, fn ($e) => $e->source === 'baseline_assessment_submit'
@@ -202,8 +204,12 @@ class RecalculationHooksTest extends TestCase
             'calculated_at' => now(),
         ]);
 
-        Http::fakeSequence()
-            ->push([
+        // ONE response: the deployed contract returns the per-skill gaps
+        // AND the readiness block from POST /api/v1/skill-gap together,
+        // so a calculation is a single round-trip. (A fakeSequence would
+        // leave the second queued response unconsumed.)
+        Http::fake([
+            '*/api/v1/skill-gap' => Http::response([
                 'student_profile_id' => $profile->id,
                 'career_role_id' => $role->id,
                 'career_role_version' => 1,
@@ -218,12 +224,6 @@ class RecalculationHooksTest extends TestCase
                     'gap' => 1.5,
                     'status' => 'gap',
                 ]],
-            ], 200)
-            ->push([
-                'student_profile_id' => $profile->id,
-                'career_role_id' => $role->id,
-                'career_role_version' => 1,
-                'algorithm_version' => 'intelligence-v1',
                 'base_readiness_score' => 50.0,
                 'readiness_score' => 50.0,
                 'critical_skill_cap_applied' => false,
@@ -232,7 +232,8 @@ class RecalculationHooksTest extends TestCase
                 'total_skills' => 1,
                 'met_skills' => 0,
                 'skills_with_gap' => 1,
-            ], 200);
+            ], 200),
+        ]);
 
         // QUEUE_CONNECTION=sync in tests: the listener runs inline.
         SkillDataChanged::dispatch($profile->fresh(), 'career_role_change');

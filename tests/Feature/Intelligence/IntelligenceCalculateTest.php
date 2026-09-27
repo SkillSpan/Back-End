@@ -18,6 +18,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -240,13 +241,7 @@ class IntelligenceCalculateTest extends TestCase
             $sentRequestIds[] = $request->header('X-Request-ID');
             $calls++;
 
-            // First call: skill-gap; second call: readiness.
-            return Http::response(
-                $calls === 1
-                    ? $this->skillGapResponse($profile, $role, $roleSkills)
-                    : $this->readinessResponse($profile, $role),
-                200,
-            );
+            return Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200);
         });
 
         $this->postJson(
@@ -255,7 +250,10 @@ class IntelligenceCalculateTest extends TestCase
             ['X-Request-ID' => 'my-correlation-id'],
         )->assertStatus(201);
 
-        $this->assertSame(2, $calls);
+        // Exactly one call: the readiness block arrives in the same
+        // response as the per-skill gaps, so there is no second
+        // round-trip to authenticate or correlate.
+        $this->assertSame(1, $calls);
 
         $flatAuth = collect($sentAuth)->flatten()->map(fn ($value) => (string) $value);
         $flatIds = collect($sentRequestIds)->flatten()->map(fn ($id) => (string) $id);
@@ -406,7 +404,10 @@ class IntelligenceCalculateTest extends TestCase
         $gap = $this->skillGapResponse($profile, $role, $roleSkills);
         unset($gap['algorithm_version']);
 
-        $this->fakeSequence($gap, $this->readinessResponse($profile, $role), null);
+        // No readiness override here: the readiness block also carries
+        // algorithm_version, so merging one in would silently restore the
+        // very key this test removes.
+        $this->fakeSequence($gap, null, null);
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(502)
@@ -606,8 +607,19 @@ class IntelligenceCalculateTest extends TestCase
             ->assertJsonPath('code', 'DECISION_NOT_FOUND');
     }
 
-    public function test_versioned_paths_are_used(): void
+    /**
+     * Every path Laravel calls must exist in the deployed service's own
+     * OpenAPI document.
+     *
+     * An invented `/api/v1/intelligence/*` namespace lived here for a
+     * while: the whole suite stayed green because the fakes answered
+     * whatever URL was requested, while every real calculation 404'd.
+     * Fakes cannot catch a wrong URL — only an explicit assertion can.
+     */
+    public function test_only_deployed_paths_are_called(): void
     {
+        config(['services.data_science.url' => 'https://intelligence.test']);
+
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
         Sanctum::actingAs($user);
 
@@ -615,27 +627,116 @@ class IntelligenceCalculateTest extends TestCase
         Http::fake(function ($request) use (&$urls, $profile, $role, $roleSkills) {
             $urls[] = $request->url();
 
-            $isGap = str_contains($request->url(), '/skill-gap');
-
-            return Http::response(
-                $isGap
-                    ? $this->skillGapResponse($profile, $role, $roleSkills)
-                    : $this->readinessResponse($profile, $role),
-                200,
-            );
+            return Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200);
         });
 
-        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id]);
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
 
-        $this->assertNotEmpty($urls);
+        // The readiness block rides along in the same response, so one
+        // calculation is exactly one round-trip.
+        $this->assertCount(1, $urls, 'the readiness block must not cost a second round-trip');
+        $this->assertSame('https://intelligence.test/api/v1/skill-gap', $urls[0]);
+
         $this->assertTrue(
-            collect($urls)->contains(fn ($url) => str_contains($url, '/api/v1/intelligence/skill-gap')),
-            'the versioned SRS skill-gap path must be used',
+            collect($urls)->every(fn ($url) => ! str_contains($url, '/intelligence/')),
+            'no invented /api/v1/intelligence/* path may be called: it is not deployed',
         );
-        $this->assertTrue(
-            collect($urls)->contains(fn ($url) => str_contains($url, '/api/v1/intelligence/readiness')),
-            'the versioned SRS readiness path must be used',
-        );
+    }
+
+    /**
+     * The request body must match the deployed `SkillGapRequest`: flat,
+     * with `career_role_id` / `target_role` at the top level. The nested
+     * `learner` / `role` shape is Laravel's internal payload (it is the
+     * snapshot record and the validator's identity reference) and must
+     * never be sent verbatim.
+     */
+    public function test_skill_gap_request_matches_the_deployed_contract(): void
+    {
+        config(['services.data_science.url' => 'https://intelligence.test']);
+
+        [$user, $profile, $role, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+
+        $sent = null;
+        Http::fake(function ($request) use (&$sent, $profile, $role, $roleSkills) {
+            $sent = $request->data();
+
+            return Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200);
+        });
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $this->assertIsArray($sent);
+
+        // Mandatory SkillGapRequest fields, all at the top level.
+        foreach ([
+            'student_profile_id',
+            'career_role_id',
+            'career_role_version',
+            'user_id',
+            'target_role',
+            'skills',
+        ] as $field) {
+            $this->assertArrayHasKey($field, $sent, "SkillGapRequest requires {$field}");
+        }
+
+        $this->assertSame((int) $profile->id, $sent['student_profile_id']);
+        $this->assertSame((int) $role->id, $sent['career_role_id']);
+        $this->assertSame((int) $role->version, $sent['career_role_version']);
+        $this->assertSame('Data Analyst', $sent['target_role']);
+
+        // The internal envelope must not leak onto the wire.
+        $this->assertArrayNotHasKey('learner', $sent);
+        $this->assertArrayNotHasKey('role', $sent);
+
+        $this->assertCount(3, $sent['skills']);
+
+        // Each skill carries exactly the SkillLevel fields — the service
+        // is not relied upon to ignore unknown keys.
+        $this->assertSame([
+            'skill_id',
+            'skill_name',
+            'current_level',
+            'required_level',
+            'importance_weight',
+            'is_critical',
+        ], array_keys($sent['skills'][0]));
+
+        $this->assertSame((int) $roleSkills[0]->skill_id, $sent['skills'][0]['skill_id']);
+        $this->assertSame(2.5, (float) $sent['skills'][0]['current_level']);
+        $this->assertSame(4.0, (float) $sent['skills'][0]['required_level']);
+        $this->assertTrue((bool) $sent['skills'][0]['is_critical']);
+    }
+
+    /**
+     * Structured logs must carry the correlation ids.
+     *
+     * The client's post() is shared across endpoints whose bodies have
+     * different shapes. When the skill-gap body went flat, the log
+     * context silently became null,null,null — nothing failed, the logs
+     * just stopped being useful, which is the worst way for observability
+     * to break. This pins the correlation fields.
+     */
+    public function test_correlation_ids_are_logged_for_the_skill_gap_call(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+        $this->fakeAllSuccess($profile, $role, $roleSkills);
+
+        Log::spy();
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        Log::shouldHaveReceived('info')
+            ->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'Intelligence service request completed')
+                && ($context['operation'] ?? null) === 'skill_gap'
+                && ($context['student_profile_id'] ?? null) === (int) $profile->id
+                && ($context['career_role_id'] ?? null) === (int) $role->id
+                && ($context['career_role_version'] ?? null) === (int) $role->version)
+            ->once();
     }
 
     // ------------------------------------------------ roadmap versioning
@@ -651,9 +752,8 @@ class IntelligenceCalculateTest extends TestCase
         // persisted roadmap version is Laravel-owned (max+1), so the
         // second roadmap must become version 2, never a second v1.
         Http::fake([
-            '*/intelligence/skill-gap' => Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200),
-            '*/intelligence/readiness' => Http::response($this->readinessResponse($profile, $role), 200),
-            '*/intelligence/roadmap' => Http::response($this->roadmapResponse($profile, $role, $roleSkills), 200),
+            '*/api/v1/skill-gap' => Http::response($this->skillGapResponse($profile, $role, $roleSkills), 200),
+            '*/api/v1/roadmap' => Http::response($this->roadmapResponse($profile, $role, $roleSkills), 200),
         ]);
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
@@ -711,57 +811,55 @@ class IntelligenceCalculateTest extends TestCase
             $this->scoreBox['value'] = $score;
         }
 
-        $gap = $this->skillGapResponse($profile, $role, $roleSkills);
-        $profileId = $profile->id;
-        $roleId = $role->id;
-        $roleVersion = (int) $role->version;
-
         Http::fake([
-            '*/intelligence/skill-gap' => Http::response($gap, 200),
-            '*/intelligence/readiness' => function () use ($profileId, $roleId, $roleVersion) {
-                $score = $this->scoreBox['value'];
-
-                return Http::response([
-                    'student_profile_id' => $profileId,
-                    'career_role_id' => $roleId,
-                    'career_role_version' => $roleVersion,
-                    'algorithm_version' => 'intelligence-v1',
-                    'base_readiness_score' => $score,
-                    'readiness_score' => $score,
-                    'critical_skill_cap_applied' => false,
-                    'critical_skill_gap_count' => 0,
-                    'critical_skill_names' => [],
-                    'total_skills' => 3,
-                    'met_skills' => 1,
-                    'skills_with_gap' => 2,
-                ], 200);
+            // ONE endpoint covers both contracts: the deployed service
+            // returns the readiness block in the SAME response as the
+            // per-skill gaps (POST /api/v1/skill-gap). The score is read
+            // at request time so a test can call fakeAllSuccess() twice
+            // with different scores without re-registering the fake.
+            '*/api/v1/skill-gap' => function () use ($profile, $role, $roleSkills) {
+                return Http::response(
+                    $this->skillGapResponse($profile, $role, $roleSkills, $this->scoreBox['value']),
+                    200,
+                );
             },
         ]);
     }
 
+    /**
+     * URL-pattern fakes for a calculation.
+     *
+     * `$readiness` is merged INTO the skill-gap response rather than
+     * served from its own URL, because the deployed contract carries the
+     * readiness block inside POST /api/v1/skill-gap — there is no
+     * readiness endpoint to fake. Keeping it a separate argument lets a
+     * test override just the readiness portion without rebuilding the
+     * whole gap payload; it wins on key collisions.
+     */
     private function fakeSequence(?array $gap, ?array $readiness, ?array $roadmap): void
     {
-        // URL-pattern fakes: each intelligence endpoint gets its own
-        // response, so repeated calculations stay deterministic even
-        // when the same flow runs twice in one test.
         $fake = [];
 
-        if ($gap !== null) {
-            $fake['*/intelligence/skill-gap'] = Http::response($gap, 200);
-        }
-
-        if ($readiness !== null) {
-            $fake['*/intelligence/readiness'] = Http::response($readiness, 200);
+        if ($gap !== null || $readiness !== null) {
+            $fake['*/api/v1/skill-gap'] = Http::response(
+                array_merge($gap ?? [], $readiness ?? []),
+                200,
+            );
         }
 
         if ($roadmap !== null) {
-            $fake['*/intelligence/roadmap'] = Http::response($roadmap, 200);
+            $fake['*/api/v1/roadmap'] = Http::response($roadmap, 200);
         }
 
         Http::fake($fake);
     }
 
-    private function skillGapResponse($profile, $role, $roleSkills): array
+    /**
+     * A body shaped like the deployed `SkillGapResponse`
+     * (POST /api/v1/skill-gap): per-skill gaps AND the readiness block in
+     * one response, exactly as the service returns them.
+     */
+    private function skillGapResponse($profile, $role, $roleSkills, float $score = 72.5): array
     {
         $skillResults = [];
 
@@ -789,17 +887,40 @@ class IntelligenceCalculateTest extends TestCase
             ];
         }
 
-        return [
-            'student_profile_id' => (int) $profile->id,
-            'career_role_id' => (int) $role->id,
-            'career_role_version' => (int) $role->version,
-            'algorithm_version' => 'intelligence-v1',
-            'skill_results' => $skillResults,
-        ];
+        // Derived, never hardcoded: the validator rejects a response whose
+        // met/gap counts do not add up to the skill count.
+        $totalSkills = count($skillResults);
+        $metSkills = count(array_filter(
+            $skillResults,
+            static fn (array $result): bool => $result['status'] === 'met',
+        ));
+
+        return array_merge(
+            [
+                'student_profile_id' => (int) $profile->id,
+                'career_role_id' => (int) $role->id,
+                'career_role_version' => (int) $role->version,
+                'algorithm_version' => 'intelligence-v1',
+                'skill_results' => $skillResults,
+            ],
+            $this->readinessResponse($profile, $role, $score, $totalSkills, $metSkills),
+        );
     }
 
-    private function readinessResponse($profile, $role, float $score = 72.5): array
-    {
+    /**
+     * The readiness PORTION of a skill-gap response — not a separate
+     * endpoint. The deployed service returns these fields from
+     * POST /api/v1/skill-gap alongside the per-skill gaps, so tests that
+     * need to override just the readiness part merge this over the gap
+     * payload (see fakeSequence()).
+     */
+    private function readinessResponse(
+        $profile,
+        $role,
+        float $score = 72.5,
+        int $totalSkills = 3,
+        int $metSkills = 1,
+    ): array {
         return [
             'student_profile_id' => (int) $profile->id,
             'career_role_id' => (int) $role->id,
@@ -808,11 +929,12 @@ class IntelligenceCalculateTest extends TestCase
             'base_readiness_score' => $score,
             'readiness_score' => $score,
             'critical_skill_cap_applied' => false,
+            'critical_skill_readiness_cap' => null,
             'critical_skill_gap_count' => 0,
             'critical_skill_names' => [],
-            'total_skills' => 3,
-            'met_skills' => 1,
-            'skills_with_gap' => 2,
+            'total_skills' => $totalSkills,
+            'met_skills' => $metSkills,
+            'skills_with_gap' => $totalSkills - $metSkills,
         ];
     }
 
