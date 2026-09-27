@@ -43,6 +43,7 @@ class BaselineQuestionSelectionService
      *     skill_slug: ?string,
      *     skill_name: ?string,
      *     item_type: string,
+     *     question_text: ?string,
      *     options: array,
      *     importance_weight: float,
      *     required_level: float,
@@ -51,6 +52,8 @@ class BaselineQuestionSelectionService
      *     prerequisite_slugs: array<int, string>,
      *     prerequisite_names: array<int, string>
      * }>
+     *
+     * @throws BaselineAssessmentException
      */
     public function select(
         CareerRole $careerRole,
@@ -154,6 +157,7 @@ class BaselineQuestionSelectionService
                     'skill_slug' => $item->skill?->slug,
                     'skill_name' => $item->skill?->name,
                     'item_type' => (string) $item->item_type,
+                    'question_text' => $item->question_text,
                     'options' => is_array($item->options) ? array_values($item->options) : [],
                     'importance_weight' => (float) $roleSkill->importance_weight,
                     'required_level' => (float) $roleSkill->required_level,
@@ -177,17 +181,108 @@ class BaselineQuestionSelectionService
             );
         }
 
-        // Total cap. We never trim below the per-skill coverage floor, so
-        // an over-large role is capped deterministically at the item level
-        // rather than dropping whole skills.
+        /*
+         * Total cap — coverage is a hard constraint.
+         *
+         * The cap must never silently drop a required skill: an assessment
+         * that reports full coverage but never actually probes one of the
+         * role's skills would produce a readiness score the evidence
+         * cannot support.
+         *
+         * The per-skill floor (min_questions_per_skill, >= 1) guarantees
+         * every required skill has at least one question, so the smallest
+         * coverage-preserving assessment is `skillCount` questions. If
+         * that floor exceeds the configured cap the configuration is
+         * self-contradictory and we return an explicit error rather than
+         * silently under-covering the role.
+         */
+        $distinctSkills = $selected
+            ->pluck('skill_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->count();
+
+        if ($distinctSkills > $maxTotalQuestions) {
+            throw BaselineAssessmentException::insufficientQuestionCapacity(
+                $distinctSkills,
+                $maxTotalQuestions,
+            );
+        }
+
         if ($selected->count() > $maxTotalQuestions) {
-            $selected = $selected
-                ->sortByDesc(fn (array $row) => (int) $row['is_critical'])
-                ->take($maxTotalQuestions)
-                ->values();
+            $selected = $this->capPreservingCoverage($selected, $maxTotalQuestions);
         }
 
         return $selected->values();
+    }
+
+    /**
+     * Trim a fully-covering selection down to the total cap without ever
+     * removing the last question of a skill.
+     *
+     * Two passes:
+     *  1. give every skill its single coverage question (critical first,
+     *     then by descending importance weight);
+     *  2. spend the remaining budget on additional questions, preferring
+     *     critical / heavier skills, so the cap is used where it matters
+     *     most instead of being filled arbitrarily.
+     *
+     * @param  Collection<int, array<string, mixed>>  $selected
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function capPreservingCoverage(Collection $selected, int $maxTotalQuestions): Collection
+    {
+        $groups = $selected
+            ->groupBy('skill_id')
+            ->map(function (Collection $rows) {
+                // Deterministic ordering inside a skill keeps the cap
+                // reproducible regardless of the earlier shuffle.
+                return $rows->sortBy('item_id')->values();
+            })
+            // Heaviest / most critical skills are served their extra
+            // questions first when the budget is scarce.
+            ->sortByDesc(fn (Collection $rows) => [
+                (int) $rows->first()['is_critical'],
+                (float) $rows->first()['importance_weight'],
+            ]);
+
+        $kept = [];
+
+        // Pass 1 — one guaranteed question per skill (coverage floor).
+        foreach ($groups as $skillId => $rows) {
+            if (count($kept) >= $maxTotalQuestions) {
+                break;
+            }
+
+            $kept[] = $rows->first();
+        }
+
+        // Pass 2 — spend the remaining budget on extra questions.
+        $cursor = 1;
+
+        while (count($kept) < $maxTotalQuestions) {
+            $added = false;
+
+            foreach ($groups as $rows) {
+                if (count($kept) >= $maxTotalQuestions) {
+                    break;
+                }
+
+                if ($rows->count() > $cursor) {
+                    $kept[] = $rows[$cursor];
+                    $added = true;
+                }
+            }
+
+            // No skill has any remaining question -> budget cannot be spent.
+            if (! $added) {
+                break;
+            }
+
+            $cursor++;
+        }
+
+        return collect($kept)->values();
     }
 
     /**
@@ -224,7 +319,7 @@ class BaselineQuestionSelectionService
 
         $allowed = $snapshots->mapWithKeys(function ($snapshot) {
             return [
-                strtolower((string) $snapshot->item->item_id) => $snapshot,
+                strtolower($this->snapshotItemId($snapshot)) => $snapshot,
             ];
         });
 
@@ -285,25 +380,21 @@ class BaselineQuestionSelectionService
             /** @var BaselineQuestionSnapshot $snapshot */
             $snapshot = $allowed->get($normalizedQuestionId);
 
-            // Only single_choice items enforce the allowed-option list:
-            // the item_type is stored on the MUTABLE live item row. A live
-            // edit (deactivate/retire) must therefore never disable
-            // validation for a question that was snapshotted as
-            // single_choice, so we fall back to the frozen item's type via
-            // the snapshot when the live row is null. Unknown/missing
-            // types are treated as option-constrained (fail closed).
-            $itemType = $snapshot->item?->item_type ?? 'single_choice';
+            // Content is read from the FROZEN snapshot first, never from
+            // the mutable live item row. A later bank edit (option list
+            // change, deactivation, deletion) must not alter how an
+            // already-started assessment validates its answers.
+            // Legacy snapshots predate content freezing and fall back to
+            // the live item; entirely missing content fails closed.
+            $itemType = $this->snapshotItemType($snapshot);
 
             if ($itemType !== 'single_choice') {
                 continue;
             }
 
-            // Options come from the snapshot's frozen item row, but that
-            // row is mutable too; when it is unavailable we cannot verify
-            // the answer, so we reject rather than silently accept.
-            $options = $snapshot->item?->options;
+            $options = $this->snapshotOptions($snapshot);
 
-            if (! is_array($options) || $options === []) {
+            if ($options === []) {
                 throw new BaselineAssessmentException(
                     "The answer for question_id {$questionId} cannot be validated: question options are unavailable.",
                     422,
@@ -340,7 +431,7 @@ class BaselineQuestionSelectionService
     public function validateCompleteness(Collection $snapshots, array $responses): void
     {
         $expected = $snapshots
-            ->map(fn ($snapshot) => strtolower((string) $snapshot->item->item_id))
+            ->map(fn ($snapshot) => strtolower($this->snapshotItemId($snapshot)))
             ->values()
             ->all();
 
@@ -359,5 +450,78 @@ class BaselineQuestionSelectionService
                 ['missing_question_ids' => $missing],
             );
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Frozen-content accessors
+    |--------------------------------------------------------------------------
+    |
+    | These read the immutable snapshot columns first and only fall back to
+    | the live baseline_assessment_items row for snapshots created before
+    | content freezing was introduced. Anything still unavailable is
+    | treated as missing (fail closed) rather than defaulted.
+    */
+
+    /**
+     * Stable client-facing question identifier for a snapshot row.
+     */
+    public function snapshotItemId(BaselineQuestionSnapshot $snapshot): string
+    {
+        if (is_string($snapshot->item_id) && $snapshot->item_id !== '') {
+            return $snapshot->item_id;
+        }
+
+        return (string) ($snapshot->item?->item_id ?? '');
+    }
+
+    /**
+     * `single_choice` | `scale`. Unknown/missing is treated as
+     * `single_choice` so option validation stays on (fail closed).
+     */
+    public function snapshotItemType(BaselineQuestionSnapshot $snapshot): string
+    {
+        if (is_string($snapshot->item_type) && $snapshot->item_type !== '') {
+            return $snapshot->item_type;
+        }
+
+        $live = $snapshot->item?->item_type;
+
+        return is_string($live) && $live !== '' ? $live : 'single_choice';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function snapshotOptions(BaselineQuestionSnapshot $snapshot): array
+    {
+        $frozen = $snapshot->options;
+
+        if (is_array($frozen) && $frozen !== []) {
+            return array_values(array_map('strval', $frozen));
+        }
+
+        $live = $snapshot->item?->options;
+
+        return is_array($live) && $live !== []
+            ? array_values(array_map('strval', $live))
+            : [];
+    }
+
+    /**
+     * The authored prompt. Null when none was authored — we never invent
+     * question text.
+     */
+    public function snapshotQuestionText(BaselineQuestionSnapshot $snapshot): ?string
+    {
+        $frozen = $snapshot->question_text;
+
+        if (is_string($frozen) && $frozen !== '') {
+            return $frozen;
+        }
+
+        $live = $snapshot->item?->question_text;
+
+        return is_string($live) && $live !== '' ? $live : null;
     }
 }

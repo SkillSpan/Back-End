@@ -70,14 +70,18 @@ class BaselineAssessmentService
             ->where('student_profile_id', $studentProfile->id)
             ->where('assessment_type', self::ASSESSMENT_TYPE)
             ->where('assessment_version', $version)
+            ->where('career_role_id', $careerRole->id)
             ->exists();
 
         if ($exists) {
             throw new BaselineAssessmentException(
-                'A baseline assessment for this version already exists for this learner.',
+                'A baseline assessment for this role and version already exists for this learner.',
                 409,
                 'ASSESSMENT_ALREADY_EXISTS',
-                ['assessment_version' => $version],
+                [
+                    'assessment_version' => $version,
+                    'career_role_id' => $careerRole->id,
+                ],
             );
         }
 
@@ -203,6 +207,18 @@ class BaselineAssessmentService
 
         $metadata = $assessment->snapshot_metadata ?? [];
 
+        /*
+         * Data Science contract: the `question_ids` field carries the
+         * item bank's `item_id` string (the same value the client submits
+         * as `question_id`), NOT the internal primary key. We pass the
+         * frozen snapshot ids so the service scores the exact question set
+         * the learner saw.
+         */
+        $assessmentItemIds = $snapshots
+            ->map(fn (BaselineQuestionSnapshot $s) => $this->questionSelection->snapshotItemId($s))
+            ->values()
+            ->all();
+
         $serviceResult = $this->dataScienceClient->compute(
             $assessment->studentProfile,
             $assessment->assessment_version,
@@ -210,7 +226,7 @@ class BaselineAssessmentService
             $requestId,
             $assessment->career_role_id !== null ? (int) $assessment->career_role_id : null,
             isset($metadata['career_role_version']) ? (int) $metadata['career_role_version'] : null,
-            $snapshots->map(fn (BaselineQuestionSnapshot $s) => (string) $s->item->item_id)->values()->all(),
+            $assessmentItemIds,
         );
 
         // Intelligence evaluations must belong to the role's approved
@@ -261,7 +277,12 @@ class BaselineAssessmentService
     }
 
     /**
-     * Freeze the role skill ↔ question mapping for this assessment.
+     * Freeze the role skill ↔ question mapping AND the question content
+     * for this assessment.
+     *
+     * Content (question_text, item_type, options) is copied here so a
+     * later edit to the live item bank cannot change what the learner was
+     * shown nor how their answers are validated.
      *
      * @param  Collection<int, array<string, mixed>>  $selectedQuestions
      */
@@ -276,6 +297,11 @@ class BaselineAssessmentService
                 'baseline_assessment_item_id' => $question['baseline_assessment_item_id'],
                 'career_role_id' => $careerRole->id,
                 'skill_id' => $question['skill_id'],
+                // Frozen content.
+                'item_id' => $question['item_id'],
+                'item_type' => $question['item_type'],
+                'question_text' => $question['question_text'],
+                'options' => $question['options'],
                 'importance_weight' => $question['importance_weight'],
                 'is_critical' => $question['is_critical'],
             ]);
@@ -324,6 +350,26 @@ class BaselineAssessmentService
             ->get();
     }
 
+    /**
+     * Validate and normalize the intelligence service's skill evaluations.
+     *
+     * Every entry must be internally consistent and belong to the
+     * approved snapshot:
+     *  - `slug` resolves to an active Skill;
+     *  - when the service also sends `skill_id`, it must match that
+     *    Skill's id (a mismatch means the service scored a different
+     *    skill than it named — reject rather than guess);
+     *  - the skill is one of the snapshot's skills;
+     *  - `level` is 0..5 and `confidence` is 0..1.
+     *
+     * An empty or non-array `skills` payload is rejected — we never
+     * fabricate evaluations to fill a gap. A partial result is persisted
+     * as-is (only what the service actually returned); readiness will
+     * then surface its own ASSESSMENT_INCOMPLETE for any skill it still
+     * has no evaluation for.
+     *
+     * @param  array<int>  $allowedSkillIds
+     */
     private function normalizedSkills(array $serviceResult, array $allowedSkillIds): array
     {
         $skills = $serviceResult['skills'] ?? null;
@@ -372,10 +418,28 @@ class BaselineAssessmentService
                 );
             }
 
-            // Requirement 6: every returned evaluation must map to a skill
-            // in the approved snapshot. This blocks the intelligence
-            // service from injecting evaluations for skills the learner
-            // was never assessed on.
+            // skill_id ↔ slug consistency: when the service supplies an
+            // id it must agree with the slug it named.
+            if (array_key_exists('skill_id', $skill) && $skill['skill_id'] !== null) {
+                if (! is_numeric($skill['skill_id'])
+                    || (int) $skill['skill_id'] !== (int) $activeSkill->id) {
+                    throw new BaselineAssessmentException(
+                        'The intelligence service returned a skill_id that does not match its slug.',
+                        502,
+                        'INTELLIGENCE_SKILL_MISMATCH',
+                        [
+                            'slug' => $slug,
+                            'returned_skill_id' => $skill['skill_id'],
+                            'expected_skill_id' => (int) $activeSkill->id,
+                        ],
+                    );
+                }
+            }
+
+            // Every returned evaluation must map to a skill in the
+            // approved snapshot. This blocks the intelligence service from
+            // injecting evaluations for skills the learner was never
+            // assessed on.
             if ($allowedSkillIds !== [] && ! in_array((int) $activeSkill->id, $allowedSkillIds, true)) {
                 throw new BaselineAssessmentException(
                     'The intelligence service referenced a skill outside the approved assessment snapshot.',

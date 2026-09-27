@@ -18,6 +18,7 @@ class BaselineAssessmentItemSeeder extends Seeder
             [
                 'item_id' => 'sql-001',
                 'item_type' => 'single_choice',
+                'question_text' => 'Which SQL clause is used to filter rows returned by a query?',
                 'skill' => 'sql',
                 'options' => ['A', 'B', 'C', 'D'],
                 'correct_answer' => 'B',
@@ -27,6 +28,7 @@ class BaselineAssessmentItemSeeder extends Seeder
             [
                 'item_id' => 'sql-002',
                 'item_type' => 'single_choice',
+                'question_text' => 'What does a PRIMARY KEY constraint guarantee for a column?',
                 'skill' => 'sql',
                 'options' => ['A', 'B', 'C', 'D'],
                 'correct_answer' => 'A',
@@ -36,6 +38,7 @@ class BaselineAssessmentItemSeeder extends Seeder
             [
                 'item_id' => 'python-001',
                 'item_type' => 'single_choice',
+                'question_text' => 'Which Python data type stores an ordered, mutable sequence of items?',
                 'skill' => 'python',
                 'options' => ['A', 'B', 'C', 'D'],
                 'correct_answer' => 'C',
@@ -48,6 +51,7 @@ class BaselineAssessmentItemSeeder extends Seeder
             [
                 'item_id' => 'python-002',
                 'item_type' => 'scale',
+                'question_text' => 'How confident are you writing Python functions that use loops and conditionals?',
                 'skill' => 'python',
                 'options' => ['1', '2', '3', '4', '5'],
                 'correct_answer' => null,
@@ -57,6 +61,7 @@ class BaselineAssessmentItemSeeder extends Seeder
             [
                 'item_id' => 'javascript-001',
                 'item_type' => 'single_choice',
+                'question_text' => 'Which keyword declares a block-scoped variable in JavaScript?',
                 'skill' => 'javascript',
                 'options' => ['A', 'B', 'C', 'D'],
                 'correct_answer' => 'D',
@@ -76,6 +81,7 @@ class BaselineAssessmentItemSeeder extends Seeder
                 ['assessment_version' => 'v1.0', 'item_id' => $item['item_id']],
                 [
                     'item_type' => $item['item_type'],
+                    'question_text' => $item['question_text'],
                     'skill_id' => $skill->id,
                     'options' => $item['options'],
                     'correct_answer' => $item['correct_answer'],

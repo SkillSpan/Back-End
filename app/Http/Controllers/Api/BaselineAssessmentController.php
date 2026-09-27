@@ -11,6 +11,7 @@ use App\Models\BaselineAssessment;
 use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
 use App\Services\Baseline\BaselineAssessmentService;
+use App\Services\Baseline\BaselineQuestionSelectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -19,7 +20,10 @@ use Throwable;
 
 class BaselineAssessmentController extends Controller
 {
-    public function __construct(private readonly BaselineAssessmentService $assessmentService) {}
+    public function __construct(
+        private readonly BaselineAssessmentService $assessmentService,
+        private readonly BaselineQuestionSelectionService $questionSelection,
+    ) {}
 
     public function start(StartBaselineAssessmentRequest $request): JsonResponse
     {
@@ -181,7 +185,7 @@ class BaselineAssessmentController extends Controller
     {
         $questions = $assessment->relationLoaded('questionSnapshots')
             ? $assessment->questionSnapshots
-                ->sortBy(fn ($snapshot) => strtolower((string) $snapshot->item?->item_id))
+                ->sortBy(fn ($snapshot) => strtolower($this->questionSelection->snapshotItemId($snapshot)))
                 ->map(fn ($snapshot) => $this->transformQuestion($snapshot))
                 ->values()
                 ->all()
@@ -218,16 +222,24 @@ class BaselineAssessmentController extends Controller
     }
 
     /**
+     * Serialize one frozen snapshot question for API consumers.
+     *
+     * Content comes from the snapshot (immutable after creation), never
+     * from the live item bank. `correct_answer` / `scoring_rule` are
+     * deliberately never included — grading keys stay server-side.
+     *
+     * `question_text` is null when no prompt was ever authored for the
+     * item; we do not invent placeholder text.
+     *
      * @param  BaselineQuestionSnapshot  $snapshot
      */
     private function transformQuestion($snapshot): array
     {
-        $item = $snapshot->item;
-
         return [
-            'item_id' => $item?->item_id,
-            'item_type' => $item?->item_type,
-            'options' => is_array($item?->options) ? array_values($item->options) : [],
+            'item_id' => $this->questionSelection->snapshotItemId($snapshot),
+            'item_type' => $this->questionSelection->snapshotItemType($snapshot),
+            'question_text' => $this->questionSelection->snapshotQuestionText($snapshot),
+            'options' => $this->questionSelection->snapshotOptions($snapshot),
             'skill_id' => (int) $snapshot->skill_id,
             'skill_slug' => $snapshot->relationLoaded('skill') ? $snapshot->skill?->slug : null,
             'importance_weight' => (float) $snapshot->importance_weight,

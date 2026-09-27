@@ -166,8 +166,10 @@ class BaselineQuestionSelectionServiceTest extends TestCase
         $this->assertNotNull($active->id);
     }
 
-    public function test_total_cap_prefers_critical_skills(): void
+    public function test_total_cap_never_drops_required_skill_coverage(): void
     {
+        // Cap (2) equals the number of required skills, so only the
+        // coverage floor fits — the point is that BOTH skills survive.
         config(['services.baseline_assessment.max_total_questions' => 2]);
         config(['services.baseline_assessment.max_questions_per_skill' => 3]);
 
@@ -186,11 +188,95 @@ class BaselineQuestionSelectionServiceTest extends TestCase
         $selected = $this->service->select($role, 'v1.0');
 
         $this->assertCount(2, $selected);
-        // Both surviving rows are the critical skill's.
-        $this->assertSame(
-            ['critical-skill'],
+        // Neither required skill may be dropped: coverage wins over the
+        // "prefer heavier skills" preference.
+        $this->assertEqualsCanonicalizing(
+            ['critical-skill', 'minor-skill'],
             $selected->pluck('skill_slug')->unique()->values()->all()
         );
+    }
+
+    public function test_total_cap_spends_extra_budget_on_heavier_skills(): void
+    {
+        // Cap 3, two skills each with 2 items -> floor takes 1 each and
+        // the one spare question goes to the critical/heavier skill.
+        config(['services.baseline_assessment.max_total_questions' => 3]);
+        config(['services.baseline_assessment.max_questions_per_skill' => 3]);
+
+        $critical = $this->skill('critical-skill');
+        $minor = $this->skill('minor-skill');
+
+        $role = $this->roleWithSkills([
+            [$critical, ['is_critical' => true, 'importance_weight' => 0.9]],
+            [$minor, ['is_critical' => false, 'importance_weight' => 0.2]],
+        ]);
+
+        $this->item('critical-1', $critical, 'single_choice', ['A']);
+        $this->item('critical-2', $critical, 'single_choice', ['A']);
+        $this->item('minor-1', $minor, 'single_choice', ['A']);
+        $this->item('minor-2', $minor, 'single_choice', ['A']);
+
+        $selected = $this->service->select($role, 'v1.0');
+
+        $this->assertCount(3, $selected);
+
+        $countBySkill = $selected->groupBy('skill_slug')->map->count();
+
+        // Coverage floor held for both, spare question went to the critical skill.
+        $this->assertSame(2, $countBySkill['critical-skill']);
+        $this->assertSame(1, $countBySkill['minor-skill']);
+    }
+
+    public function test_total_cap_below_skill_count_is_a_configuration_error(): void
+    {
+        // 3 required skills cannot all be covered with a cap of 2.
+        config(['services.baseline_assessment.max_total_questions' => 2]);
+
+        $a = $this->skill('skill-a');
+        $b = $this->skill('skill-b');
+        $c = $this->skill('skill-c');
+
+        $role = $this->roleWithSkills([
+            [$a, []], [$b, []], [$c, []],
+        ]);
+
+        $this->item('a-1', $a, 'single_choice', ['A']);
+        $this->item('b-1', $b, 'single_choice', ['A']);
+        $this->item('c-1', $c, 'single_choice', ['A']);
+
+        try {
+            $this->service->select($role, 'v1.0');
+            $this->fail('Expected INSUFFICIENT_QUESTION_CAPACITY.');
+        } catch (BaselineAssessmentException $e) {
+            $this->assertSame('INSUFFICIENT_QUESTION_CAPACITY', $e->codeName);
+            $this->assertSame(3, $e->details['required_skill_count']);
+            $this->assertSame(2, $e->details['max_total_questions']);
+        }
+    }
+
+    public function test_selection_carries_question_content_for_freezing(): void
+    {
+        $sql = $this->skill('sql');
+        $role = $this->roleWithSkills([[$sql, []]]);
+
+        BaselineAssessmentItem::create([
+            'assessment_version' => 'v1.0',
+            'item_id' => 'sql-text-001',
+            'item_type' => 'single_choice',
+            'question_text' => 'Which clause filters rows?',
+            'skill_id' => $sql->id,
+            'options' => ['A', 'B'],
+            'correct_answer' => 'A',
+            'weight' => 1.000,
+            'is_active' => true,
+        ]);
+
+        $row = $this->service->select($role, 'v1.0')->first();
+
+        $this->assertSame('Which clause filters rows?', $row['question_text']);
+        $this->assertSame('single_choice', $row['item_type']);
+        $this->assertSame(['A', 'B'], $row['options']);
+        $this->assertSame('sql-text-001', $row['item_id']);
     }
 
     private function skill(string $slug): Skill

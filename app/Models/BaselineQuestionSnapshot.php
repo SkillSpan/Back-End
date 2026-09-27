@@ -14,12 +14,17 @@ class BaselineQuestionSnapshot extends Model
         'baseline_assessment_item_id',
         'career_role_id',
         'skill_id',
+        'item_id',
+        'item_type',
+        'question_text',
+        'options',
         'importance_weight',
         'is_critical',
     ];
 
     protected $casts = [
         'is_critical' => 'boolean',
+        'options' => 'array',
     ];
 
     public function baselineAssessment()

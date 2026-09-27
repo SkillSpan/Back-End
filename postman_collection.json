@@ -692,7 +692,7 @@
               }
             ],
             "url": "{{base_url}}/api/v1/baseline-assessments",
-            "description": "201 -> data.questions[], data.skill_coverage, data.snapshot_metadata. 422 INSUFFICIENT_QUESTION_COVERAGE when a required skill has no active question.",
+            "description": "201 -> data.questions[] (item_id, item_type, question_text, options), data.skill_coverage, data.snapshot_metadata. question_text may be null when not authored. 422 INSUFFICIENT_QUESTION_COVERAGE (details.uncovered_skills) when a required skill has no active question; 422 INSUFFICIENT_QUESTION_CAPACITY when the total cap is below the required-skill count; 422 CAREER_ROLE_NO_SKILLS; 422 CAREER_ROLE_NOT_APPROVED. A learner may start one assessment per career_role_id; repeating the same role+version -> 409 ASSESSMENT_ALREADY_EXISTS.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"career_role_id\": 1\n}"
@@ -715,7 +715,7 @@
               }
             ],
             "url": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}",
-            "description": "200 -> questions WITHOUT correct_answer/scoring_rule; responses is null while in_progress."
+            "description": "200 -> questions WITHOUT correct_answer/scoring_rule, with frozen question_text/item_type/options (editing the live item bank does not change them). responses is null while in_progress."
           },
           "description": "200 -> questions WITHOUT correct_answer/scoring_rule; responses is null while in_progress."
         },
@@ -765,7 +765,7 @@
               }
             ],
             "url": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}/submit",
-            "description": "200 -> status completed + normalized_skills. 422 UNAUTHORIZED_QUESTION / DUPLICATE_RESPONSE / INVALID_ANSWER_OPTION / INCOMPLETE_RESPONSES. 502 INTELLIGENCE_SKILL_OUT_OF_SCOPE.",
+            "description": "200 -> status completed + normalized_skills. 422 UNAUTHORIZED_QUESTION / DUPLICATE_RESPONSE / INVALID_ANSWER_OPTION / INCOMPLETE_RESPONSES. 502 INTELLIGENCE_SKILL_OUT_OF_SCOPE / INTELLIGENCE_SKILL_MISMATCH / INTELLIGENCE_INVALID_RESPONSE. question_id is the item bank's item_id string (e.g. sql-001), same namespace as the question_ids sent to Data Science.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"responses\": [\n    {\n      \"question_id\": \"sql-001\",\n      \"answer\": \"B\"\n    },\n    {\n      \"question_id\": \"python-001\",\n      \"answer\": \"A\"\n    }\n  ]\n}"

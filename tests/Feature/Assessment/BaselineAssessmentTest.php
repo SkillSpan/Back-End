@@ -242,6 +242,96 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonPath('code', 'CAREER_ROLE_NO_SKILLS');
     }
 
+    public function test_snapshot_freezes_question_content_not_just_mapping(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
+        $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
+        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B', 'C', 'D'], 'Original prompt?');
+
+        $created = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $assessmentId = $created->json('data.id');
+
+        $this->assertSame('Original prompt?', $created->json('data.questions.0.question_text'));
+        $this->assertSame(['A', 'B', 'C', 'D'], $created->json('data.questions.0.options'));
+
+        // Mutate the LIVE item: change text, options and type, then
+        // deactivate it. None of this may affect the frozen snapshot.
+        BaselineAssessmentItem::where('assessment_version', 'v1.0')
+            ->where('item_id', 'sql-001')
+            ->update([
+                'question_text' => 'TAMPERED prompt?',
+                'options' => ['Z'],
+                'item_type' => 'scale',
+                'is_active' => false,
+            ]);
+
+        $reloaded = $this->getJson("/api/v1/baseline-assessments/{$assessmentId}")
+            ->assertStatus(200);
+
+        $question = $reloaded->json('data.questions.0');
+
+        $this->assertSame('sql-001', $question['item_id']);
+        $this->assertSame('Original prompt?', $question['question_text']);
+        $this->assertSame(['A', 'B', 'C', 'D'], $question['options']);
+        $this->assertSame('single_choice', $question['item_type']);
+    }
+
+    public function test_submission_validation_uses_frozen_options_not_live_bank(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
+        $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
+        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B', 'C', 'D'], 'Prompt?');
+
+        $assessmentId = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->json('data.id');
+
+        // Narrow the live option list AFTER the snapshot was taken.
+        BaselineAssessmentItem::where('assessment_version', 'v1.0')
+            ->where('item_id', 'sql-001')
+            ->update(['options' => ['A']]);
+
+        // 'C' was valid at snapshot time and must still be accepted.
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [
+                    ['slug' => $sql->slug, 'level' => 3.0, 'confidence' => 0.8],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessmentId}/submit", [
+            'responses' => [
+                ['question_id' => 'sql-001', 'answer' => 'C'],
+            ],
+        ])->assertStatus(200);
+    }
+
+    public function test_question_text_is_null_when_not_authored(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
+        $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
+        // No question text supplied — the API must not invent one.
+        $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B']);
+
+        $response = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $this->assertNull($response->json('data.questions.0.question_text'));
+        $this->assertArrayHasKey('question_text', $response->json('data.questions.0'));
+    }
+
     public function test_snapshot_is_immutable_after_question_bank_changes(): void
     {
         [$user] = $this->createLearner();
@@ -268,6 +358,52 @@ class BaselineAssessmentTest extends TestCase
 
         $this->assertSame($originalItemIds, $reloadedItemIds);
         $this->assertNotContains('sql-new', $reloadedItemIds);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Multiple career roles
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_learner_can_take_assessments_for_multiple_career_roles(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $analyst = $this->careerRole('Data Analyst', 'approved', ['sql']);
+        $developer = $this->careerRole('Backend Developer', 'approved', ['python']);
+        $this->seedItems();
+
+        $first = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $analyst->id])
+            ->assertStatus(201);
+
+        $second = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $developer->id])
+            ->assertStatus(201);
+
+        $this->assertNotEquals($first->json('data.id'), $second->json('data.id'));
+        $this->assertSame($analyst->id, $first->json('data.career_role_id'));
+        $this->assertSame($developer->id, $second->json('data.career_role_id'));
+
+        $this->assertDatabaseCount('baseline_assessments', 2);
+    }
+
+    public function test_duplicate_assessment_for_same_role_is_still_rejected(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
+        $this->seedItems();
+
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'ASSESSMENT_ALREADY_EXISTS');
+
+        $this->assertDatabaseCount('baseline_assessments', 1);
     }
 
     /*
@@ -573,6 +709,191 @@ class BaselineAssessmentTest extends TestCase
         });
     }
 
+    public function test_data_science_payload_uses_item_id_namespace_end_to_end(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql']);
+        $sql = Skill::where('slug', 'sql')->first();
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [
+                    ['slug' => $sql->slug, 'level' => 3.0, 'confidence' => 0.8],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => [
+                ['question_id' => 'sql-001', 'answer' => 'A'],
+            ],
+        ])->assertStatus(200);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+
+            // The outbound identifier namespace is the item bank's
+            // `item_id` string — never the numeric primary key.
+            $questionIds = $payload['question_ids'] ?? [];
+            $responseIds = collect($payload['responses'] ?? [])->pluck('question_id')->all();
+
+            return $questionIds === ['sql-001']
+                && $responseIds === ['sql-001']
+                && collect($questionIds)->every(fn ($id) => is_string($id) && ! ctype_digit($id));
+        });
+    }
+
+    public function test_submit_rejects_skill_id_slug_mismatch_from_intelligence(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql']);
+        $sql = Skill::where('slug', 'sql')->first();
+
+        // Same slug, wrong numeric id.
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [
+                    [
+                        'skill_id' => $sql->id + 9999,
+                        'slug' => $sql->slug,
+                        'level' => 3.0,
+                        'confidence' => 0.8,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => $this->responsesFor($assessment),
+        ])
+            ->assertStatus(502)
+            ->assertJsonPath('code', 'INTELLIGENCE_SKILL_MISMATCH');
+
+        // Rollback: nothing persisted.
+        $this->assertDatabaseCount('skill_evaluations', 0);
+        $this->assertDatabaseHas('baseline_assessments', [
+            'id' => $assessment->id,
+            'status' => 'in_progress',
+        ]);
+    }
+
+    public function test_submit_accepts_matching_skill_id_and_slug(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql']);
+        $sql = Skill::where('slug', 'sql')->first();
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [
+                    ['skill_id' => $sql->id, 'slug' => $sql->slug, 'level' => 4.0, 'confidence' => 0.9],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => $this->responsesFor($assessment),
+        ])->assertStatus(200);
+
+        $this->assertDatabaseHas('skill_evaluations', [
+            'skill_id' => $sql->id,
+            'level' => 4.00,
+        ]);
+    }
+
+    public function test_submit_rejects_missing_algorithm_version(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql']);
+        $sql = Skill::where('slug', 'sql')->first();
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                // algorithm_version deliberately omitted.
+                'skills' => [
+                    ['slug' => $sql->slug, 'level' => 3.0, 'confidence' => 0.8],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => $this->responsesFor($assessment),
+        ])
+            ->assertStatus(502)
+            ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
+
+        $this->assertDatabaseCount('skill_evaluations', 0);
+    }
+
+    public function test_submit_rejects_empty_skills_without_fabricating_evaluations(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql']);
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => $this->responsesFor($assessment),
+        ])
+            ->assertStatus(502)
+            ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
+
+        // No SkillEvidence / SkillEvaluation may be invented to fill the gap.
+        $this->assertDatabaseCount('skill_evidences', 0);
+        $this->assertDatabaseCount('skill_evaluations', 0);
+        $this->assertDatabaseHas('baseline_assessments', [
+            'id' => $assessment->id,
+            'status' => 'in_progress',
+        ]);
+    }
+
+    public function test_partial_skill_evaluations_are_persisted_as_returned(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        // Two required skills; the service only evaluates one of them.
+        [$assessment] = $this->startDynamicAssessment($user, ['python', 'sql']);
+        $sql = Skill::where('slug', 'sql')->first();
+        $python = Skill::where('slug', 'python')->first();
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response([
+                'algorithm_version' => 'baseline-v1.0',
+                'skills' => [
+                    ['slug' => $sql->slug, 'level' => 3.0, 'confidence' => 0.8],
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => $this->responsesFor($assessment),
+        ])->assertStatus(200);
+
+        // Exactly what the service returned — no fabricated python row.
+        $this->assertDatabaseCount('skill_evaluations', 1);
+        $this->assertDatabaseHas('skill_evaluations', ['skill_id' => $sql->id]);
+        $this->assertDatabaseMissing('skill_evaluations', ['skill_id' => $python->id]);
+    }
+
     public function test_submit_rejects_out_of_scope_skill_from_intelligence(): void
     {
         [$user] = $this->createLearner();
@@ -867,12 +1188,18 @@ class BaselineAssessmentTest extends TestCase
         $this->item('python-001', $python->id, 'single_choice', ['A', 'B', 'C', 'D']);
     }
 
-    private function item(string $itemId, int $skillId, string $type, array $options): BaselineAssessmentItem
-    {
+    private function item(
+        string $itemId,
+        int $skillId,
+        string $type,
+        array $options,
+        ?string $questionText = null
+    ): BaselineAssessmentItem {
         return BaselineAssessmentItem::updateOrCreate(
             ['assessment_version' => 'v1.0', 'item_id' => $itemId],
             [
                 'item_type' => $type,
+                'question_text' => $questionText,
                 'skill_id' => $skillId,
                 'options' => $options,
                 'correct_answer' => $type === 'single_choice' ? $options[0] : null,

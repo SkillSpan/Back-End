@@ -45,4 +45,25 @@ class BaselineAssessmentException extends Exception
             ['uncovered_skills' => $uncoveredSkills],
         );
     }
+
+    /**
+     * The configured total question cap is smaller than the number of
+     * required skills, so no assessment can cover every skill. This is a
+     * contradictory configuration, not a data problem — reported
+     * explicitly instead of silently dropping a skill's coverage.
+     */
+    public static function insufficientQuestionCapacity(
+        int $requiredSkillCount,
+        int $maxTotalQuestions
+    ): self {
+        return new self(
+            'The configured maximum total questions is smaller than the number of required skills, so full skill coverage is impossible.',
+            422,
+            'INSUFFICIENT_QUESTION_CAPACITY',
+            [
+                'required_skill_count' => $requiredSkillCount,
+                'max_total_questions' => $maxTotalQuestions,
+            ],
+        );
+    }
 }

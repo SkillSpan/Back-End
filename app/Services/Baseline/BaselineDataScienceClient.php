@@ -26,9 +26,20 @@ use Throwable;
  *   "assessment_version": "v1.0",
  *   "career_role_id": 3,
  *   "career_role_version": 1,
- *   "question_ids": ["sql-001", "python-002"],
- *   "responses": { ... }
+ *   "question_ids": ["sql-001", "python-002"],   // item bank `item_id` strings
+ *   "responses": [
+ *     { "question_id": "sql-001", "answer": "B" }, // same namespace as question_ids
+ *     ...
+ *   ]
  * }
+ *
+ * Identifier note (resolves the question_id / item_id mismatch):
+ * `question_ids` and every `responses[].question_id` are the SAME opaque
+ * string — the item bank's `item_id` (e.g. "sql-001"), never the numeric
+ * primary key. The Laravel API accepts that same value from the client as
+ * `question_id`, so the three stay aligned end-to-end. If the FastAPI
+ * service needs the numeric key it must resolve it itself via
+ * GET /api/v1/internal/baseline-items?version=v1.0.
  *
  * Response 200:
  * {
@@ -40,6 +51,12 @@ use Throwable;
  *     ...
  *   ]
  * }
+ *
+ * `algorithm_version` is mandatory. `skills` must be non-empty. When
+ * `skill_id` is present it MUST equal the id of the skill named by `slug`;
+ * a disagreement is rejected by the caller as INTELLIGENCE_SKILL_MISMATCH.
+ * Every returned skill must belong to the request's career role, or it is
+ * rejected as INTELLIGENCE_SKILL_OUT_OF_SCOPE.
  */
 class BaselineDataScienceClient
 {
