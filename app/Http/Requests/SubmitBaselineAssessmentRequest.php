@@ -32,12 +32,9 @@ class SubmitBaselineAssessmentRequest extends FormRequest
             'responses.array' => 'Responses must be an array.',
             'responses.list' => 'Responses must be a JSON array of objects.',
             'responses.min' => 'At least one response is required.',
-            'responses.*.question_id.required' =>
-                'Each response must specify a question_id.',
-            'responses.*.question_id.string' =>
-                'Each question_id must be a string.',
-            'responses.*.answer.required' =>
-                'Each response must include an answer.',
+            'responses.*.question_id.required' => 'Each response must specify a question_id.',
+            'responses.*.question_id.string' => 'Each question_id must be a string.',
+            'responses.*.answer.required' => 'Each response must include an answer.',
         ];
     }
 }
