@@ -283,7 +283,7 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
         $payload = $this->builder->build($snapshot);
 
         $this->assertEquals($snapshot->algorithm_version, $payload['algorithm_version']);
-        $this->assertSame('1', $payload['algorithm_version']);
+        $this->assertSame('project-matching-v1', $payload['algorithm_version']);
     }
 
     public function test_configuration_version_is_preserved(): void
@@ -296,7 +296,7 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
         $payload = $this->builder->build($snapshot);
 
         $this->assertEquals($snapshot->configuration_version, $payload['configuration_version']);
-        $this->assertSame('project-matching-v1', $payload['configuration_version']);
+        $this->assertSame('project-matching-config-v1', $payload['configuration_version']);
     }
 
     public function test_project_version_is_preserved(): void

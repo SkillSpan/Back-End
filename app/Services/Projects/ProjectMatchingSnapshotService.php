@@ -95,8 +95,8 @@ class ProjectMatchingSnapshotService
         $configuration = $this->resolveConfiguration();
 
         $projectVersion = (int) $project->version;
-        $algorithmVersion = $configuration->version;
-        $configurationVersion = 'project-matching-v1';
+        $algorithmVersion = 'project-matching-v1';
+        $configurationVersion = 'project-matching-config-v1';
 
         $requestId = (string) Str::uuid();
 

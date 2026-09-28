@@ -302,9 +302,8 @@ class ProjectMatchingSnapshotTest extends TestCase
 
         $snapshot = $this->service->createForProject($project, $learner);
 
-        $this->assertEquals(1, $snapshot->algorithm_version);
-        $this->assertSame('1', $snapshot->algorithm_version);
-        $this->assertSame('1', $snapshot->snapshot['algorithm_version']);
+        $this->assertSame('project-matching-v1', $snapshot->algorithm_version);
+        $this->assertSame('project-matching-v1', $snapshot->snapshot['algorithm_version']);
     }
 
     public function test_configuration_version_is_captured(): void
@@ -314,7 +313,7 @@ class ProjectMatchingSnapshotTest extends TestCase
 
         $snapshot = $this->service->createForProject($project, $learner);
 
-        $this->assertSame('project-matching-v1', $snapshot->configuration_version);
+        $this->assertSame('project-matching-config-v1', $snapshot->configuration_version);
     }
 
     public function test_repeated_identical_input_produces_equivalent_snapshot(): void
