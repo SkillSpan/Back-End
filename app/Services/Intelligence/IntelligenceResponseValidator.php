@@ -562,13 +562,18 @@ class IntelligenceResponseValidator
         }
 
         /*
-         * algorithm_version and configuration_version are part of the
-         * response schema but are OPTIONAL with defaults. When Laravel
-         * sends them, the service should echo them back — so we validate
-         * them when present rather than requiring them.
+         * algorithm_version and configuration_version are REQUIRED by the
+         * agreed Project Matching contract. The service must echo the exact
+         * versions Laravel sent — a missing, null or empty value is a
+         * contract violation, never something to paper over with a default.
+         *
+         * The expected values are supplied by the caller, taken from the
+         * payload the integration architecture already built
+         * (ProjectMatchingPayloadBuilder <- ProjectMatchingSnapshotService),
+         * so no version literal is hardcoded here.
          */
-        $this->validateOptionalAlgorithmVersion($result);
-        $this->validateConfigurationVersion($result);
+        $this->validateRequiredVersion($result, 'algorithm_version', $expectedVersions);
+        $this->validateRequiredVersion($result, 'configuration_version', $expectedVersions);
 
         if (! array_key_exists('recommendation', $result) || ! is_array($result['recommendation'])) {
             throw new IntelligenceException(
@@ -582,51 +587,58 @@ class IntelligenceResponseValidator
         $this->validateRecommendation($result['recommendation']);
 
         if ($expectedVersions !== null) {
-            $this->validateVersionCorrelation($result, $expectedVersions);
             $this->validateProjectCorrelation($result['recommendation'], $expectedVersions);
         }
     }
 
     /**
-     * Verify that the service echoed back the algorithm_version and
-     * configuration_version we sent in the request payload.
-     * The FastAPI contract declares these as optional-with-defaults, so we
-     * only check them when the service includes them in the response.
+     * Validate one REQUIRED version field on the Project Matching response.
+     *
+     * The field must be present, a string, and non-empty — a missing, null
+     * or blank value is rejected outright. When the caller supplied the
+     * value it sent (the normal case: the expected versions travel with the
+     * payload), the response must match it exactly; the service may never
+     * substitute its own default.
+     *
+     * The expected value comes from the integration architecture, so this
+     * method contains no version literal of its own.
+     *
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>|null  $expectedVersions
      */
-    private function validateVersionCorrelation(array $result, array $expectedVersions): void
+    private function validateRequiredVersion(array $result, string $field, ?array $expectedVersions): void
     {
-        if (array_key_exists('algorithm_version', $result)) {
-            $expectedAlgorithm = (string) ($expectedVersions['algorithm_version'] ?? '');
-            $actualAlgorithm = (string) $result['algorithm_version'];
-
-            if ($expectedAlgorithm !== '' && $actualAlgorithm !== $expectedAlgorithm) {
-                throw new IntelligenceException(
-                    'The intelligence service returned an inconsistent algorithm_version.',
-                    502,
-                    'INTELLIGENCE_RESPONSE_MISMATCH',
-                    [
-                        'expected' => $expectedAlgorithm,
-                        'actual' => $actualAlgorithm,
-                    ],
-                );
-            }
+        if (
+            ! array_key_exists($field, $result)
+            || ! is_string($result[$field])
+            || trim($result[$field]) === ''
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response is missing a valid '.$field.'.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => $field],
+            );
         }
 
-        if (array_key_exists('configuration_version', $result)) {
-            $expectedConfig = (string) ($expectedVersions['configuration_version'] ?? '');
-            $actualConfig = (string) $result['configuration_version'];
+        $expected = $expectedVersions[$field] ?? null;
 
-            if ($expectedConfig !== '' && $actualConfig !== $expectedConfig) {
-                throw new IntelligenceException(
-                    'The intelligence service returned an inconsistent configuration_version.',
-                    502,
-                    'INTELLIGENCE_RESPONSE_MISMATCH',
-                    [
-                        'expected' => $expectedConfig,
-                        'actual' => $actualConfig,
-                    ],
-                );
-            }
+        // No expectation supplied: presence is still enforced above, but
+        // there is nothing to compare the echoed value against.
+        if (! is_string($expected) || trim($expected) === '') {
+            return;
+        }
+
+        if ($result[$field] !== $expected) {
+            throw new IntelligenceException(
+                'The intelligence service returned an inconsistent '.$field.'.',
+                502,
+                'INTELLIGENCE_RESPONSE_MISMATCH',
+                [
+                    'expected' => $expected,
+                    'actual' => $result[$field],
+                ],
+            );
         }
     }
 
@@ -786,8 +798,30 @@ class IntelligenceResponseValidator
             }
         }
 
-        if (array_key_exists('skill_results', $recommendation) && is_array($recommendation['skill_results'])) {
+        // skill_results is OPTIONAL in ProjectRecommendationResult, but when
+        // it IS present it must be an array of objects. A null, string or
+        // object value is a contract violation — not a reason to skip the
+        // per-entry validation silently.
+        if (array_key_exists('skill_results', $recommendation)) {
+            if (! is_array($recommendation['skill_results'])) {
+                throw new IntelligenceException(
+                    'The recommendation contains an invalid skill_results array.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'skill_results'],
+                );
+            }
+
             foreach ($recommendation['skill_results'] as $skillResult) {
+                if (! is_array($skillResult)) {
+                    throw new IntelligenceException(
+                        'The recommendation skill_results must contain only objects.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['field' => 'skill_results'],
+                    );
+                }
+
                 $this->validateProjectMatchingSkillResult($skillResult);
             }
         }
@@ -856,46 +890,6 @@ class IntelligenceResponseValidator
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
                 ['field' => 'status'],
-            );
-        }
-    }
-
-    /**
-     * Validate algorithm_version when present (optional field with a
-     * default on the FastAPI side).
-     */
-    private function validateOptionalAlgorithmVersion(array $result): void
-    {
-        if (! array_key_exists('algorithm_version', $result)) {
-            return;
-        }
-
-        if (! is_string($result['algorithm_version']) || trim($result['algorithm_version']) === '') {
-            throw new IntelligenceException(
-                'The intelligence service response contains an invalid algorithm_version.',
-                502,
-                'INTELLIGENCE_INVALID_RESPONSE',
-                ['missing_field' => 'algorithm_version'],
-            );
-        }
-    }
-
-    /**
-     * Validate configuration_version when present (optional field with a
-     * default on the FastAPI side).
-     */
-    private function validateConfigurationVersion(array $result): void
-    {
-        if (! array_key_exists('configuration_version', $result)) {
-            return;
-        }
-
-        if (! is_string($result['configuration_version']) || trim($result['configuration_version']) === '') {
-            throw new IntelligenceException(
-                'The intelligence service response contains an invalid configuration_version.',
-                502,
-                'INTELLIGENCE_INVALID_RESPONSE',
-                ['missing_field' => 'configuration_version'],
             );
         }
     }

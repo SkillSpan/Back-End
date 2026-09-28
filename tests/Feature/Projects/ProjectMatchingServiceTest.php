@@ -406,22 +406,67 @@ class ProjectMatchingServiceTest extends TestCase
         $this->assertFailsWith('INTELLIGENCE_RESPONSE_MISMATCH', 502, fn () => $this->service->match($snapshot));
     }
 
-    public function test_missing_version_echo_is_tolerated(): void
+    public function test_missing_algorithm_version_is_rejected(): void
     {
-        // Both version fields are optional-with-defaults on the FastAPI
-        // side, so their absence must not fail the call.
+        // algorithm_version is REQUIRED by the agreed contract: the service
+        // must echo the version Laravel sent, never omit it and never
+        // substitute its own default.
         $snapshot = $this->makeSnapshot();
 
         $body = $this->validResponse($snapshot);
-        unset($body['algorithm_version'], $body['configuration_version']);
+        unset($body['algorithm_version']);
 
         Http::fake(['*' => Http::response($body, 200)]);
 
-        $result = $this->service->match($snapshot);
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
 
-        $this->assertNull($result['algorithm_version']);
-        $this->assertNull($result['configuration_version']);
-        $this->assertSame(72.5, $result['score']);
+    public function test_missing_configuration_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        unset($body['configuration_version']);
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_null_algorithm_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        Http::fake(['*' => Http::response($this->validResponse($snapshot, ['algorithm_version' => null]), 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_empty_algorithm_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        Http::fake(['*' => Http::response($this->validResponse($snapshot, ['algorithm_version' => '  ']), 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_null_configuration_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        Http::fake(['*' => Http::response($this->validResponse($snapshot, ['configuration_version' => null]), 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_empty_configuration_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        Http::fake(['*' => Http::response($this->validResponse($snapshot, ['configuration_version' => '']), 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
     }
 
     // --------------------------------------------------- schema violations
@@ -492,6 +537,88 @@ class ProjectMatchingServiceTest extends TestCase
 
         $body = $this->validResponse($snapshot);
         unset($body['recommendation']['skill_results'][0]['match_ratio']);
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_missing_skill_results_is_accepted(): void
+    {
+        // skill_results is OPTIONAL in ProjectRecommendationResult, so its
+        // absence must not fail the call.
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        unset($body['recommendation']['skill_results']);
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $result = $this->service->match($snapshot);
+
+        $this->assertSame([], $result['skill_results']);
+        $this->assertSame(72.5, $result['score']);
+    }
+
+    public function test_empty_skill_results_array_is_accepted(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        $body['recommendation']['skill_results'] = [];
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertSame([], $this->service->match($snapshot)['skill_results']);
+    }
+
+    public function test_null_skill_results_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        $body['recommendation']['skill_results'] = null;
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_string_skill_results_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        $body['recommendation']['skill_results'] = 'not-an-array';
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_object_skill_results_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+
+        // A JSON OBJECT on the wire, not an array: it encodes as
+        // {"skill_id":1} and decodes to a PHP array whose values are not
+        // objects — so it must be rejected, never silently skipped.
+        $body['recommendation']['skill_results'] = ['skill_id' => 1];
+        $this->assertStringStartsWith('{', json_encode($body['recommendation']['skill_results']));
+
+        Http::fake(['*' => Http::response($body, 200)]);
+
+        $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
+    }
+
+    public function test_non_object_skill_result_entry_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $body = $this->validResponse($snapshot);
+        $body['recommendation']['skill_results'] = ['not-an-object'];
 
         Http::fake(['*' => Http::response($body, 200)]);
 
