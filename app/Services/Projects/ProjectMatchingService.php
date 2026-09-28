@@ -78,9 +78,10 @@ class ProjectMatchingService
             throw $e;
         }
 
-        $this->validator->validateProjectMatching($result, $requestId);
-
-        $this->validateVersionCorrelation($result, $payload, $snapshot);
+        $this->validator->validateProjectMatching($result, $requestId, [
+            ...$payload,
+            'project_id' => $payload['project']['id'],
+        ]);
 
         return $this->normalize($result);
     }
@@ -133,48 +134,6 @@ class ProjectMatchingService
                 422,
                 'PROJECT_MATCH_INELIGIBLE',
             );
-        }
-    }
-
-    /**
-     * Verify that the service echoed back the version metadata we sent.
-     * The FastAPI contract declares these as optional-with-defaults, so we
-     * only check them when the service includes them in the response.
-     */
-    private function validateVersionCorrelation(array $result, array $payload, ProjectMatchingSnapshot $snapshot): void
-    {
-        if (array_key_exists('algorithm_version', $result)) {
-            $expectedAlgorithm = (string) $payload['algorithm_version'];
-            $actualAlgorithm = (string) $result['algorithm_version'];
-
-            if ($actualAlgorithm !== $expectedAlgorithm) {
-                throw new IntelligenceException(
-                    'The intelligence service returned an inconsistent algorithm_version.',
-                    502,
-                    'INTELLIGENCE_RESPONSE_MISMATCH',
-                    [
-                        'expected' => $expectedAlgorithm,
-                        'actual' => $actualAlgorithm,
-                    ],
-                );
-            }
-        }
-
-        if (array_key_exists('configuration_version', $result)) {
-            $expectedConfig = (string) $payload['configuration_version'];
-            $actualConfig = (string) $result['configuration_version'];
-
-            if ($actualConfig !== $expectedConfig) {
-                throw new IntelligenceException(
-                    'The intelligence service returned an inconsistent configuration_version.',
-                    502,
-                    'INTELLIGENCE_RESPONSE_MISMATCH',
-                    [
-                        'expected' => $expectedConfig,
-                        'actual' => $actualConfig,
-                    ],
-                );
-            }
         }
     }
 

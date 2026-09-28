@@ -538,8 +538,11 @@ class IntelligenceResponseValidator
      * Project Matching contract: the response must carry the request_id
      * echo and a recommendation block whose fields are validated against
      * the verified FastAPI ProjectMatchingResponse schema.
+     *
+     * @param  string  $requestId  the request_id that was sent in the payload
+     * @param  array<string, mixed>|null  $expectedVersions  ['algorithm_version' => ..., 'configuration_version' => ..., 'project_id' => ..., 'project_version' => ...]
      */
-    public function validateProjectMatching(array $result, array $requestId): void
+    public function validateProjectMatching(array $result, string $requestId, ?array $expectedVersions = null): void
     {
         if (! array_key_exists('request_id', $result) || ! is_string($result['request_id']) || trim($result['request_id']) === '') {
             throw new IntelligenceException(
@@ -577,6 +580,95 @@ class IntelligenceResponseValidator
         }
 
         $this->validateRecommendation($result['recommendation']);
+
+        if ($expectedVersions !== null) {
+            $this->validateVersionCorrelation($result, $expectedVersions);
+            $this->validateProjectCorrelation($result['recommendation'], $expectedVersions);
+        }
+    }
+
+    /**
+     * Verify that the service echoed back the algorithm_version and
+     * configuration_version we sent in the request payload.
+     * The FastAPI contract declares these as optional-with-defaults, so we
+     * only check them when the service includes them in the response.
+     */
+    private function validateVersionCorrelation(array $result, array $expectedVersions): void
+    {
+        if (array_key_exists('algorithm_version', $result)) {
+            $expectedAlgorithm = (string) ($expectedVersions['algorithm_version'] ?? '');
+            $actualAlgorithm = (string) $result['algorithm_version'];
+
+            if ($expectedAlgorithm !== '' && $actualAlgorithm !== $expectedAlgorithm) {
+                throw new IntelligenceException(
+                    'The intelligence service returned an inconsistent algorithm_version.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedAlgorithm,
+                        'actual' => $actualAlgorithm,
+                    ],
+                );
+            }
+        }
+
+        if (array_key_exists('configuration_version', $result)) {
+            $expectedConfig = (string) ($expectedVersions['configuration_version'] ?? '');
+            $actualConfig = (string) $result['configuration_version'];
+
+            if ($expectedConfig !== '' && $actualConfig !== $expectedConfig) {
+                throw new IntelligenceException(
+                    'The intelligence service returned an inconsistent configuration_version.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedConfig,
+                        'actual' => $actualConfig,
+                    ],
+                );
+            }
+        }
+    }
+
+    /**
+     * Verify that the recommendation's project_id and project_version match
+     * the project and version that were sent in the request payload.
+     */
+    private function validateProjectCorrelation(array $recommendation, array $expectedVersions): void
+    {
+        if (array_key_exists('project_id', $expectedVersions)) {
+            $expectedProjectId = (int) $expectedVersions['project_id'];
+            $actualProjectId = (int) $recommendation['project_id'];
+
+            if ($expectedProjectId > 0 && $actualProjectId !== $expectedProjectId) {
+                throw new IntelligenceException(
+                    'The intelligence service response does not match the project_id.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedProjectId,
+                        'actual' => $actualProjectId,
+                    ],
+                );
+            }
+        }
+
+        if (array_key_exists('project_version', $expectedVersions)) {
+            $expectedProjectVersion = (int) $expectedVersions['project_version'];
+            $actualProjectVersion = (int) $recommendation['project_version'];
+
+            if ($expectedProjectVersion > 0 && $actualProjectVersion !== $expectedProjectVersion) {
+                throw new IntelligenceException(
+                    'The intelligence service response does not match the project_version.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedProjectVersion,
+                        'actual' => $actualProjectVersion,
+                    ],
+                );
+            }
+        }
     }
 
     /**
