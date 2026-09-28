@@ -34,8 +34,8 @@ use Illuminate\Support\Str;
 class ProjectMatchingSnapshotService
 {
     public function __construct(
-        private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService(),
-        private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService(),
+        private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService,
+        private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService,
     ) {}
 
     /**

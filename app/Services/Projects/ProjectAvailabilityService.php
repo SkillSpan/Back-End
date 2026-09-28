@@ -24,7 +24,7 @@ class ProjectAvailabilityService
             $reasons[] = 'Application deadline has passed.';
         }
 
-        $result = new stdClass();
+        $result = new stdClass;
         $result->available = empty($reasons);
         $result->reasons = $reasons;
 

@@ -10,7 +10,7 @@ class ProjectMatchingPayloadBuilder
     {
         if ($snapshot->status !== ProjectMatchingSnapshot::STATUS_VALIDATED) {
             throw new \InvalidArgumentException(
-                'Cannot build payload from snapshot with status: ' . $snapshot->status . '. Only validated snapshots can be built.'
+                'Cannot build payload from snapshot with status: '.$snapshot->status.'. Only validated snapshots can be built.'
             );
         }
 

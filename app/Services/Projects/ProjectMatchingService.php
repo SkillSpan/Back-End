@@ -32,7 +32,9 @@ use Illuminate\Support\Facades\Log;
 class ProjectMatchingService
 {
     private readonly IntelligenceClient $client;
+
     private readonly IntelligenceResponseValidator $validator;
+
     private readonly ProjectMatchingPayloadBuilder $payloadBuilder;
 
     public function __construct(
@@ -40,9 +42,9 @@ class ProjectMatchingService
         ?IntelligenceResponseValidator $validator = null,
         ?ProjectMatchingPayloadBuilder $payloadBuilder = null,
     ) {
-        $this->client = $client ?? new IntelligenceClient();
-        $this->validator = $validator ?? new IntelligenceResponseValidator();
-        $this->payloadBuilder = $payloadBuilder ?? new ProjectMatchingPayloadBuilder();
+        $this->client = $client ?? new IntelligenceClient;
+        $this->validator = $validator ?? new IntelligenceResponseValidator;
+        $this->payloadBuilder = $payloadBuilder ?? new ProjectMatchingPayloadBuilder;
     }
 
     /**
@@ -52,8 +54,8 @@ class ProjectMatchingService
      * @return array<string, mixed> the normalized, validated recommendation
      *
      * @throws IntelligenceException When the service is disabled, the snapshot
-     *         is invalid/ineligible, the FastAPI call fails, or the response
-     *         fails validation / correlation checks.
+     *                               is invalid/ineligible, the FastAPI call fails, or the response
+     *                               fails validation / correlation checks.
      */
     public function match(ProjectMatchingSnapshot $snapshot): array
     {
@@ -121,7 +123,7 @@ class ProjectMatchingService
 
         if ($snapshot->status !== ProjectMatchingSnapshot::STATUS_VALIDATED) {
             throw new IntelligenceException(
-                'Cannot match against a snapshot with status: ' . $snapshot->status . '. Only validated snapshots can be matched.',
+                'Cannot match against a snapshot with status: '.$snapshot->status.'. Only validated snapshots can be matched.',
                 422,
                 'PROJECT_MATCH_INVALID_SNAPSHOT',
             );

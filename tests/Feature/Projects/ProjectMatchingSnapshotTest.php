@@ -4,6 +4,7 @@ namespace Tests\Feature\Projects;
 
 use App\Exceptions\IntelligenceException;
 use App\Models\AlgorithmConfiguration;
+use App\Models\DecisionSnapshot;
 use App\Models\Project;
 use App\Models\ProjectRequiredSkill;
 use App\Models\Role;
@@ -24,7 +25,7 @@ class ProjectMatchingSnapshotTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new SnapshotService();
+        $this->service = new SnapshotService;
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
 
@@ -342,6 +343,6 @@ class ProjectMatchingSnapshotTest extends TestCase
         $this->assertTrue($snapshot->exists);
 
         // Ensure no career-role DecisionSnapshot is created.
-        $this->assertSame(0, \App\Models\DecisionSnapshot::count());
+        $this->assertSame(0, DecisionSnapshot::count());
     }
 }

@@ -23,13 +23,14 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
     use RefreshDatabase;
 
     protected ProjectMatchingPayloadBuilder $builder;
+
     protected ProjectMatchingSnapshotService $snapshotService;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->builder = new ProjectMatchingPayloadBuilder();
-        $this->snapshotService = new ProjectMatchingSnapshotService();
+        $this->builder = new ProjectMatchingPayloadBuilder;
+        $this->snapshotService = new ProjectMatchingSnapshotService;
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
 
@@ -136,6 +137,7 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
     private function makeValidatedSnapshot(User $learner, Project $project): ProjectMatchingSnapshot
     {
         $project->load(['requiredSkills.skill', 'eligibilityConstraints']);
+
         return $this->snapshotService->createForProject($project, $learner);
     }
 

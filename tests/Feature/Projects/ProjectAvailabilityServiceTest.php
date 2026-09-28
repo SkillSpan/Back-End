@@ -14,7 +14,7 @@ class ProjectAvailabilityServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new ProjectAvailabilityService();
+        $this->service = new ProjectAvailabilityService;
     }
 
     private function makeProject(array $attributes = []): Project
@@ -138,7 +138,7 @@ class ProjectAvailabilityServiceTest extends TestCase
         $this->assertFalse($this->service->isAvailable($unavailable));
     }
 
-    public function test_check_returns_stdClass_with_expected_properties(): void
+    public function test_check_returns_std_class_with_expected_properties(): void
     {
         $project = $this->makeProject();
 

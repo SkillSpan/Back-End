@@ -7,11 +7,11 @@ use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Services\Projects\ProjectAvailabilityService;
 use App\Services\Projects\ProjectEligibilityService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ProjectController extends Controller
 {
@@ -22,8 +22,8 @@ class ProjectController extends Controller
     ];
 
     public function __construct(
-        private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService(),
-        private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService(),
+        private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService,
+        private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -205,7 +205,7 @@ class ProjectController extends Controller
      *
      * @param  array<int, string>  $with
      */
-    private function accessibleProjectsQuery(?int $organizationId, array $with = []): \Illuminate\Database\Eloquent\Builder
+    private function accessibleProjectsQuery(?int $organizationId, array $with = []): Builder
     {
         $query = Project::query();
 

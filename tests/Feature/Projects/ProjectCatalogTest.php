@@ -184,11 +184,36 @@ class ProjectCatalogTest extends TestCase
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
-        $this->createOpenProject(['confidentiality' => 'restricted', 'organization_id' => Organization::first()?->id ?? 1]);
+        // A DIFFERENT organization. createLearnerWithOrg() already put the
+        // learner in the first organization, so Organization::first() would
+        // have attached the project to the learner's OWN organization — where
+        // it is legitimately visible — instead of testing exclusion.
+        $otherOrganization = Organization::create([
+            'name' => 'Other Organization',
+            'type' => 'company',
+        ]);
 
-        $response = $this->getJson('/api/v1/projects');
+        $restricted = $this->createOpenProject([
+            'confidentiality' => 'restricted',
+            'organization_id' => $otherOrganization->id,
+        ]);
 
-        $response->assertStatus(200)
+        // Guard against a vacuous pass: the project really exists, really is
+        // restricted, and really belongs to an organization the learner is
+        // NOT a member of — so an empty catalog is a genuine exclusion.
+        $this->assertDatabaseHas('projects', [
+            'id' => $restricted->id,
+            'confidentiality' => 'restricted',
+            'organization_id' => $otherOrganization->id,
+        ]);
+
+        $this->assertFalse(
+            $learner->organizations()->where('organization_id', $otherOrganization->id)->exists(),
+            'The learner must not be a member of the other organization.',
+        );
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
             ->assertJsonPath('data', []);
     }
 
@@ -857,7 +882,20 @@ class ProjectCatalogTest extends TestCase
     public function test_learner_can_access_allowed_restricted_project(): void
     {
         $learner = $this->createLearnerWithOrg();
-        $orgId = $learner->organization_id;
+
+        // Organization membership lives in the organization_members pivot —
+        // there is no users.organization_id column, so reading
+        // $learner->organization_id silently yielded null and the project was
+        // created with organization_id = null (never visible to anyone).
+        // Resolve the learner's real, ACTIVE membership instead.
+        $organization = $learner->organizations()
+            ->wherePivot('status', 'active')
+            ->first();
+
+        $this->assertNotNull(
+            $organization,
+            'The learner must be an active member of an organization.',
+        );
 
         $owner = User::forceCreate([
             'name' => 'Same Org Owner',
@@ -868,7 +906,7 @@ class ProjectCatalogTest extends TestCase
         ]);
 
         $restricted = Project::create([
-            'organization_id' => $orgId,
+            'organization_id' => $organization->id,
             'owner_id' => $owner->id,
             'title' => 'Own Org Restricted Project',
             'description' => 'Restricted but in learner org',

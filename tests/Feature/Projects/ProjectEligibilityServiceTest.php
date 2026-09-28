@@ -27,7 +27,7 @@ class ProjectEligibilityServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new ProjectEligibilityService();
+        $this->service = new ProjectEligibilityService;
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }

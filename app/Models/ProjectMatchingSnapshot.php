@@ -21,7 +21,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ProjectMatchingSnapshot extends Model
 {
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_VALIDATED = 'validated';
+
     public const STATUS_FAILED = 'failed';
 
     protected $table = 'project_matching_snapshots';

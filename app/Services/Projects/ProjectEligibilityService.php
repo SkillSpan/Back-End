@@ -5,6 +5,7 @@ namespace App\Services\Projects;
 use App\Models\LearnerSkill;
 use App\Models\Project;
 use App\Models\ProjectRequiredSkill;
+use App\Models\ProjectTeamMember;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
@@ -66,7 +67,7 @@ class ProjectEligibilityService
             $reasons[] = 'The learner already has an active assignment on this project.';
         }
 
-        $result = new stdClass();
+        $result = new stdClass;
         $result->eligible = empty($reasons);
         $result->reasons = $reasons;
         $result->skill_failures = $skillFailures;
@@ -84,7 +85,6 @@ class ProjectEligibilityService
      * after an evaluation has been calculated.
      *
      * @param  array  $skillFailures  Filled with details of failed skills.
-     * @return bool
      */
     private function checkCriticalSkills(Project $project, User $learner, array &$skillFailures): bool
     {
@@ -203,6 +203,7 @@ class ProjectEligibilityService
 
             if ($learnerValue === null) {
                 $reasons[] = "Learner profile does not specify a {$type} preference matching the project requirement.";
+
                 continue;
             }
 
@@ -271,7 +272,7 @@ class ProjectEligibilityService
      */
     private function checkActiveAssignmentConflict(Project $project, User $learner): bool
     {
-        return ! \App\Models\ProjectTeamMember::whereHas('team', function ($q) use ($project) {
+        return ! ProjectTeamMember::whereHas('team', function ($q) use ($project) {
             $q->where('project_id', $project->id);
         })
             ->where('user_id', $learner->id)
