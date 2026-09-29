@@ -101,6 +101,52 @@ Token 64 chars, raw (never `Bearer xxx`).
 - Verify: `php -l <files> ; php artisan test ; php vendor/bin/pint --test <files>`.
   Baseline **761 passed (2633 assertions)**.
 
+## MySQL vs SQLite — the gap that broke a deploy (2026-09-29)
+
+**SQLite cannot validate MySQL DDL.** Three defects passed a fully green SQLite suite and
+appeared only on Render / real MariaDB:
+
+1. **Dropping an index an FK depends on** → `SQLSTATE[HY000] 1553 Cannot drop index '…':
+   needed in a foreign key constraint`. On InnoDB every FK needs a backing index, and
+   `foreignId()->constrained()` does **not** create one if a composite index already starts
+   with that column. **Before dropping a unique/index covering an FK column, create a plain
+   index on that column first**; in `down()`, re-add the composite *before* dropping the
+   plain one (same coupling, reversed).
+2. **Eager-loading a column that does not exist** — `organization:id,title` when the column
+   is `name`. Both engines reject such a query *when it runs*, but Laravel **skips a
+   `belongsTo` eager load whose collected foreign keys are all NULL**, so fixtures that leave
+   `organization_id` unset never trigger it. A green SQLite run is **not** evidence that a
+   schema-coupled query is valid on MySQL.
+3. **PDO returns MySQL `decimal` as a STRING** (`"3.50"` vs SQLite's float `3.5`) — cast
+   decimals to `float` in `$casts` or the JSON type differs per engine.
+
+**A local MariaDB is available** — XAMPP at `127.0.0.1:3306`, user `root`, empty password,
+client `/c/xampp/mysql/bin/mysql.exe`. Use a **throwaway** database to verify migrations and
+schema-coupled queries before deploying:
+
+```bash
+/c/xampp/mysql/bin/mysql.exe -h 127.0.0.1 -u root -e "CREATE DATABASE mig_verify_tmp"
+DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=mig_verify_tmp \
+  DB_USERNAME=root DB_PASSWORD= DB_SOCKET= php artisan migrate --force
+# then the same env override for: php artisan test tests/Feature/...
+/c/xampp/mysql/bin/mysql.exe -h 127.0.0.1 -u root -e "DROP DATABASE mig_verify_tmp"
+```
+
+`phpunit.xml` sets `DB_CONNECTION=sqlite` **without `force`**, so exported env vars DO win —
+the whole suite can be pointed at MySQL this way. **Never touch the other databases on that
+server** (aug, laravel, skillspan, …); create and drop only your own.
+
+**A failed migration leaves a partial schema.** MySQL DDL auto-commits and Laravel records a
+migration only after `up()` returns, so a mid-migration failure leaves the new columns in
+place with the migration unrecorded. Idempotent guards (`Schema::hasColumn`, index lookups)
+let the next run resume safely — which is exactly why that convention is non-negotiable.
+Recovery needs **no manual DB surgery**, only a redeploy with the fixed file.
+
+**Pasting a long message can clobber a project file.** A pasted Render stack trace was
+written into `US-MATCH-02_APPLICATION_WORKFLOW_REPORT.md`, replacing it. After any large
+paste, check `git status` for unexpected modifications. `HEAD` is the safety net:
+`git show HEAD:<path> > <path>` restores without touching refs.
+
 ## US-MATCH-02 — applications & recommendation feedback
 
 **Spec premises FALSE here:** no `project_roles` table (only `projects.role` free-text +
