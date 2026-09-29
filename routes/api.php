@@ -14,7 +14,10 @@ use App\Http\Controllers\Api\MentorStudentController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ProjectController;
+use App\Http\Controllers\Api\ProjectMatchingController;
 use App\Http\Controllers\Api\ReadinessController;
+use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
@@ -58,6 +61,23 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
+        Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
+        Route::get('/projects/{project}', [ProjectController::class, 'show'])
+            ->name('projects.show')
+            ->whereNumber('project');
+
+        // Task 10 — deterministic project-matching recommendation for one
+        // learner + project. Composes the validated snapshot (Task 8) with
+        // the FastAPI project-matching contract (Task 10). Gated on
+        // DATA_SCIENCE_PROJECT_MATCHING_ENABLED; disabled ⇒ 503.
+        Route::post('/projects/{project}/match', [ProjectMatchingController::class, 'match'])
+            ->name('projects.match')
+            ->whereNumber('project');
+
+        // Task 11 — the learner's own stored project matching
+        // recommendations. Scoped to the authenticated learner.
+        Route::get('/recommendations', [RecommendationController::class, 'index'])
+            ->name('recommendations.index');
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
         Route::post('/skill-match', [SkillMatchController::class, 'store']);

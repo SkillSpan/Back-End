@@ -92,6 +92,20 @@ return [
             '/api/v1/skill-match',
         ),
 
+        // Project Matching v1 contract — verified on 2026-09-27 against the
+        // deployed "SkillSpan Intelligence Service" OpenAPI at
+        // https://skillspan-intelligence.onrender.com/openapi.json
+        // POST /api/v1/project-matching → ProjectMatchingRequest → ProjectMatchingResponse
+        'project_matching_path' => env(
+            'DATA_SCIENCE_PROJECT_MATCHING_PATH',
+            '/api/v1/project-matching',
+        ),
+
+        // Whether project matching is enabled. Defaults to false so the
+        // service returns 503 INTELLIGENCE_NOT_CONFIGURED when disabled —
+        // never a fabricated result.
+        'project_matching_enabled' => (bool) env('DATA_SCIENCE_PROJECT_MATCHING_ENABLED', false),
+
         // Payload hint / pending-snapshot placeholder ONLY — never the value
         // persisted with a result. The stored `algorithm_version` always comes
         // from the validated service response, and both flows *require* it
