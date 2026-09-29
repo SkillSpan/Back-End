@@ -485,6 +485,60 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->persist($snapshot, $this->validResult($snapshot));
     }
 
+    public function test_non_duplicate_integrity_violation_is_not_reported_as_a_successful_dedup(): void
+    {
+        // Regression: SQLSTATE 23000 covers foreign-key, NOT NULL and CHECK
+        // violations as well as duplicate keys. Classifying all of them as
+        // "duplicate" meant a genuinely failed write could be reported as a
+        // successful dedup whenever a row with the same dedup_key happened to
+        // exist. Only a real duplicate-key violation may be recovered from.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $firstSnapshot = $this->makeSnapshot($learner, $project);
+        $first = $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
+
+        // Prove the repeat shares a dedup key: it is a no-op that reuses the row.
+        $secondSnapshot = $this->makeSnapshot($learner, $project);
+        $result = $this->validResult($secondSnapshot);
+        $this->assertSame($first->id, $this->persist($secondSnapshot, $result)->id);
+        $this->assertDatabaseCount('recommendations', 1);
+
+        // Now make the write itself fail with a NOT NULL integrity violation
+        // (a non-duplicate 23000) while a row with that dedup_key exists.
+        Recommendation::creating(function (Recommendation $model) {
+            $model->candidate_id = null;
+        });
+
+        $this->expectException(QueryException::class);
+
+        $this->persist($this->makeSnapshot($learner, $project), $result);
+    }
+
+    public function test_a_foreign_key_violation_is_not_reported_as_a_successful_dedup(): void
+    {
+        // A foreign-key violation is also SQLSTATE 23000, but it is NOT a
+        // duplicate-key violation and must never be treated as one. Uses a
+        // fresh dedup key so the foreign key is the only constraint in play —
+        // otherwise the unique index on dedup_key fires first and masks it.
+        $learner = $this->createLearner();
+        $snapshot = $this->makeSnapshot($learner);
+        $result = $this->validResult($snapshot);
+
+        Recommendation::creating(function (Recommendation $model) {
+            $model->user_id = 999999; // no such user → foreign key violation
+        });
+
+        try {
+            $this->persist($snapshot, $result);
+            $this->fail('Expected the foreign key violation to propagate.');
+        } catch (QueryException $e) {
+            $this->assertStringContainsStringIgnoringCase('foreign key', $e->getMessage());
+        }
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
     // ---------------------------------------------------- consistency
 
     public function test_snapshot_belonging_to_another_learner_is_rejected(): void
@@ -697,6 +751,31 @@ class ProjectMatchingRecommendationTest extends TestCase
             ->assertJsonPath('data.0.eligibility_state', 'eligible')
             ->assertJsonPath('data.0.matching_state', 'scored')
             ->assertJsonPath('data.0.reasons', 'Strong alignment with the project skill set.');
+    }
+
+    public function test_recommendation_whose_project_is_gone_is_returned_safely(): void
+    {
+        // recommendations.candidate_id is a plain polymorphic column with no
+        // foreign key, so the project can disappear while the recommendation
+        // row survives (deleting the project cascades the snapshot away and
+        // nulls project_matching_snapshot_id, but leaves the recommendation).
+        // Retrieval must degrade to a null project rather than erroring.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+        $projectId = $project->id;
+
+        $snapshot = $this->makeSnapshot($learner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        $project->delete();
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/recommendations')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.project_id', $projectId)
+            ->assertJsonPath('data.0.project', null);
     }
 
     // ------------------------------------------- end-to-end via the match endpoint
