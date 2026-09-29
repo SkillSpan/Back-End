@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
+use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ProjectMatchingController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
+use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
@@ -65,6 +67,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/projects/{project}', [ProjectController::class, 'show'])
             ->name('projects.show')
             ->whereNumber('project');
+        Route::get('/projects/{project}/recommendation', [RecommendationController::class, 'showForProject'])
+            ->name('projects.recommendation.show')
+            ->whereNumber('project');
 
         // Task 10 — deterministic project-matching recommendation for one
         // learner + project. Composes the validated snapshot (Task 8) with
@@ -78,6 +83,22 @@ Route::prefix('v1')->group(function () {
         // recommendations. Scoped to the authenticated learner.
         Route::get('/recommendations', [RecommendationController::class, 'index'])
             ->name('recommendations.index');
+
+        // US-MATCH-02 — student project application & recommendation feedback.
+        // Ownership of a specific application / recommendation is enforced in
+        // ApplicationService / RecommendationFeedbackService, not by the route.
+        Route::post('/projects/{project}/applications', [ApplicationController::class, 'store'])
+            ->name('projects.applications.store')
+            ->whereNumber('project');
+        Route::get('/applications', [ApplicationController::class, 'index'])
+            ->name('applications.index');
+        Route::post('/applications/{application}/withdraw', [ApplicationController::class, 'withdraw'])
+            ->name('applications.withdraw')
+            ->whereNumber('application');
+        Route::post('/recommendations/{recommendation}/feedback', [RecommendationFeedbackController::class, 'store'])
+            ->name('recommendations.feedback')
+            ->whereNumber('recommendation');
+
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
         Route::post('/skill-match', [SkillMatchController::class, 'store']);
@@ -86,6 +107,21 @@ Route::prefix('v1')->group(function () {
         // readiness + roadmap in one atomic decision).
         Route::post('/intelligence/calculate', [IntelligenceController::class, 'calculate']);
         Route::get('/intelligence/latest', [IntelligenceController::class, 'latest']);
+    });
+
+    // US-MATCH-02 — project-owner side of the application workflow. Deliberately
+    // NOT role-gated: a project owner is any authenticated user, so
+    // authorization is explicit project ownership inside ApplicationService.
+    // A role check here would be both weaker (it would not prove ownership) and
+    // wrong (it would exclude legitimate non-learner owners).
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
+        Route::get('/projects/{project}/applications', [ApplicationController::class, 'indexForProject'])
+            ->name('projects.applications.index')
+            ->whereNumber('project');
+        Route::patch('/projects/{project}/applications/{application}', [ApplicationController::class, 'decide'])
+            ->name('projects.applications.decide')
+            ->whereNumber('project')
+            ->whereNumber('application');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {

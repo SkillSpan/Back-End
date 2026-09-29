@@ -485,6 +485,60 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->persist($snapshot, $this->validResult($snapshot));
     }
 
+    public function test_non_duplicate_integrity_violation_is_not_reported_as_a_successful_dedup(): void
+    {
+        // Regression: SQLSTATE 23000 covers foreign-key, NOT NULL and CHECK
+        // violations as well as duplicate keys. Classifying all of them as
+        // "duplicate" meant a genuinely failed write could be reported as a
+        // successful dedup whenever a row with the same dedup_key happened to
+        // exist. Only a real duplicate-key violation may be recovered from.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $firstSnapshot = $this->makeSnapshot($learner, $project);
+        $first = $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
+
+        // Prove the repeat shares a dedup key: it is a no-op that reuses the row.
+        $secondSnapshot = $this->makeSnapshot($learner, $project);
+        $result = $this->validResult($secondSnapshot);
+        $this->assertSame($first->id, $this->persist($secondSnapshot, $result)->id);
+        $this->assertDatabaseCount('recommendations', 1);
+
+        // Now make the write itself fail with a NOT NULL integrity violation
+        // (a non-duplicate 23000) while a row with that dedup_key exists.
+        Recommendation::creating(function (Recommendation $model) {
+            $model->candidate_id = null;
+        });
+
+        $this->expectException(QueryException::class);
+
+        $this->persist($this->makeSnapshot($learner, $project), $result);
+    }
+
+    public function test_a_foreign_key_violation_is_not_reported_as_a_successful_dedup(): void
+    {
+        // A foreign-key violation is also SQLSTATE 23000, but it is NOT a
+        // duplicate-key violation and must never be treated as one. Uses a
+        // fresh dedup key so the foreign key is the only constraint in play —
+        // otherwise the unique index on dedup_key fires first and masks it.
+        $learner = $this->createLearner();
+        $snapshot = $this->makeSnapshot($learner);
+        $result = $this->validResult($snapshot);
+
+        Recommendation::creating(function (Recommendation $model) {
+            $model->user_id = 999999; // no such user → foreign key violation
+        });
+
+        try {
+            $this->persist($snapshot, $result);
+            $this->fail('Expected the foreign key violation to propagate.');
+        } catch (QueryException $e) {
+            $this->assertStringContainsStringIgnoringCase('foreign key', $e->getMessage());
+        }
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
     // ---------------------------------------------------- consistency
 
     public function test_snapshot_belonging_to_another_learner_is_rejected(): void
@@ -570,6 +624,183 @@ class ProjectMatchingRecommendationTest extends TestCase
         );
 
         $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    // ------------------------------------------------------- Task 12: project recommendation explanation
+
+    public function test_learner_can_retrieve_their_project_recommendation_explanation(): void
+    {
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+        $snapshot = $this->makeSnapshot($learner, $project);
+
+        $this->persist($snapshot, $this->validResult($snapshot, [
+            'score' => 66.5,
+            'explanation' => ['Recommended because the project aligns with backend goals.'],
+            'limiting_factors' => ['Schedule overlap is limited.'],
+        ]));
+
+        Sanctum::actingAs($learner);
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation', [
+            'X-Request-ID' => 'rec-explain-123',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('request_id', 'rec-explain-123')
+            ->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.reasons', 'Recommended because the project aligns with backend goals.')
+            ->assertJsonPath('data.limiting_factors.0', 'Schedule overlap is limited.')
+            ->assertJsonPath('data.algorithm_version', 'project-matching-v1')
+            ->assertJsonPath('data.configuration_version', 'project-matching-config-v1');
+
+        $this->assertEquals(66.5, $response->json('data.score'));
+    }
+
+    public function test_project_recommendation_explanation_is_scoped_to_the_authenticated_learner(): void
+    {
+        $owner = $this->createLearner('owner-rec@test.com');
+        $other = $this->createLearner('other-rec@test.com');
+        $project = $this->createProject();
+
+        $snapshot = $this->makeSnapshot($owner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        Sanctum::actingAs($other);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND')
+            ->assertJsonPath('details.project_id', $project->id);
+    }
+
+    public function test_missing_project_recommendation_returns_not_found(): void
+    {
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND');
+    }
+
+    public function test_nonexistent_project_recommendation_returns_project_not_found(): void
+    {
+        Sanctum::actingAs($this->createLearner());
+
+        $this->getJson('/api/v1/projects/999999/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROJECT_NOT_FOUND')
+            ->assertJsonPath('details.project_id', 999999);
+    }
+
+    public function test_unauthenticated_project_recommendation_explanation_is_rejected(): void
+    {
+        $project = $this->createProject();
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(401);
+    }
+
+    public function test_non_learner_project_recommendation_explanation_is_rejected(): void
+    {
+        $admin = User::forceCreate([
+            'name' => 'Admin User',
+            'email' => 'admin-project-rec@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $admin->roles()->attach(Role::where('slug', 'admin')->first()->id);
+
+        Sanctum::actingAs($admin);
+
+        $project = $this->createProject();
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'LEARNER_ONLY');
+    }
+
+    public function test_non_numeric_project_recommendation_route_returns_not_found(): void
+    {
+        Sanctum::actingAs($this->createLearner());
+
+        $this->getJson('/api/v1/projects/not-a-number/recommendation')
+            ->assertStatus(404);
+    }
+
+    public function test_error_contract_only_distinguishes_projects_the_learner_can_see(): void
+    {
+        // Contract after the Task 12 authorization fix:
+        //
+        //   inaccessible OR nonexistent      → PROJECT_NOT_FOUND (identical body)
+        //   accessible but no recommendation → RECOMMENDATION_NOT_FOUND
+        //
+        // The first two MUST be indistinguishable, otherwise the endpoint is an
+        // oracle for the existence of restricted projects. The third reveals
+        // nothing new: the learner can already read that project from the
+        // catalog. Authorization is checked before anything is read back, so an
+        // inaccessible project never yields score/reasons/limiting factors.
+        $learner = $this->createLearner();
+        Sanctum::actingAs($learner);
+
+        // Restricted to an organization this learner does not belong to.
+        $restricted = $this->createProject(['confidentiality' => 'restricted']);
+
+        // Public and open — visible, but with no stored recommendation.
+        $public = $this->createProject(['confidentiality' => 'public']);
+
+        $missing = $this->getJson('/api/v1/projects/999999/recommendation')->assertStatus(404);
+        $inaccessible = $this->getJson('/api/v1/projects/'.$restricted->id.'/recommendation')->assertStatus(404);
+        $noRecommendation = $this->getJson('/api/v1/projects/'.$public->id.'/recommendation')->assertStatus(404);
+
+        $this->assertSame('PROJECT_NOT_FOUND', $missing->json('code'));
+        $this->assertSame('PROJECT_NOT_FOUND', $inaccessible->json('code'));
+        $this->assertSame($missing->json('message'), $inaccessible->json('message'));
+
+        $this->assertSame('RECOMMENDATION_NOT_FOUND', $noRecommendation->json('code'));
+
+        // No response leaks project content or recommendation data.
+        foreach ([$missing, $inaccessible, $noRecommendation] as $response) {
+            $this->assertNull($response->json('data'));
+            $this->assertArrayNotHasKey('title', $response->json());
+            $this->assertArrayNotHasKey('description', $response->json());
+            $this->assertArrayNotHasKey('organization', $response->json());
+        }
+    }
+
+    public function test_another_learners_stored_explanation_is_never_exposed(): void
+    {
+        $owner = $this->createLearner('explanation-owner@test.com');
+        $outsider = $this->createLearner('explanation-outsider@test.com');
+
+        $project = $this->createProject();
+
+        $snapshot = $this->makeSnapshot($owner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        // The owner can read it back.
+        Sanctum::actingAs($owner);
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(200)
+            ->assertJsonPath('data.reasons', 'Strong alignment with the project skill set.');
+
+        // The outsider gets a bare 404 with none of the owner's content.
+        Sanctum::actingAs($outsider);
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation');
+
+        $response->assertStatus(404)->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND');
+
+        $this->assertStringNotContainsString(
+            'Strong alignment with the project skill set.',
+            $response->getContent(),
+        );
+        $this->assertArrayNotHasKey('title', $response->json());
+        $this->assertNull($response->json('data'));
     }
 
     // ------------------------------------------------------- retrieval
@@ -697,6 +928,31 @@ class ProjectMatchingRecommendationTest extends TestCase
             ->assertJsonPath('data.0.eligibility_state', 'eligible')
             ->assertJsonPath('data.0.matching_state', 'scored')
             ->assertJsonPath('data.0.reasons', 'Strong alignment with the project skill set.');
+    }
+
+    public function test_recommendation_whose_project_is_gone_is_returned_safely(): void
+    {
+        // recommendations.candidate_id is a plain polymorphic column with no
+        // foreign key, so the project can disappear while the recommendation
+        // row survives (deleting the project cascades the snapshot away and
+        // nulls project_matching_snapshot_id, but leaves the recommendation).
+        // Retrieval must degrade to a null project rather than erroring.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+        $projectId = $project->id;
+
+        $snapshot = $this->makeSnapshot($learner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        $project->delete();
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/recommendations')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.project_id', $projectId)
+            ->assertJsonPath('data.0.project', null);
     }
 
     // ------------------------------------------- end-to-end via the match endpoint

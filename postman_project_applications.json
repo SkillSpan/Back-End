@@ -1,0 +1,1388 @@
+{
+  "info": {
+    "name": "SkillSpan — US-MATCH-02 (طلبات المشاريع + تغذية التوصيات)",
+    "description": "US-MATCH-02 — دورة حياة طلب المشروع كاملة (API v1).\n\n**طريقة الاستخدام:**\n1. افتح فولدر `0 · Setup` وشغّله كامل (بيخزّن التوكنين والـ ids).\n2. بعدها شغّل الفولدرات بالترتيب من 1 لـ 7 — في ترتيب مهم بينهم.\n3. أسهل طريقة: افتح الـ Collection Runner واشتغل المجموعة كلها مرة واحدة.\n\n**ملاحطات:**\n- محمي بـ `auth:sanctum` + `account.active`. التقديم كمان بـ `role:learner`.\n- قرارات صاحب المشروع مش محمية بـ role — الملكية بتتفحص جوّا.\n- الـ token بتاع المتعلّم محطوط على مستوى الـ Collection، والـ owner بيتبدّل على مستوى الطلب.\n- لازم يكون في مشروع مفتوح بـ role متاح، ومشروب ممتلئ للحالات المرفوضة.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{learner_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://back-end-feature-authentication.test",
+      "type": "string"
+    },
+    {
+      "key": "learner_email",
+      "value": "learner@test.com",
+      "type": "string"
+    },
+    {
+      "key": "learner_password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "owner_email",
+      "value": "owner@test.com",
+      "type": "string"
+    },
+    {
+      "key": "owner_password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "learner_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "owner_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "1",
+      "type": "string",
+      "description": "مشروع مفتوح فيه role متاح"
+    },
+    {
+      "key": "project_role_id",
+      "value": "1",
+      "type": "string",
+      "description": "بيتخزن أوتوماتيك من تفاصيل المشروع"
+    },
+    {
+      "key": "closed_project_id",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "full_project_id",
+      "value": "3",
+      "type": "string"
+    },
+    {
+      "key": "idempotency_project_id",
+      "value": "4",
+      "type": "string"
+    },
+    {
+      "key": "recommendation_project_id",
+      "value": "5",
+      "type": "string"
+    },
+    {
+      "key": "recommendation_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "foreign_recommendation_id",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "application_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتخزن أوتوماتيك بعد التقديم"
+    },
+    {
+      "key": "idem_application_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتخزن بعد أول تقديم بـ idempotency_key"
+    },
+    {
+      "key": "idempotency_key",
+      "value": "idem-demo-001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0 · Setup (شغّل ده الأول)",
+      "description": "لازم تشغّل الفولدر ده الأول عشان تتخزن التوكنين والـ ids. بعدها شغّل الفولدرات بالترتيب.",
+      "item": [
+        {
+          "name": "1 · تسجيل دخول المتعلّم (خزّن learner_token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/login",
+            "description": "عدّل `{{learner_email}}` و `{{learner_password}}` من متغيرات الـ Collection. التوكن بيتخزن أوتوماتيك.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"password\": \"{{learner_password}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.data.token !== undefined && j.data.token !== null) {",
+                  "    pm.collectionVariables.set('learner_token', j.data.token);",
+                  "    console.log('✅ توكن المتعلّم = ' + j.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · تسجيل دخول صاحب المشروع (خزّن owner_token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/login",
+            "description": "صاحب المشروع هو الي بيقرر على الطلبات. ممكن يكون نفس الحساب لو المشروع ملكك.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{owner_email}}\",\n  \"password\": \"{{owner_password}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.data.token !== undefined && j.data.token !== null) {",
+                  "    pm.collectionVariables.set('owner_token', j.data.token);",
+                  "    console.log('✅ توكن المالك = ' + j.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · تفاصيل المشروع (خزّن project_id و project_role_id)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}",
+            "description": "بيرجّع `eligibility` و `capacity_state` و `available_project_roles` و `duration_days` للمتعلّم المسجّل. بيخزّن أول role متاح."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('فيه eligibility', () => pm.expect(pm.response.json().data.eligibility).to.not.be.undefined);",
+                  "pm.test('فيه capacity_state', () => pm.expect(pm.response.json().data.capacity_state).to.not.be.undefined);",
+                  "pm.test('فيه duration_days', () => pm.expect(pm.response.json().data.duration_days).to.be.a('number'));",
+                  "const j = pm.response.json();",
+                  "if (j.data.available_project_roles[0].id !== undefined && j.data.available_project_roles[0].id !== null) {",
+                  "    pm.collectionVariables.set('project_role_id', j.data.available_project_roles[0].id);",
+                  "    console.log('✅ project_role_id = ' + j.data.available_project_roles[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · تصفّح المشاريع المتاحة",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects",
+            "description": "الكتالوج. لاحط إن `eligibility` و `capacity_state` = `null` هنا عن قصد — مبيتحسبوش لكل مشروع في القائمة."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 · تقديم الطلب",
+      "description": "المسار السليم. بيخزّن `application_id` وهو المستخدم بعد كده في فولدرات القرارات والسحب.",
+      "item": [
+        {
+          "name": "1 · تقديم طلب (خزّن application_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "201 مع `status = submitted`. `active_key` و `submitted_at` بيتولّدوا تلقائي.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_role_id\": {{project_role_id}},\n  \"application_data\": {\n    \"motivation\": \"بدي أشتغل على مشروع حقيقي\",\n    \"hours_per_week\": 12\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('status = submitted', () => pm.expect(pm.response.json().data.status).to.eql('submitted'));",
+                  "pm.test('is_active = true', () => pm.expect(pm.response.json().data.is_active).to.be.true);",
+                  "const j = pm.response.json();",
+                  "if (j.data.id !== undefined && j.data.id !== null) {",
+                  "    pm.collectionVariables.set('application_id', j.data.id);",
+                  "    console.log('✅ application_id = ' + j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · طلباتي",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications",
+            "description": "المتعلّم بيشوف طلباته بس — ما في طريق يشوف طلبات حدا تاني."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const m = pm.response.json().meta;",
+                  "pm.test('فيه meta للـ pagination', () => pm.expect(m.total).to.be.a('number'));",
+                  "pm.test('per_page الافتراضي = 15', () => pm.expect(m.per_page).to.eql(15));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · طلباتي — per_page=9999 (بيتحدد بـ 100)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('per_page اتحدد بـ 100', () => pm.expect(pm.response.json().meta.per_page).to.eql(100));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications?per_page=9999",
+            "description": "الـ per_page بيتحدد بحد أقصى 100 عشان محدش يطلب نتيجة غير محدودة."
+          }
+        },
+        {
+          "name": "4 · طلباتي — submitted بس",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications?status=submitted",
+            "description": "فلتر بالحالة. أي قيمة غير معروفة بترجّع 422 VALIDATION_ERROR."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 · التكرار والـ idempotency",
+      "description": "التقديم المتكرر بيرجّع 409. وإعادة نفس `idempotency_key` بترجّع نفس الطلب بـ 200 بدون صف جديد.",
+      "item": [
+        {
+          "name": "1 · تقديم تاني لنفس المشروع → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "مسموح بطلب واحد نشط فقط لكل مشروع.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code = APPLICATION_DUPLICATE', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_DUPLICATE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · أول تقديم مع idempotency_key (مشروع تاني)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{idempotency_project_id}}/applications",
+            "description": "201 — أول مرة بتنشئ صف جديد.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotency_key\": \"{{idempotency_key}}\",\n  \"application_data\": { \"note\": \"first\" }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "if (j.data.id !== undefined && j.data.id !== null) {",
+                  "    pm.collectionVariables.set('idem_application_id', j.data.id);",
+                  "    console.log('✅ idem_application_id = ' + j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · إعادة نفس الـ key → 200 ونفس الـ id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{idempotency_project_id}}/applications",
+            "description": "200 مش 201 — ما اتعملش صف جديد. ومهم: الـ replay بيتحل قبل أي فحص تاني، فلو المشروع امتلأ بعدين برضه بيرجّع النتيجة الأصلية.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotency_key\": \"{{idempotency_key}}\",\n  \"application_data\": { \"note\": \"first\" }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('نفس الـ application_id', () => pm.expect(String(j.data.id)).to.eql(String(pm.collectionVariables.get('idem_application_id'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · نفس الـ key بجسم مختلف → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{idempotency_project_id}}/applications",
+            "description": "الـ key له بصمة (fingerprint) للجسم، فما بينفعش تستخدمه بجسم مختلف.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotency_key\": \"{{idempotency_key}}\",\n  \"application_data\": { \"note\": \"DIFFERENT\" }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = APPLICATION_IDEMPOTENCY_CONFLICT', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_IDEMPOTENCY_CONFLICT'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 · تقديم مع توصية",
+      "description": "التقديم من داخل توصية بيخزّن نسخة الخوارزمية والإعدادات على الطلب — عشان أعادة حساب لاحقة ما تغيّرش التاريخ.",
+      "item": [
+        {
+          "name": "1 · تقديم مع recommendation_id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{recommendation_project_id}}/applications",
+            "description": "201 مع `recommendation_algorithm_version` و `recommendation_configuration_version`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recommendation_id\": {{recommendation_id}}\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('recommendation_id اتخزن', () => pm.expect(String(d.recommendation_id)).to.eql(String(pm.collectionVariables.get('recommendation_id'))));",
+                  "pm.test('نسخة الخوارزمية اتخزنت', () => pm.expect(d.recommendation_algorithm_version).to.eql('project-match-v1'));",
+                  "pm.test('نسخة الإعدادات اتخزنت', () => pm.expect(d.recommendation_configuration_version).to.eql('config-v1'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · توصية مش بتاعتي → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{recommendation_project_id}}/applications",
+            "description": "ما ينفعش تربط توصية متعلّم تاني.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recommendation_id\": {{foreign_recommendation_id}}\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = RECOMMENDATION_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('RECOMMENDATION_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 · تغذية التوصيات (save / hide / decline)",
+      "description": "بتروح لنفس جدول `feedback_events` الموجود. `decline` بتتخزّن كـ `reject`.",
+      "item": [
+        {
+          "name": "1 · save",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/recommendations/{{recommendation_id}}/feedback",
+            "description": "201 مع `event_type = save`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"save\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('event_type = save', () => pm.expect(pm.response.json().data.event_type).to.eql('save'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · hide",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/recommendations/{{recommendation_id}}/feedback",
+            "description": "201 مع `event_type = hide`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"hide\",\n  \"reason\": \"مش مهتم حالياً\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('event_type = hide', () => pm.expect(pm.response.json().data.event_type).to.eql('hide'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · decline → بتتخزّن reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/recommendations/{{recommendation_id}}/feedback",
+            "description": "`decline` مابتعملش نوع جديد — بترجع `reject` الموجود من الأساس.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"decline\",\n  \"reason\": \"تقنية مش مناسبة\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('event_type = reject', () => pm.expect(pm.response.json().data.event_type).to.eql('reject'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · توصية متعلّم تاني → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/recommendations/{{foreign_recommendation_id}}/feedback",
+            "description": "الملكية بتتفحص قبل أي حاجة.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"save\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code = RECOMMENDATION_NOT_OWNED', () => pm.expect(pm.response.json().code).to.eql('RECOMMENDATION_NOT_OWNED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5 · نوع غير مدعوم → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/recommendations/{{recommendation_id}}/feedback",
+            "description": "الـ whitelist في طبقة الـ request، قبل الـ service.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"teleport\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5 · قرارات صاحب المشروع",
+      "description": "الملكية بتتفحص من داخل الـ service (`owner_id === المستخدم`)، مش بالـ role. لازم تكون فولدر 1 اتشغلت الأول.",
+      "item": [
+        {
+          "name": "1 · قائمة طلبات المشروع (صاحب المشروع)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "صاحب المشروع بس الي يشوف الطلبات.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{owner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · ترشيح (shortlisted)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications/{{application_id}}",
+            "description": "انتقال مسموح من `submitted`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"shortlisted\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{owner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status = shortlisted', () => pm.expect(pm.response.json().data.status).to.eql('shortlisted'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · قبول (accepted)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications/{{application_id}}",
+            "description": "قبول بياخد كرسي وبيبعت إشعار للمتعلّم.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"accepted\",\n  \"reason\": \"مناسب جداً\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{owner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status = accepted', () => pm.expect(pm.response.json().data.status).to.eql('accepted'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · متعلّم يحاول يقرر → 403",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications/{{application_id}}",
+            "description": "مش صاحب المشروع ماينفعش يقرر حتى لو صاحب الطلب نفسه.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"rejected\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{learner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code = APPLICATION_DECISION_FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_DECISION_FORBIDDEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5 · انتقال غير مسموح → 422",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications/{{application_id}}",
+            "description": "`accepted` مابتروحش لـ `shortlisted` — المسموح بس `withdrawn`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"shortlisted\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{owner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = APPLICATION_INVALID_TRANSITION', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_INVALID_TRANSITION'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6 · السحب",
+      "description": "السحب بيحرر الكرسي والـ unique slot، وبعده المتعلّم يقدر يقدّم مرة تانية.",
+      "item": [
+        {
+          "name": "1 · سحب الطلب",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications/{{application_id}}/withdraw",
+            "description": "200 مع `status = withdrawn` و `withdrawn_at`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ظروف اتغيرت\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('status = withdrawn', () => pm.expect(d.status).to.eql('withdrawn'));",
+                  "pm.test('is_active = false', () => pm.expect(d.is_active).to.be.false);",
+                  "pm.test('withdrawn_at اتسجل', () => pm.expect(d.withdrawn_at).to.not.be.null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · سحب مرة تانية → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications/{{application_id}}/withdraw",
+            "description": "`withdrawn` حالة نهائية — مافيش خروج منها.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = APPLICATION_NOT_WITHDRAWABLE', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_NOT_WITHDRAWABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · التقديم مرة تانية بعد السحب → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "السحب بيحرر الـ active slot، فالتقديم الجديد مسموح.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7 · حالات مرفوضة",
+      "description": "كل حالة مع الـ code بتاعها. شغّل الفولدر ده في الآخر.",
+      "item": [
+        {
+          "name": "1 · مشروع مقفول → 422 PROJECT_NOT_AVAILABLE",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{closed_project_id}}/applications",
+            "description": "الـ availability بتتفحص أول حاجة.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = PROJECT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PROJECT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · مشروع ممتلئ → 409 PROJECT_FULL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{full_project_id}}/applications",
+            "description": "الكراسي اتأخدت بالـ accepted بس — الـ submitted مابتاخدش كرسي.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code = PROJECT_FULL', () => pm.expect(pm.response.json().code).to.eql('PROJECT_FULL'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · role مش تبع المشروع → 422 PROJECT_ROLE_INVALID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "الـ role بيتحل من خلال علاقة المشروع نفسه، فماينفعش تحقن رقم عشوائي.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_role_id\": 999999\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('code = PROJECT_ROLE_INVALID', () => pm.expect(pm.response.json().code).to.eql('PROJECT_ROLE_INVALID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · مشروع غير موجود → 404 PROJECT_NOT_FOUND",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/999999/applications",
+            "description": "مشروع مش موجود.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code = PROJECT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('PROJECT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5 · بدون توكن → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "الـ endpoint محمي بـ auth:sanctum.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6 · صاحب المشروع يحاول يقدّم → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+            "description": "التقديم محمي بـ role:learner.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{owner_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7 · سحب طلب مش موجود → 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/applications/999999/withdraw",
+            "description": "الـ route بيرجّع نفس شكل الخطأ الموحّد.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code = APPLICATION_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('APPLICATION_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
