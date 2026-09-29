@@ -80,7 +80,11 @@ All of these require `auth:sanctum` + an active account + the `learner` role.
 
 **Filter notes.** `skill_ids[]` is a set — repeated ids are collapsed to distinct ones. `minimum_level` is the per-skill floor for that filter and is **rejected with `422 VALIDATION_ERROR`** when sent without `skill_ids`, rather than being silently ignored.
 
-**Recommendation list.** `GET /api/v1/recommendations` always returns the learner's stored rows (historical recommendations are never deleted), but the embedded `project` payload is attached **only while the learner can still discover that project**. Once a project becomes restricted to another organization, or is closed or past its deadline, `project` becomes `null` and the stored score/reasons/versions remain. The response shape is unchanged.
+**Recommendation list.** `GET /api/v1/recommendations` always returns the learner's stored rows — historical recommendations are never deleted — but a row whose project the learner can **no longer access** is **redacted**: `access_revoked` becomes `true` and every result-derived field is `null`:
+
+`project`, `score`, `eligibility_state`, `matching_state`, `reasons`, `limiting_factors`, `factors`, `weighted_contributions`, `skill_results`, `algorithm_version`, `configuration_version`, `project_version`.
+
+`id`, `type`, `project_id` and `generated_at` remain, so the row stays identifiable and `access_revoked` distinguishes "deliberately withheld" from "the algorithm returned nothing". Access is resolved with the same rules as discovery, so a project that became restricted to another organization, was closed, expired, or deleted all redact. The key set is identical for redacted and non-redacted rows.
 
 **Error responses.** `GET /api/v1/projects/{project}/recommendation` checks project access **before** reading anything back, so it returns:
 

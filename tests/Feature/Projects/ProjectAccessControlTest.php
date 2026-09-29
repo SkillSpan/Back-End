@@ -263,17 +263,23 @@ class ProjectAccessControlTest extends TestCase
         // Membership is revoked.
         $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
 
-        // The recommendation row survives, but the project payload is withheld.
+        // The recommendation row survives — and the WHOLE result is redacted,
+        // not just the project payload. Nulling only `project` still leaked
+        // score, reasons, factors and every version field.
         $response = $this->getJson('/api/v1/recommendations');
 
         $response->assertStatus(200)
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.project_id', $project->id)
             ->assertJsonPath('data.0.project', null)
-            ->assertJsonPath('data.0.reasons', 'Stored reason.');
+            ->assertJsonPath('data.0.access_revoked', true)
+            ->assertJsonPath('data.0.reasons', null)
+            ->assertJsonPath('data.0.score', null)
+            ->assertJsonPath('data.0.algorithm_version', null);
 
         $this->assertDatabaseCount('recommendations', 1);
         $this->assertStringNotContainsString('Access control fixture', $response->getContent());
+        $this->assertStringNotContainsString('Stored reason.', $response->getContent());
     }
 
     public function test_recommendation_list_hides_a_closed_projects_payload_but_keeps_the_record(): void
@@ -458,5 +464,133 @@ class ProjectAccessControlTest extends TestCase
         // Neither response carries the stored recommendation.
         $this->assertNull($inaccessible->json('data'));
         $this->assertStringNotContainsString('Stored reason.', $inaccessible->getContent());
+    }
+
+    // --------------- 3. recommendation LIST redaction when access is revoked
+
+    public function test_recommendation_list_redacts_all_details_when_access_is_lost(): void
+    {
+        // REGRESSION: index() nulled only the embedded `project`, while the
+        // resource kept returning score, reasons, limiting_factors, factors,
+        // weighted_contributions, skill_results and every version field — so an
+        // inaccessible project's matching outcome stayed fully readable.
+        $organization = $this->createOrganization('Redact Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project, 88.0);
+
+        // While access holds, everything is returned.
+        Sanctum::actingAs($learner);
+        $this->getJson('/api/v1/recommendations')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.score', 88)
+            ->assertJsonPath('data.0.reasons', 'Stored reason.')
+            ->assertJsonPath('data.0.project.id', $project->id)
+            ->assertJsonPath('data.0.access_revoked', false);
+
+        // Membership revoked.
+        $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
+        Sanctum::actingAs($learner->fresh());
+
+        $response = $this->getJson('/api/v1/recommendations');
+        $response->assertStatus(200)->assertJsonPath('meta.total', 1);
+
+        $row = $response->json('data.0');
+
+        // The historical record is still identifiable...
+        $this->assertSame($project->id, $row['project_id']);
+        $this->assertSame('project', $row['type']);
+        $this->assertNotNull($row['generated_at']);
+        $this->assertTrue($row['access_revoked']);
+
+        // ...but every sensitive field is redacted.
+        foreach ([
+            'project',
+            'score',
+            'eligibility_state',
+            'matching_state',
+            'reasons',
+            'limiting_factors',
+            'factors',
+            'weighted_contributions',
+            'skill_results',
+            'algorithm_version',
+            'configuration_version',
+            'project_version',
+        ] as $field) {
+            $this->assertNull($row[$field], "Field [{$field}] must be redacted.");
+        }
+
+        // Nothing sensitive survives in the raw body either.
+        $this->assertStringNotContainsString('Stored reason.', $response->getContent());
+        $this->assertStringNotContainsString('project-matching-v1', $response->getContent());
+
+        // The stored row is preserved — only its exposure stopped.
+        $this->assertDatabaseCount('recommendations', 1);
+    }
+
+    public function test_accessible_recommendation_is_not_redacted(): void
+    {
+        $organization = $this->createOrganization('Not Redacted Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project, 55.0);
+
+        Sanctum::actingAs($learner);
+
+        $row = $this->getJson('/api/v1/recommendations')->assertStatus(200)->json('data.0');
+
+        $this->assertFalse($row['access_revoked']);
+        $this->assertEquals(55.0, $row['score']);
+        $this->assertSame('Stored reason.', $row['reasons']);
+        $this->assertSame('project-matching-v1', $row['algorithm_version']);
+        $this->assertSame('project-matching-config-v1', $row['configuration_version']);
+        $this->assertSame($project->id, $row['project']['id']);
+    }
+
+    public function test_redaction_applies_when_the_project_becomes_closed(): void
+    {
+        $organization = $this->createOrganization('Redact Closed Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'public']);
+        $this->storedRecommendation($learner, $project, 91.0);
+
+        $project->update(['status' => 'closed']);
+
+        Sanctum::actingAs($learner);
+
+        $row = $this->getJson('/api/v1/recommendations')->assertStatus(200)->json('data.0');
+
+        $this->assertTrue($row['access_revoked']);
+        $this->assertNull($row['score']);
+        $this->assertNull($row['reasons']);
+        $this->assertNull($row['project']);
+    }
+
+    public function test_redaction_applies_when_the_project_has_been_deleted(): void
+    {
+        $organization = $this->createOrganization('Redact Deleted Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'public']);
+        $this->storedRecommendation($learner, $project, 77.0);
+
+        $project->delete();
+
+        Sanctum::actingAs($learner);
+
+        $row = $this->getJson('/api/v1/recommendations')->assertStatus(200)->json('data.0');
+
+        $this->assertTrue($row['access_revoked']);
+        $this->assertNull($row['score']);
+        $this->assertNull($row['project']);
+        $this->assertDatabaseCount('recommendations', 1);
     }
 }
