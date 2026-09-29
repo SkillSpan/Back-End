@@ -62,6 +62,45 @@ Organization accounts (`POST /api/v1/auth/register/organization`) additionally r
 | GET | `/api/v1/readiness/latest` | Latest readiness result (learner only) |
 | GET | `/api/v1/organization/profile` | Organization self profile (approved orgs only) |
 
+### Project discovery & matching (learner only)
+
+All of these require `auth:sanctum` + an active account + the `learner` role.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/v1/projects` | Discover available projects. Filters: `search`, `type`, `domain`, `work_mode`, `difficulty`, `organization_id`, `skill_ids[]`, `minimum_level`. Paginated via `page` / `per_page` (default 50, max 50); returns `data` + `meta`. |
+| GET | `/api/v1/projects/{project}` | Details of one accessible, available project |
+| POST | `/api/v1/projects/{project}/match` | Run project matching via the FastAPI intelligence service and persist the recommendation. Gated on `DATA_SCIENCE_PROJECT_MATCHING_ENABLED`; disabled ⇒ `503`. |
+| GET | `/api/v1/projects/{project}/recommendation` | Stored explanation for this learner + project: `project_id`, `score`, `reasons`, `limiting_factors`, `algorithm_version`, `configuration_version`. Reads persisted data only — never recalculates and never calls FastAPI. |
+| GET | `/api/v1/recommendations` | The learner's own stored project recommendations, newest first, paginated |
+
+**Discovery vs eligibility.** `GET /api/v1/projects` applies availability (status `open`, unexpired `application_deadline`) and authorization (confidentiality / organization). It does **not** filter by hard eligibility — that is enforced in the matching flow (`ProjectMatchingSnapshotService`) instead, so an ineligible project stays discoverable but cannot be matched. Only `work_mode` and `schedule` eligibility constraints are enforced; `location` and `language` are stored but skipped, because `student_profiles` has no comparable field (`availability` and `preferred_work_type` are the only comparable ones).
+
+**Restricted projects and organization membership.** A `restricted` project is visible only to a learner with an **`active`** row in `organization_members` for the owning organization. `invited` and `removed` memberships grant nothing. A learner may belong to several organizations and sees the restricted projects of all of them. Learners with no membership still see `public` projects normally.
+
+**Filter notes.** `skill_ids[]` is a set — repeated ids are collapsed to distinct ones. `minimum_level` is the per-skill floor for that filter and is **rejected with `422 VALIDATION_ERROR`** when sent without `skill_ids`, rather than being silently ignored.
+
+**Recommendation list.** `GET /api/v1/recommendations` always returns the learner's stored rows — historical recommendations are never deleted — but a row whose project the learner can **no longer access** is **redacted**: `access_revoked` becomes `true` and every result-derived field is `null`:
+
+`project`, `score`, `eligibility_state`, `matching_state`, `reasons`, `limiting_factors`, `factors`, `weighted_contributions`, `skill_results`, `algorithm_version`, `configuration_version`, `project_version`.
+
+`id`, `type`, `project_id` and `generated_at` remain, so the row stays identifiable and `access_revoked` distinguishes "deliberately withheld" from "the algorithm returned nothing". Access is resolved with the same rules as discovery, so a project that became restricted to another organization, was closed, expired, or deleted all redact. The key set is identical for redacted and non-redacted rows.
+
+**Error responses.** `GET /api/v1/projects/{project}/recommendation` checks project access **before** reading anything back, so it returns:
+
+| Situation | Response |
+| --- | --- |
+| Project does not exist, **or** the learner may not access it | `404 PROJECT_NOT_FOUND` |
+| Learner can access the project but has no stored recommendation | `404 RECOMMENDATION_NOT_FOUND` |
+
+The first two cases return an **identical** body, so the endpoint cannot be used to probe for the existence of restricted projects. The third reveals nothing the learner could not already read from the project catalog. A learner who loses access to a project (membership removed, project made restricted to another organization, closed, or past its deadline) stops receiving its score, reasons, limiting factors and version metadata — the stored row is never deleted, only its exposure stops.
+
+Note this is deliberately stricter than `GET /projects/{id}`, which still distinguishes `PROJECT_UNAUTHORIZED` (403) from `PROJECT_NOT_FOUND` (404).
+
+**Pagination.** `GET /api/v1/projects` accepts `page` and `per_page` (`per_page` 1–50, default 50) and returns `meta.current_page`, `meta.last_page`, `meta.per_page` and `meta.total`. Ordering is `created_at DESC, id DESC` — the `id` tie-breaker keeps paging deterministic when projects share a `created_at`.
+
+**Testing note.** The automated tests mock the FastAPI intelligence service (`Http::fake`). They verify Laravel-side workflow behaviour — snapshot creation, response validation, persistence, and error handling — and do **not** constitute a verified live Laravel↔FastAPI integration. A real integration test would require the deployed service and its service token.
+
 ### Admin (`auth:sanctum` + admin role)
 
 | Method | Endpoint | Description |
