@@ -47,6 +47,7 @@ class BaselineItemsController extends Controller
             ->map(fn (BaselineAssessmentItem $item) => [
                 'item_id' => $item->item_id,
                 'item_type' => $item->item_type,
+                'question_text' => $item->question_text,
                 'options' => $item->options,
                 'correct_answer' => $item->correct_answer,
                 'scoring_rule' => $item->scoring_rule,

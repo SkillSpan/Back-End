@@ -535,6 +535,366 @@ class IntelligenceResponseValidator
     }
 
     /**
+     * Project Matching contract: the response must carry the request_id
+     * echo and a recommendation block whose fields are validated against
+     * the verified FastAPI ProjectMatchingResponse schema.
+     *
+     * @param  string  $requestId  the request_id that was sent in the payload
+     * @param  array<string, mixed>|null  $expectedVersions  ['algorithm_version' => ..., 'configuration_version' => ..., 'project_id' => ..., 'project_version' => ...]
+     */
+    public function validateProjectMatching(array $result, string $requestId, ?array $expectedVersions = null): void
+    {
+        if (! array_key_exists('request_id', $result) || ! is_string($result['request_id']) || trim($result['request_id']) === '') {
+            throw new IntelligenceException(
+                'The intelligence service response is missing a valid request_id echo.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'request_id'],
+            );
+        }
+
+        if ($requestId !== '' && (string) $result['request_id'] !== $requestId) {
+            throw new IntelligenceException(
+                'The intelligence service response does not match the request_id.',
+                502,
+                'INTELLIGENCE_RESPONSE_MISMATCH',
+            );
+        }
+
+        /*
+         * algorithm_version and configuration_version are REQUIRED by the
+         * agreed Project Matching contract. The service must echo the exact
+         * versions Laravel sent — a missing, null or empty value is a
+         * contract violation, never something to paper over with a default.
+         *
+         * The expected values are supplied by the caller, taken from the
+         * payload the integration architecture already built
+         * (ProjectMatchingPayloadBuilder <- ProjectMatchingSnapshotService),
+         * so no version literal is hardcoded here.
+         */
+        $this->validateRequiredVersion($result, 'algorithm_version', $expectedVersions);
+        $this->validateRequiredVersion($result, 'configuration_version', $expectedVersions);
+
+        if (! array_key_exists('recommendation', $result) || ! is_array($result['recommendation'])) {
+            throw new IntelligenceException(
+                'The intelligence service response is missing the recommendation block.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'recommendation'],
+            );
+        }
+
+        $this->validateRecommendation($result['recommendation']);
+
+        if ($expectedVersions !== null) {
+            $this->validateProjectCorrelation($result['recommendation'], $expectedVersions);
+        }
+    }
+
+    /**
+     * Validate one REQUIRED version field on the Project Matching response.
+     *
+     * The field must be present, a string, and non-empty — a missing, null
+     * or blank value is rejected outright. When the caller supplied the
+     * value it sent (the normal case: the expected versions travel with the
+     * payload), the response must match it exactly; the service may never
+     * substitute its own default.
+     *
+     * The expected value comes from the integration architecture, so this
+     * method contains no version literal of its own.
+     *
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>|null  $expectedVersions
+     */
+    private function validateRequiredVersion(array $result, string $field, ?array $expectedVersions): void
+    {
+        if (
+            ! array_key_exists($field, $result)
+            || ! is_string($result[$field])
+            || trim($result[$field]) === ''
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response is missing a valid '.$field.'.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => $field],
+            );
+        }
+
+        $expected = $expectedVersions[$field] ?? null;
+
+        // No expectation supplied: presence is still enforced above, but
+        // there is nothing to compare the echoed value against.
+        if (! is_string($expected) || trim($expected) === '') {
+            return;
+        }
+
+        if ($result[$field] !== $expected) {
+            throw new IntelligenceException(
+                'The intelligence service returned an inconsistent '.$field.'.',
+                502,
+                'INTELLIGENCE_RESPONSE_MISMATCH',
+                [
+                    'expected' => $expected,
+                    'actual' => $result[$field],
+                ],
+            );
+        }
+    }
+
+    /**
+     * Verify that the recommendation's project_id and project_version match
+     * the project and version that were sent in the request payload.
+     */
+    private function validateProjectCorrelation(array $recommendation, array $expectedVersions): void
+    {
+        if (array_key_exists('project_id', $expectedVersions)) {
+            $expectedProjectId = (int) $expectedVersions['project_id'];
+            $actualProjectId = (int) $recommendation['project_id'];
+
+            if ($expectedProjectId > 0 && $actualProjectId !== $expectedProjectId) {
+                throw new IntelligenceException(
+                    'The intelligence service response does not match the project_id.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedProjectId,
+                        'actual' => $actualProjectId,
+                    ],
+                );
+            }
+        }
+
+        if (array_key_exists('project_version', $expectedVersions)) {
+            $expectedProjectVersion = (int) $expectedVersions['project_version'];
+            $actualProjectVersion = (int) $recommendation['project_version'];
+
+            if ($expectedProjectVersion > 0 && $actualProjectVersion !== $expectedProjectVersion) {
+                throw new IntelligenceException(
+                    'The intelligence service response does not match the project_version.',
+                    502,
+                    'INTELLIGENCE_RESPONSE_MISMATCH',
+                    [
+                        'expected' => $expectedProjectVersion,
+                        'actual' => $actualProjectVersion,
+                    ],
+                );
+            }
+        }
+    }
+
+    /**
+     * Validate the recommendation block (ProjectRecommendationResult).
+     */
+    private function validateRecommendation(array $recommendation): void
+    {
+        foreach (['project_id', 'project_version', 'eligibility_state', 'matching_state', 'score', 'factor_scores', 'weighted_contributions'] as $key) {
+            if (! array_key_exists($key, $recommendation)) {
+                throw new IntelligenceException(
+                    'The intelligence service response contains an incomplete recommendation.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['missing_field' => $key],
+                );
+            }
+        }
+
+        if (! is_int($recommendation['project_id']) || $recommendation['project_id'] <= 0) {
+            throw new IntelligenceException(
+                'The recommendation contains an invalid project_id.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'project_id'],
+            );
+        }
+
+        if (! is_int($recommendation['project_version']) || $recommendation['project_version'] <= 0) {
+            throw new IntelligenceException(
+                'The recommendation contains an invalid project_version.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'project_version'],
+            );
+        }
+
+        if (! is_string($recommendation['eligibility_state'])
+            || ! in_array($recommendation['eligibility_state'], ['eligible', 'ineligible'], true)
+        ) {
+            throw new IntelligenceException(
+                'The recommendation contains an invalid eligibility_state.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'eligibility_state'],
+            );
+        }
+
+        if (! is_string($recommendation['matching_state'])
+            || ! in_array($recommendation['matching_state'], ['scored', 'blocked'], true)
+        ) {
+            throw new IntelligenceException(
+                'The recommendation contains an invalid matching_state.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'matching_state'],
+            );
+        }
+
+        $this->assertNumberInRange($recommendation, 'score', 0, 100);
+
+        if (! is_array($recommendation['factor_scores']) || ! is_array($recommendation['weighted_contributions'])) {
+            throw new IntelligenceException(
+                'The recommendation contains invalid factor_scores or weighted_contributions.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+            );
+        }
+
+        foreach (['skill_compatibility', 'learning_value', 'career_relevance', 'interest_match', 'availability_fit'] as $field) {
+            $this->assertNumberInRange($recommendation['factor_scores'], $field, 0, 100);
+            $this->assertNumberInRange($recommendation['weighted_contributions'], $field, 0, 100);
+        }
+
+        if (array_key_exists('explanation', $recommendation)) {
+            if (! is_array($recommendation['explanation'])) {
+                throw new IntelligenceException(
+                    'The recommendation contains an invalid explanation array.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'explanation'],
+                );
+            }
+
+            foreach ($recommendation['explanation'] as $item) {
+                if (! is_string($item)) {
+                    throw new IntelligenceException(
+                        'The recommendation explanation must contain only strings.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['field' => 'explanation'],
+                    );
+                }
+            }
+        }
+
+        if (array_key_exists('limiting_factors', $recommendation)) {
+            if (! is_array($recommendation['limiting_factors'])) {
+                throw new IntelligenceException(
+                    'The recommendation contains an invalid limiting_factors array.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'limiting_factors'],
+                );
+            }
+
+            foreach ($recommendation['limiting_factors'] as $item) {
+                if (! is_string($item)) {
+                    throw new IntelligenceException(
+                        'The recommendation limiting_factors must contain only strings.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['field' => 'limiting_factors'],
+                    );
+                }
+            }
+        }
+
+        // skill_results is OPTIONAL in ProjectRecommendationResult, but when
+        // it IS present it must be an array of objects. A null, string or
+        // object value is a contract violation — not a reason to skip the
+        // per-entry validation silently.
+        if (array_key_exists('skill_results', $recommendation)) {
+            if (! is_array($recommendation['skill_results'])) {
+                throw new IntelligenceException(
+                    'The recommendation contains an invalid skill_results array.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'skill_results'],
+                );
+            }
+
+            foreach ($recommendation['skill_results'] as $skillResult) {
+                if (! is_array($skillResult)) {
+                    throw new IntelligenceException(
+                        'The recommendation skill_results must contain only objects.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['field' => 'skill_results'],
+                    );
+                }
+
+                $this->validateProjectMatchingSkillResult($skillResult);
+            }
+        }
+    }
+
+    /**
+     * Validate one ProjectMatchingSkillResult entry.
+     */
+    private function validateProjectMatchingSkillResult(array $skillResult): void
+    {
+        foreach (['skill_id', 'current_level', 'minimum_level', 'gap', 'match_ratio', 'is_critical_entry', 'status'] as $key) {
+            if (! array_key_exists($key, $skillResult)) {
+                throw new IntelligenceException(
+                    'The project matching skill result is incomplete.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['missing_field' => $key],
+                );
+            }
+        }
+
+        if (! is_int($skillResult['skill_id']) || $skillResult['skill_id'] <= 0) {
+            throw new IntelligenceException(
+                'The project matching skill result contains an invalid skill_id.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'skill_id'],
+            );
+        }
+
+        if (array_key_exists('skill_name', $skillResult)
+            && $skillResult['skill_name'] !== null
+            && ! is_string($skillResult['skill_name'])
+        ) {
+            throw new IntelligenceException(
+                'The project matching skill result contains an invalid skill_name.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'skill_name'],
+            );
+        }
+
+        foreach (['current_level', 'minimum_level', 'gap'] as $field) {
+            $this->assertNumberInRange($skillResult, $field, 0, 5);
+        }
+
+        $this->assertNumberInRange($skillResult, 'match_ratio', 0, 1);
+
+        if (! is_bool($skillResult['is_critical_entry'])) {
+            throw new IntelligenceException(
+                'The project matching skill result contains an invalid is_critical_entry.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'is_critical_entry'],
+            );
+        }
+
+        $allowedStatuses = [
+            'not_required', 'met', 'manageable_gap', 'large_gap',
+            'missing_non_critical', 'missing_critical', 'critical_below_minimum',
+        ];
+
+        if (! in_array((string) $skillResult['status'], $allowedStatuses, true)) {
+            throw new IntelligenceException(
+                'The project matching skill result contains an invalid status.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'status'],
+            );
+        }
+    }
+
+    /**
      * @return float the validated numeric value
      */
     private function assertNumberInRange(array $data, string $field, float $min, float $max): float

@@ -13,6 +13,7 @@ class BaselineAssessmentItem extends Model
         'assessment_version',
         'item_id',
         'item_type',
+        'question_text',
         'skill_id',
         'options',
         'correct_answer',
