@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\NewAccessToken;
 use Throwable;
@@ -210,6 +211,32 @@ class AuthService
                 throw ValidationException::withMessages([
                     'terms_accepted' => 'You must accept the Terms and Conditions.',
                     'privacy_accepted' => 'You must accept the Privacy Policy.',
+                ]);
+            }
+
+            /*
+             * Disposable-email gate for the Google sign-up path.
+             *
+             * This is the third self-registration flow (the other two are
+             * /auth/register and /auth/register/organization). The address
+             * cannot be validated by GoogleLoginRequest because it is not
+             * client input — it arrives inside the Google ID token — so the
+             * check has to run here, and only on the creation branch. An
+             * account that already exists is never re-checked, so no current
+             * user can be locked out by this.
+             *
+             * The 'indisposable' rule is used as the predicate so that the
+             * domain list, the whitelist and the include_subdomains setting
+             * all stay driven by the same package config as the two
+             * FormRequest flows. The error is reported on 'credential'
+             * because that is the only field this endpoint accepts, and it is
+             * the key every other identity error in this method already uses.
+             */
+            if (Validator::make(['email' => $email], ['email' => ['indisposable']])->fails()) {
+                DB::rollBack();
+
+                throw ValidationException::withMessages([
+                    'credential' => 'Disposable or temporary email addresses are not allowed.',
                 ]);
             }
 

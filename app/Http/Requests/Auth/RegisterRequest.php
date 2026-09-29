@@ -28,7 +28,13 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            // 'indisposable' rejects throwaway/relay domains (Mailinator,
+            // Yopmail, …) from the package's bundled list — it resolves
+            // offline, with no network call at validation time. It is placed
+            // after 'email' so a malformed address still fails on the email
+            // rule first, and after 'unique' so an already-registered address
+            // keeps reporting the duplicate error it always did.
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email', 'indisposable'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'terms_accepted' => ['required', 'accepted'],
@@ -57,6 +63,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
+            'email.indisposable' => 'Disposable or temporary email addresses are not allowed.',
             'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
             'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
             'user_type.in' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',
