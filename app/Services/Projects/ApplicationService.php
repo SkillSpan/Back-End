@@ -417,7 +417,7 @@ class ApplicationService
         return Application::query()
             ->where('applicant_id', $learner->id)
             ->when($status !== null, fn ($q) => $q->where('status', $status))
-            ->with(['project.organization:id,title', 'projectRole'])
+            ->with(['project.organization:id,name', 'projectRole'])
             ->orderByDesc('submitted_at')
             ->orderByDesc('id')
             ->paginate($perPage);

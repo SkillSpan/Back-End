@@ -994,3 +994,114 @@ deliberately **not** in `Organization::$fillable` (the same guard pattern as
 `ProfessionalProfile::$verification_status`), so it must be written explicitly
 after the insert — passing it to `create([...])` silently drops it and the login
 keeps failing with no hint as to why.
+
+---
+
+## 25. Production incident — the Render deploy failure, and its three root causes
+
+The first deploy of this work to Render failed while running migrations. One
+defect was introduced here; the other two were pre-existing and were exposed by
+the same investigation. All three are fixed.
+
+### 25.1 MySQL error 1553 — the migration could not drop the legacy unique index
+
+```text
+SQLSTATE[HY000]: General error: 1553 Cannot drop index
+'applications_project_id_applicant_id_unique': needed in a foreign key constraint
+```
+
+On MySQL/MariaDB an InnoDB foreign key must be backed by an index. The FK
+`applications_project_id_foreign` never received an index of its own — the
+composite unique being dropped was doing that job, because it starts with
+`project_id`. MySQL therefore refused the drop. The `applicant_id` FK was
+unaffected: MySQL had created `applications_applicant_id_foreign` for it when the
+table was created.
+
+**Fix:** `2026_09_29_000003_...` now creates `applications_project_id_index`
+(a plain index on `project_id`) *before* dropping the legacy unique, so the FK
+re-points to it and the drop is allowed. `down()` mirrors this by re-adding the
+composite unique before removing the plain index — the same coupling in reverse.
+
+**A second gap fixed in the same migration:** `active_key` was added nullable
+with no backfill, so every pre-existing application would have kept `NULL`. A
+unique index treats `NULL` as equal to nothing, so the new "at most one active
+application" constraint would have silently *not applied* to any historical row.
+The migration now backfills `active_key = 1` for rows whose status is in
+`ACTIVE_STATUSES`.
+
+**Why SQLite never saw it.** SQLite has no index/foreign-key coupling at all, so
+the drop simply succeeds locally. Confirmed on real MySQL/MariaDB.
+
+**Recovery is automatic.** Laravel records a migration only after `up()` returns,
+and MySQL DDL auto-commits, so the failed run left the new columns in place with
+the migration unrecorded. Because every step is guarded (`Schema::hasColumn`,
+index lookups), the next `migrate` re-enters the migration, skips the columns that
+already exist, and completes the index swap. **No manual database surgery is
+required** — only a redeploy carrying the fixed file.
+
+### 25.2 `organizations.title` does not exist — six call sites
+
+While verifying the migration against real MySQL, 42 of the 268
+`tests/Feature/Projects` tests failed with:
+
+```text
+SQLSTATE[42S22]: Column not found: 1054 Unknown column 'title' in 'field list'
+SQL: select `id`, `title` from `organizations` where `organizations`.`id` in (...)
+```
+
+`organizations` has a `name` column, not `title`, and `Organization` has no
+`title` accessor. Six call sites requested the non-existent column:
+
+| File | Occurrences | Origin |
+|---|---|---|
+| `app/Http/Controllers/Api/ApplicationController.php` | 3 | this task |
+| `app/Services/Projects/ApplicationService.php` | 1 | this task |
+| `app/Http/Controllers/Api/ProjectController.php` | 1 | pre-existing |
+| `app/Http/Controllers/Api/RecommendationController.php` | 1 | pre-existing |
+
+`ProjectResource` also read `$project->organization->title`, which returned `null`
+silently on SQLite while the MySQL query failed before it ever ran.
+
+**Fix:** all six eager loads now request `organization:id,name`, and
+`ProjectResource` reads `->name`. The JSON key stays `organization.title`, so the
+**response contract is unchanged** — only the column it is read from was wrong.
+The pre-existing `RecommendationController` occurrence was fixed as well, since it
+fails the same way in production.
+
+**Why SQLite never saw it.** Both engines reject a query naming a missing column
+(verified directly on each), so the query was simply never executed under SQLite:
+Laravel skips a `belongsTo` eager load whose collected foreign keys are all
+`NULL`, and the SQLite fixtures reaching those endpoints left `organization_id`
+unset. A green SQLite suite is therefore **not** evidence that a schema-coupled
+query is valid on MySQL.
+
+### 25.3 A third, smaller cross-engine difference
+
+`ProjectCatalogTest` asserted `data.difficulty === 3.5`. PDO returns MySQL
+`decimal` columns as **strings**, so MySQL produced `"3.50"` while SQLite produced
+the float `3.5`. `Project` now casts `difficulty` to `float`, so both engines emit
+the same JSON type. Without this the suite is green on SQLite and red on MySQL.
+
+### 25.4 How all of this was verified
+
+A local MariaDB (XAMPP, `127.0.0.1:3306`) served as a throwaway database.
+Nothing else on that server was touched, and the database was dropped afterwards.
+
+| Check | Result |
+|---|---|
+| Reproduce the deploy failure on MariaDB | **error 1553 reproduced** — same index, same SQL |
+| `migrate` re-run on the partially-migrated database (exactly the production state) | **completed** — `000003` + `000005` DONE |
+| Indexes after the resume | `applications_active_unique`, `applications_idempotency_unique` present; legacy unique gone; `applications_project_id_index` backing the FK |
+| Foreign keys after the resume | all 5 intact |
+| `migrate` from an empty database | every migration DONE |
+| `tests/Feature/Projects` on MySQL — before the `title` fix | 42 failed / 226 passed |
+| `tests/Feature/Projects` on MySQL — after the `title` fix | 1 failed / 267 passed |
+| `tests/Feature/Projects` on MySQL — after the `difficulty` cast | **268 passed (779 assertions), 0 failures** |
+| Full suite on SQLite | **773 passed, 0 failures** |
+
+**The transferable lesson:** SQLite cannot stand in for MySQL when a change
+touches indexes, foreign keys, or column types. All three defects above were
+invisible to a fully green SQLite suite and surfaced immediately against real
+MySQL. Any migration that drops or renames an index — and any query that names
+columns explicitly — should be exercised against MySQL *before* it reaches a
+deploy.

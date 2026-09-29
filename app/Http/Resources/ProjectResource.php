@@ -59,9 +59,12 @@ class ProjectResource extends JsonResource
             'status' => $project->status,
             'confidentiality' => $project->confidentiality,
             'version' => $project->version,
+            // `organizations` has no `title` column — the display name lives in
+            // `name`. The JSON key stays `title` so the response contract is
+            // unchanged; only the column it is read from is corrected.
             'organization' => $this->whenLoaded('organization', fn () => [
                 'id' => $project->organization->id,
-                'title' => $project->organization->title,
+                'title' => $project->organization->name,
             ]),
             'required_skills' => $this->whenLoaded('requiredSkills', fn () => $project->requiredSkills->map(fn ($rs) => [
                 'skill_id' => $rs->skill_id,

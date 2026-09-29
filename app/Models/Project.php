@@ -11,7 +11,7 @@ class Project extends Model
 
     protected $fillable = ['organization_id', 'owner_id', 'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes', 'difficulty', 'work_mode', 'role', 'schedule', 'capacity', 'min_team_size', 'start_date', 'end_date', 'application_deadline', 'status', 'confidentiality', 'rubric_id', 'version'];
 
-    protected $casts = ['learning_outcomes' => 'array', 'application_deadline' => 'date', 'start_date' => 'date', 'end_date' => 'date', 'approved_at' => 'datetime'];
+    protected $casts = ['learning_outcomes' => 'array', 'application_deadline' => 'date', 'start_date' => 'date', 'end_date' => 'date', 'approved_at' => 'datetime', 'difficulty' => 'float'];
 
     public function organization()
     {

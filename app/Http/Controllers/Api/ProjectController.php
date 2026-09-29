@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 class ProjectController extends Controller
 {
     private const PROJECT_WITH = [
-        'organization:id,title',
+        'organization:id,name',
         'requiredSkills.skill:id,name',
         'eligibilityConstraints',
         // US-MATCH-02 — the roles a learner may select when applying, surfaced

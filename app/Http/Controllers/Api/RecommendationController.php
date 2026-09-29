@@ -41,7 +41,7 @@ class RecommendationController extends Controller
 
         $projects = Project::query()
             ->whereIn('id', collect($recommendations->items())->pluck('candidate_id')->unique()->all())
-            ->with(['organization:id,title', 'requiredSkills.skill:id,name', 'eligibilityConstraints'])
+            ->with(['organization:id,name', 'requiredSkills.skill:id,name', 'eligibilityConstraints'])
             ->get()
             ->keyBy('id');
 

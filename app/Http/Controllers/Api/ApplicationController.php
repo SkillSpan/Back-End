@@ -93,7 +93,7 @@ class ApplicationController extends Controller
             // "this instance came from an insert".
             $created = $application->wasRecentlyCreated;
 
-            return (new ApplicationResource($application->load(['project.organization:id,title', 'projectRole'])))
+            return (new ApplicationResource($application->load(['project.organization:id,name', 'projectRole'])))
                 ->additional([
                     'success' => true,
                     'message' => $created
@@ -214,7 +214,7 @@ class ApplicationController extends Controller
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         }
 
-        return (new ApplicationResource($application->load(['project.organization:id,title', 'projectRole'])))
+        return (new ApplicationResource($application->load(['project.organization:id,name', 'projectRole'])))
             ->additional([
                 'success' => true,
                 'message' => 'Application withdrawn successfully.',
@@ -291,7 +291,7 @@ class ApplicationController extends Controller
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         }
 
-        return (new ApplicationResource($application->load(['project.organization:id,title', 'projectRole'])))
+        return (new ApplicationResource($application->load(['project.organization:id,name', 'projectRole'])))
             ->additional([
                 'success' => true,
                 'message' => 'Application status updated successfully.',
