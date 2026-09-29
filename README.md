@@ -82,7 +82,16 @@ All of these require `auth:sanctum` + an active account + the `learner` role.
 
 **Recommendation list.** `GET /api/v1/recommendations` always returns the learner's stored rows (historical recommendations are never deleted), but the embedded `project` payload is attached **only while the learner can still discover that project**. Once a project becomes restricted to another organization, or is closed or past its deadline, `project` becomes `null` and the stored score/reasons/versions remain. The response shape is unchanged.
 
-**Error responses.** `GET /api/v1/projects/{project}/recommendation` returns `404 PROJECT_NOT_FOUND` for a project id that does not exist, and `404 RECOMMENDATION_NOT_FOUND` for an existing project with no stored recommendation for the caller. Both are `404`; neither reveals whether a project is restricted to another organization, and no project content is ever returned. This matches the existing convention used by `GET /projects/{id}` (`PROJECT_UNAUTHORIZED` vs `PROJECT_NOT_FOUND`) and `POST /projects/{id}/match`.
+**Error responses.** `GET /api/v1/projects/{project}/recommendation` checks project access **before** reading anything back, so it returns:
+
+| Situation | Response |
+| --- | --- |
+| Project does not exist, **or** the learner may not access it | `404 PROJECT_NOT_FOUND` |
+| Learner can access the project but has no stored recommendation | `404 RECOMMENDATION_NOT_FOUND` |
+
+The first two cases return an **identical** body, so the endpoint cannot be used to probe for the existence of restricted projects. The third reveals nothing the learner could not already read from the project catalog. A learner who loses access to a project (membership removed, project made restricted to another organization, closed, or past its deadline) stops receiving its score, reasons, limiting factors and version metadata — the stored row is never deleted, only its exposure stops.
+
+Note this is deliberately stricter than `GET /projects/{id}`, which still distinguishes `PROJECT_UNAUTHORIZED` (403) from `PROJECT_NOT_FOUND` (404).
 
 **Pagination.** `GET /api/v1/projects` accepts `page` and `per_page` (`per_page` 1–50, default 50) and returns `meta.current_page`, `meta.last_page`, `meta.per_page` and `meta.total`. Ordering is `created_at DESC, id DESC` — the `id` tie-breaker keeps paging deterministic when projects share a `created_at`.
 

@@ -296,4 +296,167 @@ class ProjectAccessControlTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 1);
     }
+
+    // ------------------------- 3. recommendation DETAILS authorization (Task 12)
+
+    public function test_authorized_learner_can_retrieve_recommendation_details(): void
+    {
+        $organization = $this->createOrganization('Details Authorized Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project, 70.0);
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.reasons', 'Stored reason.')
+            ->assertJsonPath('data.algorithm_version', 'project-matching-v1')
+            ->assertJsonPath('data.configuration_version', 'project-matching-config-v1');
+    }
+
+    public function test_recommendation_details_are_withheld_when_active_membership_is_removed(): void
+    {
+        // REGRESSION: showForProject() only checked that the project EXISTED,
+        // never that the learner could still access it, so score/reasons/
+        // limiting factors stayed readable after access was revoked.
+        $organization = $this->createOrganization('Details Revoked Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project);
+
+        // Access holds: details are returned.
+        Sanctum::actingAs($learner);
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(200)
+            ->assertJsonPath('data.score', 70);
+
+        // Membership revoked.
+        $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
+        Sanctum::actingAs($learner->fresh());
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation');
+
+        $response->assertStatus(404);
+
+        // No sensitive recommendation field leaks.
+        $this->assertNull($response->json('data'));
+        $this->assertStringNotContainsString('Stored reason.', $response->getContent());
+        $this->assertStringNotContainsString('project-matching-v1', $response->getContent());
+
+        // The stored row is preserved, not deleted.
+        $this->assertDatabaseCount('recommendations', 1);
+    }
+
+    public function test_invited_member_cannot_retrieve_restricted_recommendation_details(): void
+    {
+        $organization = $this->createOrganization('Details Invited Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'invited');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project);
+
+        Sanctum::actingAs($learner);
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation');
+
+        $response->assertStatus(404);
+        $this->assertNull($response->json('data'));
+        $this->assertStringNotContainsString('Stored reason.', $response->getContent());
+    }
+
+    public function test_removed_member_cannot_retrieve_restricted_recommendation_details(): void
+    {
+        $organization = $this->createOrganization('Details Removed Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'removed');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $project);
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('data', null);
+    }
+
+    public function test_details_are_withheld_when_the_project_becomes_closed(): void
+    {
+        $organization = $this->createOrganization('Details Closed Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'public']);
+        $this->storedRecommendation($learner, $project);
+
+        $project->update(['status' => 'closed']);
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404);
+
+        $this->assertDatabaseCount('recommendations', 1);
+    }
+
+    public function test_details_are_withheld_once_the_application_deadline_passes(): void
+    {
+        $organization = $this->createOrganization('Details Expired Org');
+        $learner = $this->createLearner();
+        $this->joinOrganization($learner, $organization, 'active');
+
+        $project = $this->createProject($organization, ['confidentiality' => 'public']);
+        $this->storedRecommendation($learner, $project);
+
+        $project->update(['application_deadline' => now()->subDay()->toDateString()]);
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404);
+    }
+
+    public function test_inaccessible_and_nonexistent_projects_are_indistinguishable(): void
+    {
+        // Non-disclosure: the endpoint must not let a caller work out whether a
+        // restricted project exists by comparing the two responses.
+        $otherOrganization = $this->createOrganization('Details Other Org');
+        $learner = $this->createLearner();
+
+        $restricted = $this->createProject($otherOrganization, ['confidentiality' => 'restricted']);
+        $this->storedRecommendation($learner, $restricted);
+
+        Sanctum::actingAs($learner);
+
+        $inaccessible = $this->getJson('/api/v1/projects/'.$restricted->id.'/recommendation');
+        $nonexistent = $this->getJson('/api/v1/projects/999999/recommendation');
+
+        $inaccessible->assertStatus(404);
+        $nonexistent->assertStatus(404);
+
+        $this->assertSame($nonexistent->json('code'), $inaccessible->json('code'));
+        $this->assertSame($nonexistent->json('message'), $inaccessible->json('message'));
+
+        // `details` echoes the id the caller themselves supplied, so the values
+        // differ by construction — that reveals nothing. What matters is that
+        // the shape is identical and no project content is attached.
+        $this->assertSame(
+            array_keys($nonexistent->json('details')),
+            array_keys($inaccessible->json('details')),
+        );
+        $this->assertSame($restricted->id, $inaccessible->json('details.project_id'));
+        $this->assertSame(999999, $nonexistent->json('details.project_id'));
+
+        // Neither response carries the stored recommendation.
+        $this->assertNull($inaccessible->json('data'));
+        $this->assertStringNotContainsString('Stored reason.', $inaccessible->getContent());
+    }
 }

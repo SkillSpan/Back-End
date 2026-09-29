@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RecommendationResource;
-use App\Models\Project;
 use App\Models\Recommendation;
 use App\Services\Projects\ProjectAccessService;
 use Illuminate\Http\JsonResponse;
@@ -94,18 +93,33 @@ class RecommendationController extends Controller
      *
      * Return the latest persisted explanation for this learner + project.
      * This endpoint NEVER recalculates matching and never calls FastAPI; it
-     * only reads the Task 11 recommendation rows. A recommendation that exists
-     * for another learner is deliberately indistinguishable from no
-     * recommendation, so the endpoint cannot be used to probe other learners'
-     * stored decisions.
+     * only reads the Task 11 recommendation rows.
+     *
+     * Authorization is enforced with the SAME rules as project discovery
+     * (ProjectAccessService), and it is checked BEFORE anything is read back:
+     * a learner who has lost access to the project — membership removed, the
+     * project made restricted to another organization, closed, or past its
+     * deadline — must not receive its score, reasons, limiting factors or
+     * version metadata. Stored rows are never deleted; only their exposure
+     * stops.
+     *
+     * An inaccessible project and a nonexistent one return the identical
+     * response, so the endpoint cannot be used to probe for the existence of
+     * restricted projects. A project the learner CAN see but that has no stored
+     * recommendation is reported distinctly, which reveals nothing they could
+     * not already read from the project catalog.
      */
     public function showForProject(Request $request, int $project): JsonResponse
     {
         $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
 
-        $exists = Project::query()->whereKey($project)->exists();
+        $learner = $request->user();
 
-        if (! $exists) {
+        // One query covers existence AND authorization, and answers `false` for
+        // both "does not exist" and "not accessible to this learner".
+        $isAccessible = $this->accessService->canAccessId($project, $learner);
+
+        if (! $isAccessible) {
             return $this->errorResponse(
                 'PROJECT_NOT_FOUND',
                 'The requested project does not exist.',
@@ -116,7 +130,7 @@ class RecommendationController extends Controller
         }
 
         $recommendation = Recommendation::query()
-            ->where('user_id', $request->user()->id)
+            ->where('user_id', $learner->id)
             ->where('type', 'project')
             ->where('candidate_type', 'project')
             ->where('candidate_id', $project)

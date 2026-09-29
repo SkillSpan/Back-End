@@ -102,8 +102,23 @@ class ProjectAccessService
      */
     public function canAccess(Project $project, User $learner): bool
     {
+        return $this->canAccessId($project->id, $learner);
+    }
+
+    /**
+     * Whether the learner may see the project with this id.
+     *
+     * Single-query form of canAccess(), for callers that only hold an id.
+     *
+     * A project that does not exist and a project the learner may not access
+     * both return `false`, deliberately: callers use this to decide whether to
+     * reveal anything, and distinguishing the two would leak the existence of
+     * restricted projects.
+     */
+    public function canAccessId(int $projectId, User $learner): bool
+    {
         return $this->accessibleProjectsQuery($this->activeOrganizationIds($learner))
-            ->whereKey($project->id)
+            ->whereKey($projectId)
             ->exists();
     }
 }

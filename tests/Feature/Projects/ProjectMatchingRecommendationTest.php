@@ -733,39 +733,44 @@ class ProjectMatchingRecommendationTest extends TestCase
             ->assertStatus(404);
     }
 
-    public function test_project_existence_contract_is_deliberate_and_matches_sibling_endpoints(): void
+    public function test_error_contract_only_distinguishes_projects_the_learner_can_see(): void
     {
-        // SECURITY NOTE, pinned as a test so the behaviour is intentional
-        // rather than accidental.
+        // Contract after the Task 12 authorization fix:
         //
-        // This endpoint distinguishes a nonexistent project (PROJECT_NOT_FOUND)
-        // from an existing project with no stored recommendation
-        // (RECOMMENDATION_NOT_FOUND). That distinction already exists across
-        // the codebase and is the established convention:
-        //   GET  /projects/{id}         → PROJECT_UNAUTHORIZED vs PROJECT_NOT_FOUND
-        //   POST /projects/{id}/match   → PROJECT_NOT_FOUND
-        // so this endpoint adds no new project-existence oracle.
+        //   inaccessible OR nonexistent      → PROJECT_NOT_FOUND (identical body)
+        //   accessible but no recommendation → RECOMMENDATION_NOT_FOUND
         //
-        // Both answers here are 404, neither reveals whether a project is
-        // restricted to another organization, and no project content is ever
-        // returned. Collapsing the two codes would be a codebase-wide
-        // security-policy decision, not a change to this endpoint alone.
+        // The first two MUST be indistinguishable, otherwise the endpoint is an
+        // oracle for the existence of restricted projects. The third reveals
+        // nothing new: the learner can already read that project from the
+        // catalog. Authorization is checked before anything is read back, so an
+        // inaccessible project never yields score/reasons/limiting factors.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 
+        // Restricted to an organization this learner does not belong to.
         $restricted = $this->createProject(['confidentiality' => 'restricted']);
 
+        // Public and open — visible, but with no stored recommendation.
+        $public = $this->createProject(['confidentiality' => 'public']);
+
         $missing = $this->getJson('/api/v1/projects/999999/recommendation')->assertStatus(404);
-        $noRecommendation = $this->getJson('/api/v1/projects/'.$restricted->id.'/recommendation')->assertStatus(404);
+        $inaccessible = $this->getJson('/api/v1/projects/'.$restricted->id.'/recommendation')->assertStatus(404);
+        $noRecommendation = $this->getJson('/api/v1/projects/'.$public->id.'/recommendation')->assertStatus(404);
 
         $this->assertSame('PROJECT_NOT_FOUND', $missing->json('code'));
+        $this->assertSame('PROJECT_NOT_FOUND', $inaccessible->json('code'));
+        $this->assertSame($missing->json('message'), $inaccessible->json('message'));
+
         $this->assertSame('RECOMMENDATION_NOT_FOUND', $noRecommendation->json('code'));
 
-        // Neither response leaks any project content.
-        $this->assertArrayNotHasKey('title', $noRecommendation->json());
-        $this->assertArrayNotHasKey('description', $noRecommendation->json());
-        $this->assertArrayNotHasKey('organization', $noRecommendation->json());
-        $this->assertNull($noRecommendation->json('data'));
+        // No response leaks project content or recommendation data.
+        foreach ([$missing, $inaccessible, $noRecommendation] as $response) {
+            $this->assertNull($response->json('data'));
+            $this->assertArrayNotHasKey('title', $response->json());
+            $this->assertArrayNotHasKey('description', $response->json());
+            $this->assertArrayNotHasKey('organization', $response->json());
+        }
     }
 
     public function test_another_learners_stored_explanation_is_never_exposed(): void
