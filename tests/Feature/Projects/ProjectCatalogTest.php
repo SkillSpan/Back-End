@@ -599,6 +599,86 @@ class ProjectCatalogTest extends TestCase
             ->assertJsonPath('data.0.id', $project->id);
     }
 
+    public function test_duplicate_skill_ids_are_treated_as_one_required_skill(): void
+    {
+        // REGRESSION: the required-skills filter counts how many of the supplied
+        // ids the project matches, using count($skillIds). Duplicated ids
+        // inflated that count while the pivot can only match DISTINCT skills,
+        // so `skill_ids[]=1&skill_ids[]=1` matched no projects at all.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-duplicate']);
+        $project = $this->createOpenProject(['title' => 'PHP Only']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 3.0,
+        ]);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id)
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&skill_ids[]='.$php->id)
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $project->id);
+    }
+
+    public function test_minimum_level_without_skill_ids_is_rejected(): void
+    {
+        // minimum_level is the per-skill floor for the required-skills filter,
+        // so on its own it is meaningless. It used to be silently ignored, so a
+        // caller could believe a filter was applied and get unfiltered results.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?minimum_level=3')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR')
+            ->assertJsonPath('details.errors.minimum_level.0', 'The minimum_level filter requires skill_ids.');
+    }
+
+    public function test_minimum_level_of_zero_without_skill_ids_is_also_rejected(): void
+    {
+        // 0 is falsy, so the guard must not use empty().
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?minimum_level=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_minimum_level_with_skill_ids_still_filters_normally(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-minlevel']);
+
+        $strict = $this->createOpenProject(['title' => 'Strict']);
+        ProjectRequiredSkill::create([
+            'project_id' => $strict->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 4.0,
+        ]);
+
+        $loose = $this->createOpenProject(['title' => 'Loose']);
+        ProjectRequiredSkill::create([
+            'project_id' => $loose->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 2.0,
+        ]);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&minimum_level=3')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $strict->id);
+    }
+
     public function test_student_profile_required(): void
     {
         $user = User::forceCreate([

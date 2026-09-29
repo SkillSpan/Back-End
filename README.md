@@ -74,9 +74,15 @@ All of these require `auth:sanctum` + an active account + the `learner` role.
 | GET | `/api/v1/projects/{project}/recommendation` | Stored explanation for this learner + project: `project_id`, `score`, `reasons`, `limiting_factors`, `algorithm_version`, `configuration_version`. Reads persisted data only — never recalculates and never calls FastAPI. |
 | GET | `/api/v1/recommendations` | The learner's own stored project recommendations, newest first, paginated |
 
-**Error responses.** `GET /api/v1/projects/{project}/recommendation` returns `404 PROJECT_NOT_FOUND` for a project id that does not exist, and `404 RECOMMENDATION_NOT_FOUND` for an existing project with no stored recommendation for the caller. Both are `404`; neither reveals whether a project is restricted to another organization, and no project content is ever returned. This matches the existing convention used by `GET /projects/{id}` (`PROJECT_UNAUTHORIZED` vs `PROJECT_NOT_FOUND`) and `POST /projects/{id}/match`.
-
 **Discovery vs eligibility.** `GET /api/v1/projects` applies availability (status `open`, unexpired `application_deadline`) and authorization (confidentiality / organization). It does **not** filter by hard eligibility — that is enforced in the matching flow (`ProjectMatchingSnapshotService`) instead, so an ineligible project stays discoverable but cannot be matched. Only `work_mode` and `schedule` eligibility constraints are enforced; `location` and `language` are stored but skipped, because `student_profiles` has no comparable field (`availability` and `preferred_work_type` are the only comparable ones).
+
+**Restricted projects and organization membership.** A `restricted` project is visible only to a learner with an **`active`** row in `organization_members` for the owning organization. `invited` and `removed` memberships grant nothing. A learner may belong to several organizations and sees the restricted projects of all of them. Learners with no membership still see `public` projects normally.
+
+**Filter notes.** `skill_ids[]` is a set — repeated ids are collapsed to distinct ones. `minimum_level` is the per-skill floor for that filter and is **rejected with `422 VALIDATION_ERROR`** when sent without `skill_ids`, rather than being silently ignored.
+
+**Recommendation list.** `GET /api/v1/recommendations` always returns the learner's stored rows (historical recommendations are never deleted), but the embedded `project` payload is attached **only while the learner can still discover that project**. Once a project becomes restricted to another organization, or is closed or past its deadline, `project` becomes `null` and the stored score/reasons/versions remain. The response shape is unchanged.
+
+**Error responses.** `GET /api/v1/projects/{project}/recommendation` returns `404 PROJECT_NOT_FOUND` for a project id that does not exist, and `404 RECOMMENDATION_NOT_FOUND` for an existing project with no stored recommendation for the caller. Both are `404`; neither reveals whether a project is restricted to another organization, and no project content is ever returned. This matches the existing convention used by `GET /projects/{id}` (`PROJECT_UNAUTHORIZED` vs `PROJECT_NOT_FOUND`) and `POST /projects/{id}/match`.
 
 **Pagination.** `GET /api/v1/projects` accepts `page` and `per_page` (`per_page` 1–50, default 50) and returns `meta.current_page`, `meta.last_page`, `meta.per_page` and `meta.total`. Ordering is `created_at DESC, id DESC` — the `id` tie-breaker keeps paging deterministic when projects share a `created_at`.
 

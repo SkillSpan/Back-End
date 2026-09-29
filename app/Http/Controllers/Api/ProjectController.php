@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
+use App\Services\Projects\ProjectAccessService;
 use App\Services\Projects\ProjectAvailabilityService;
 use App\Services\Projects\ProjectEligibilityService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ProjectController extends Controller
@@ -22,6 +22,7 @@ class ProjectController extends Controller
     ];
 
     public function __construct(
+        private readonly ProjectAccessService $accessService = new ProjectAccessService,
         private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService,
         private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService,
     ) {}
@@ -42,9 +43,9 @@ class ProjectController extends Controller
             );
         }
 
-        $organizationId = $this->learnerOrganizationId($user);
+        $organizationIds = $this->accessService->activeOrganizationIds($user);
 
-        $query = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH);
+        $query = $this->accessibleProjectsQuery($organizationIds, self::PROJECT_WITH);
 
         /** @var array<string, mixed> $filters */
         $filters = $this->validatedFilters($request, $requestId);
@@ -177,9 +178,9 @@ class ProjectController extends Controller
      */
     private function getSecureAccessibleProject(int $projectId, $user): ?Project
     {
-        $organizationId = $this->learnerOrganizationId($user);
+        $organizationIds = $this->accessService->activeOrganizationIds($user);
 
-        $project = $this->accessibleProjectsQuery($organizationId, self::PROJECT_WITH)
+        $project = $this->accessibleProjectsQuery($organizationIds, self::PROJECT_WITH)
             ->whereKey($projectId)
             ->first();
 
@@ -191,54 +192,20 @@ class ProjectController extends Controller
     }
 
     /**
-     * The learner's own organization id from the membership pivot, or
-     * null when the learner is not a member of any organization.
-     */
-    private function learnerOrganizationId($user): ?int
-    {
-        $organizationId = DB::table('organization_members')
-            ->where('user_id', $user->id)
-            ->value('organization_id');
-
-        return $organizationId !== null ? (int) $organizationId : null;
-    }
-
-    /**
-     * Reusable base query enforcing the project catalog access rules:
-     * only available projects (status = open, application_deadline not
-     * expired) with a valid end_date, visible publicly (or restricted
-     * only to the learner's own org).
+     * Reusable base query enforcing the project catalog access rules.
      *
-     * The availability portion mirrors ProjectAvailabilityService::check();
-     * the end_date and confidentiality filters are authorization rules
-     * that remain in the controller.
+     * Delegates to ProjectAccessService so that discovery, project details and
+     * the recommendation list can never drift apart. The membership lookup
+     * that used to live here ignored `organization_members.status`, letting a
+     * removed or merely invited member see an organization's restricted
+     * projects — see ProjectAccessService for the full note.
      *
+     * @param  list<int>  $organizationIds  the learner's ACTIVE memberships
      * @param  array<int, string>  $with
      */
-    private function accessibleProjectsQuery(?int $organizationId, array $with = []): Builder
+    private function accessibleProjectsQuery(array $organizationIds, array $with = []): Builder
     {
-        $query = Project::query();
-
-        if ($with !== []) {
-            $query->with($with);
-        }
-
-        return $query->where('status', 'open')
-            ->where(function ($q) {
-                $q->whereNull('end_date')
-                    ->orWhere('end_date', '>=', now()->toDateString());
-            })
-            ->where(function ($q) {
-                $q->whereNull('application_deadline')
-                    ->orWhere('application_deadline', '>=', now()->toDateString());
-            })
-            ->where(function ($subQ) use ($organizationId) {
-                $subQ->where('confidentiality', 'public')
-                    ->orWhere(function ($innerQ) use ($organizationId) {
-                        $innerQ->where('confidentiality', 'restricted')
-                            ->where('organization_id', $organizationId);
-                    });
-            });
+        return $this->accessService->accessibleProjectsQuery($organizationIds, $with);
     }
 
     private function likePattern(string $term): string
@@ -279,7 +246,35 @@ class ProjectController extends Controller
             );
         }
 
-        return $validator->validated();
+        $filters = $validator->validated();
+
+        // `minimum_level` is the per-skill floor for the required-skills filter,
+        // so it is meaningless without `skill_ids`. It used to be silently
+        // ignored, so a caller could believe a filter was applied and receive
+        // unfiltered results. Reject it explicitly instead.
+        $hasMinimumLevel = array_key_exists('minimum_level', $filters) && $filters['minimum_level'] !== null;
+        $hasSkillIds = ! empty($filters['skill_ids']);
+
+        if ($hasMinimumLevel && ! $hasSkillIds) {
+            return $this->errorResponse(
+                'VALIDATION_ERROR',
+                'The request could not be processed.',
+                422,
+                $requestId,
+                ['errors' => ['minimum_level' => ['The minimum_level filter requires skill_ids.']]],
+            );
+        }
+
+        // `skill_ids` is a SET of required skills. Duplicates used to break the
+        // "requires ALL of these skills" count: the whereHas operator used
+        // count($skillIds) while the pivot can only match distinct skills, so
+        // `skill_ids[]=1&skill_ids[]=1` returned no projects at all. Collapse
+        // to distinct ids so a repeated id simply means "skill 1".
+        if ($hasSkillIds) {
+            $filters['skill_ids'] = array_values(array_unique(array_map('intval', $filters['skill_ids'])));
+        }
+
+        return $filters;
     }
 
     private function errorResponse(

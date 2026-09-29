@@ -3,6 +3,7 @@
 namespace Tests\Feature\Projects;
 
 use App\Models\Application;
+use App\Models\LearnerSkill;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
@@ -626,5 +627,147 @@ class ProjectEligibilityServiceTest extends TestCase
         $this->assertCount(1, $result->skill_failures);
         $this->assertNull($result->skill_failures[0]['learner_level']);
         $this->assertStringContainsString('not found', $result->skill_failures[0]['reason']);
+    }
+
+    // ------------------------------------- skill-level source resolution (§4)
+
+    private function createProjectRequiringLevel(Skill $skill, float $minimumLevel): Project
+    {
+        $project = $this->createProject();
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => $minimumLevel,
+            'is_critical_entry' => true,
+        ]);
+
+        return $project;
+    }
+
+    public function test_level_equal_to_the_required_minimum_is_eligible(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-equal', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 3.0);
+
+        $this->addSkillEvaluation($learner, $skill, 3.0);
+
+        $this->assertTrue($this->service->check($project, $learner)->eligible);
+    }
+
+    public function test_level_above_the_required_minimum_is_eligible(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-above', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 3.0);
+
+        $this->addSkillEvaluation($learner, $skill, 5.0);
+
+        $this->assertTrue($this->service->check($project, $learner)->eligible);
+    }
+
+    public function test_level_falls_back_to_the_learner_skills_projection(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-projection', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 3.0);
+
+        // No SkillEvaluation exists — only the read projection.
+        LearnerSkill::create([
+            'learner_id' => $learner->id,
+            'skill_id' => $skill->id,
+            'level' => 4.5,
+            'confidence_score' => 1.0,
+        ]);
+
+        $this->assertTrue($this->service->check($project, $learner)->eligible);
+    }
+
+    public function test_skill_evaluation_takes_priority_over_the_projection(): void
+    {
+        // Documented source priority: skill_evaluations first, then the
+        // learner_skills projection. The evaluation passes; the projection
+        // alone would have failed.
+        $learner = $this->createLearnerWithProfile();
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-priority', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 3.0);
+
+        $this->addSkillEvaluation($learner, $skill, 4.0);
+
+        LearnerSkill::create([
+            'learner_id' => $learner->id,
+            'skill_id' => $skill->id,
+            'level' => 1.0,
+            'confidence_score' => 1.0,
+        ]);
+
+        $this->assertTrue($this->service->check($project, $learner)->eligible);
+    }
+
+    public function test_no_skill_source_returns_null_rather_than_a_fabricated_level(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-none', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 1.0);
+
+        // Neither an evaluation nor a projection row exists.
+        $this->assertDatabaseCount('skill_evaluations', 0);
+        $this->assertDatabaseCount('learner_skills', 0);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertFalse($result->eligible);
+        $this->assertNull($result->skill_failures[0]['learner_level']);
+    }
+
+    public function test_learner_without_a_student_profile_does_not_crash_the_eligibility_check(): void
+    {
+        // REGRESSION: getLearnerSkillLevel() fell through to
+        // `$studentProfile->id` on a null profile, raising
+        // "Attempt to read property 'id' on null" instead of returning null.
+        $user = User::forceCreate([
+            'name' => 'No Profile Learner',
+            'email' => 'no-profile-eligibility@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $user->roles()->attach(Role::where('slug', 'learner')->first()->id);
+
+        $this->assertNull($user->studentProfile);
+
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-noprofile', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 2.0);
+
+        $result = $this->service->check($project, $user);
+
+        $this->assertFalse($result->eligible);
+        $this->assertCount(1, $result->skill_failures);
+        $this->assertNull($result->skill_failures[0]['learner_level']);
+    }
+
+    public function test_learner_without_a_student_profile_can_still_use_the_projection(): void
+    {
+        $user = User::forceCreate([
+            'name' => 'Projection Only Learner',
+            'email' => 'projection-only@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $user->roles()->attach(Role::where('slug', 'learner')->first()->id);
+
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-projection-only', 'category' => 'backend']);
+        $project = $this->createProjectRequiringLevel($skill, 2.0);
+
+        LearnerSkill::create([
+            'learner_id' => $user->id,
+            'skill_id' => $skill->id,
+            'level' => 3.5,
+            'confidence_score' => 1.0,
+        ]);
+
+        $this->assertTrue($this->service->check($project, $user)->eligible);
     }
 }

@@ -136,9 +136,16 @@ class ProjectEligibilityService
      */
     private function getLearnerSkillLevel(User $learner, int $skillId, ?StudentProfile $studentProfile): ?float
     {
-        if ($studentProfile === null) {
+        // Resolve the profile id defensively. The previous implementation
+        // dereferenced `$studentProfile->id` on the fall-through path, so a
+        // learner WITHOUT a student profile raised
+        // "Attempt to read property 'id' on null" instead of simply having no
+        // evaluation for the skill.
+        $studentProfileId = $studentProfile?->id ?? $learner->studentProfile?->id;
+
+        if ($studentProfileId !== null) {
             $evaluation = SkillEvaluation::where('skill_id', $skillId)
-                ->where('student_profile_id', $learner->studentProfile()->value('id'))
+                ->where('student_profile_id', $studentProfileId)
                 ->orderByDesc('calculated_at')
                 ->orderByDesc('id')
                 ->first();
@@ -148,25 +155,14 @@ class ProjectEligibilityService
             }
         }
 
-        $evaluation = SkillEvaluation::where('skill_id', $skillId)
-            ->where('student_profile_id', $studentProfile->id)
-            ->orderByDesc('calculated_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if ($evaluation !== null) {
-            return (float) $evaluation->level;
-        }
-
+        // Source priority preserved: skill_evaluations first, then the
+        // learner_skills read projection. No level is ever fabricated — an
+        // absent source yields null, which callers treat as a failed check.
         $learnerSkill = LearnerSkill::where('learner_id', $learner->id)
             ->where('skill_id', $skillId)
             ->first();
 
-        if ($learnerSkill !== null) {
-            return (float) $learnerSkill->level;
-        }
-
-        return null;
+        return $learnerSkill !== null ? (float) $learnerSkill->level : null;
     }
 
     /**

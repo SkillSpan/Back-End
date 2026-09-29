@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\RecommendationResource;
 use App\Models\Project;
 use App\Models\Recommendation;
+use App\Services\Projects\ProjectAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,6 +29,10 @@ class RecommendationController extends Controller
 
     private const MAX_PER_PAGE = 100;
 
+    public function __construct(
+        private readonly ProjectAccessService $accessService = new ProjectAccessService,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
@@ -39,9 +44,25 @@ class RecommendationController extends Controller
             ->orderByDesc('id')
             ->paginate($this->perPage($request));
 
-        $projects = Project::query()
-            ->whereIn('id', collect($recommendations->items())->pluck('candidate_id')->unique()->all())
-            ->with(['organization:id,title', 'requiredSkills.skill:id,name', 'eligibilityConstraints'])
+        // Only projects the learner may STILL discover are attached. The
+        // recommendation row itself is always returned — historical records are
+        // never deleted — but project details are withheld once the learner has
+        // lost access. A project that became restricted to another organization
+        // (or closed, or past its deadline) must not keep leaking its content
+        // through the recommendation list.
+        //
+        // `project` is already nullable in RecommendationResource, so the
+        // response shape is unchanged; it just goes null more often.
+        $candidateIds = collect($recommendations->items())
+            ->pluck('candidate_id')
+            ->unique()
+            ->all();
+
+        $projects = $this->accessService->accessibleProjectsQuery(
+            $this->accessService->activeOrganizationIds($request->user()),
+            ['organization:id,title', 'requiredSkills.skill:id,name', 'eligibilityConstraints'],
+        )
+            ->whereIn('id', $candidateIds)
             ->get()
             ->keyBy('id');
 
