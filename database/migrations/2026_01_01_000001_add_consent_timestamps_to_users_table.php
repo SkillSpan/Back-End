@@ -24,7 +24,18 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['terms_accepted_at', 'privacy_accepted_at']);
+            // Guarded individually: 2026_08_03_000001 manages the same two
+            // columns and its down() runs BEFORE this one during a rollback
+            // (later timestamp first), so they may already be gone. Without the
+            // guard the rollback dies with
+            //   SQLSTATE[42000]: 1091 Can't DROP COLUMN `terms_accepted_at`
+            if (Schema::hasColumn('users', 'terms_accepted_at')) {
+                $table->dropColumn('terms_accepted_at');
+            }
+
+            if (Schema::hasColumn('users', 'privacy_accepted_at')) {
+                $table->dropColumn('privacy_accepted_at');
+            }
         });
     }
 };
