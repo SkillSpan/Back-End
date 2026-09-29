@@ -71,10 +71,16 @@ All of these require `auth:sanctum` + an active account + the `learner` role.
 | GET | `/api/v1/projects` | Discover available projects. Filters: `search`, `type`, `domain`, `work_mode`, `difficulty`, `organization_id`, `skill_ids[]`, `minimum_level`. Paginated via `page` / `per_page` (default 50, max 50); returns `data` + `meta`. |
 | GET | `/api/v1/projects/{project}` | Details of one accessible, available project |
 | POST | `/api/v1/projects/{project}/match` | Run project matching via the FastAPI intelligence service and persist the recommendation. Gated on `DATA_SCIENCE_PROJECT_MATCHING_ENABLED`; disabled ⇒ `503`. |
-| GET | `/api/v1/projects/{project}/recommendation` | Stored explanation for this learner + project: `project_id`, `score`, `reasons`, `limiting_factors`, `algorithm_version`, `configuration_version`. Reads persisted data only — never recalculates. `404` when none is stored. |
+| GET | `/api/v1/projects/{project}/recommendation` | Stored explanation for this learner + project: `project_id`, `score`, `reasons`, `limiting_factors`, `algorithm_version`, `configuration_version`. Reads persisted data only — never recalculates and never calls FastAPI. |
 | GET | `/api/v1/recommendations` | The learner's own stored project recommendations, newest first, paginated |
 
-**Discovery vs eligibility.** `GET /api/v1/projects` applies availability (status `open`, unexpired `application_deadline`) and authorization (confidentiality / organization). Hard eligibility — critical required skills and project eligibility constraints — is enforced in the matching flow, not in discovery.
+**Error responses.** `GET /api/v1/projects/{project}/recommendation` returns `404 PROJECT_NOT_FOUND` for a project id that does not exist, and `404 RECOMMENDATION_NOT_FOUND` for an existing project with no stored recommendation for the caller. Both are `404`; neither reveals whether a project is restricted to another organization, and no project content is ever returned. This matches the existing convention used by `GET /projects/{id}` (`PROJECT_UNAUTHORIZED` vs `PROJECT_NOT_FOUND`) and `POST /projects/{id}/match`.
+
+**Discovery vs eligibility.** `GET /api/v1/projects` applies availability (status `open`, unexpired `application_deadline`) and authorization (confidentiality / organization). It does **not** filter by hard eligibility — that is enforced in the matching flow (`ProjectMatchingSnapshotService`) instead, so an ineligible project stays discoverable but cannot be matched. Only `work_mode` and `schedule` eligibility constraints are enforced; `location` and `language` are stored but skipped, because `student_profiles` has no comparable field (`availability` and `preferred_work_type` are the only comparable ones).
+
+**Pagination.** `GET /api/v1/projects` accepts `page` and `per_page` (`per_page` 1–50, default 50) and returns `meta.current_page`, `meta.last_page`, `meta.per_page` and `meta.total`. Ordering is `created_at DESC, id DESC` — the `id` tie-breaker keeps paging deterministic when projects share a `created_at`.
+
+**Testing note.** The automated tests mock the FastAPI intelligence service (`Http::fake`). They verify Laravel-side workflow behaviour — snapshot creation, response validation, persistence, and error handling — and do **not** constitute a verified live Laravel↔FastAPI integration. A real integration test would require the deployed service and its service token.
 
 ### Admin (`auth:sanctum` + admin role)
 

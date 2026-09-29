@@ -733,6 +733,71 @@ class ProjectMatchingRecommendationTest extends TestCase
             ->assertStatus(404);
     }
 
+    public function test_project_existence_contract_is_deliberate_and_matches_sibling_endpoints(): void
+    {
+        // SECURITY NOTE, pinned as a test so the behaviour is intentional
+        // rather than accidental.
+        //
+        // This endpoint distinguishes a nonexistent project (PROJECT_NOT_FOUND)
+        // from an existing project with no stored recommendation
+        // (RECOMMENDATION_NOT_FOUND). That distinction already exists across
+        // the codebase and is the established convention:
+        //   GET  /projects/{id}         → PROJECT_UNAUTHORIZED vs PROJECT_NOT_FOUND
+        //   POST /projects/{id}/match   → PROJECT_NOT_FOUND
+        // so this endpoint adds no new project-existence oracle.
+        //
+        // Both answers here are 404, neither reveals whether a project is
+        // restricted to another organization, and no project content is ever
+        // returned. Collapsing the two codes would be a codebase-wide
+        // security-policy decision, not a change to this endpoint alone.
+        $learner = $this->createLearner();
+        Sanctum::actingAs($learner);
+
+        $restricted = $this->createProject(['confidentiality' => 'restricted']);
+
+        $missing = $this->getJson('/api/v1/projects/999999/recommendation')->assertStatus(404);
+        $noRecommendation = $this->getJson('/api/v1/projects/'.$restricted->id.'/recommendation')->assertStatus(404);
+
+        $this->assertSame('PROJECT_NOT_FOUND', $missing->json('code'));
+        $this->assertSame('RECOMMENDATION_NOT_FOUND', $noRecommendation->json('code'));
+
+        // Neither response leaks any project content.
+        $this->assertArrayNotHasKey('title', $noRecommendation->json());
+        $this->assertArrayNotHasKey('description', $noRecommendation->json());
+        $this->assertArrayNotHasKey('organization', $noRecommendation->json());
+        $this->assertNull($noRecommendation->json('data'));
+    }
+
+    public function test_another_learners_stored_explanation_is_never_exposed(): void
+    {
+        $owner = $this->createLearner('explanation-owner@test.com');
+        $outsider = $this->createLearner('explanation-outsider@test.com');
+
+        $project = $this->createProject();
+
+        $snapshot = $this->makeSnapshot($owner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        // The owner can read it back.
+        Sanctum::actingAs($owner);
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(200)
+            ->assertJsonPath('data.reasons', 'Strong alignment with the project skill set.');
+
+        // The outsider gets a bare 404 with none of the owner's content.
+        Sanctum::actingAs($outsider);
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation');
+
+        $response->assertStatus(404)->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND');
+
+        $this->assertStringNotContainsString(
+            'Strong alignment with the project skill set.',
+            $response->getContent(),
+        );
+        $this->assertArrayNotHasKey('title', $response->json());
+        $this->assertNull($response->json('data'));
+    }
+
     // ------------------------------------------------------- retrieval
 
     public function test_unauthenticated_request_is_rejected(): void

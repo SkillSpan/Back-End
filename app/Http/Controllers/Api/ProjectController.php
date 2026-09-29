@@ -96,7 +96,12 @@ class ProjectController extends Controller
             }
         }
 
-        $projects = $query->orderBy('created_at', 'desc')
+        // `id` is a tie-breaker: `created_at` has second precision, so projects
+        // created in the same second would otherwise come back in an arbitrary
+        // order and could be duplicated across pages or skipped entirely. The
+        // deterministic secondary sort is what makes pagination correct.
+        $projects = $query->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->paginate((int) ($filters['per_page'] ?? 50));
 
         return response()->json([

@@ -468,6 +468,118 @@ class ProjectCatalogTest extends TestCase
             ->assertJsonPath('data.0.id', $project->id);
     }
 
+    public function test_pagination_is_deterministic_when_created_at_is_identical(): void
+    {
+        // `created_at` has second precision, so several projects can share it.
+        // Without a tie-breaker the database may return them in any order,
+        // which lets a row appear on two pages or vanish between them.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $sameMoment = now()->subMinutes(5);
+        $ids = [];
+
+        for ($i = 1; $i <= 5; $i++) {
+            $project = $this->createOpenProject([
+                'title' => "Tied Project {$i}",
+                'organization_id' => $learner->organization_id,
+            ]);
+
+            // Bypass mass assignment: created_at is not fillable.
+            Project::query()->whereKey($project->id)->update(['created_at' => $sameMoment]);
+
+            $ids[] = $project->id;
+        }
+
+        // Ordered by created_at DESC, id DESC — the documented tie-breaker.
+        $expected = [array_reverse($ids)[0], array_reverse($ids)[1], array_reverse($ids)[2], array_reverse($ids)[3], array_reverse($ids)[4]];
+
+        $collected = [];
+
+        foreach ([1, 2, 3] as $page) {
+            $response = $this->getJson("/api/v1/projects?per_page=2&page={$page}");
+
+            $response->assertStatus(200)
+                ->assertJsonPath('meta.total', 5)
+                ->assertJsonPath('meta.last_page', 3);
+
+            foreach ($response->json('data') as $row) {
+                $collected[] = $row['id'];
+            }
+        }
+
+        $this->assertSame($expected, $collected);
+        $this->assertCount(5, array_unique($collected), 'A project must not appear on two pages.');
+    }
+
+    public function test_invalid_per_page_is_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?per_page=51')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+
+        $this->getJson('/api/v1/projects?per_page=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_invalid_page_is_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?page=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+
+        $this->getJson('/api/v1/projects?page=not-a-number')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_empty_result_set_returns_empty_data_with_zeroed_metadata(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data', [])
+            ->assertJsonPath('meta.total', 0)
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 1);
+    }
+
+    public function test_discovery_response_keeps_the_established_envelope(): void
+    {
+        // Backward compatibility: `data` stays a flat array of projects and the
+        // success/message/request_id envelope is unchanged. Pagination only
+        // ADDED a `meta` key.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject(['title' => 'Envelope Check', 'organization_id' => $learner->organization_id]);
+
+        $response = $this->getJson('/api/v1/projects');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'data' => [['id', 'title', 'description', 'type', 'status', 'version']],
+                'meta' => ['current_page', 'last_page', 'per_page', 'total'],
+                'request_id',
+            ]);
+
+        $this->assertIsArray($response->json('data'));
+        $this->assertArrayNotHasKey('data', $response->json('data'));
+    }
+
     public function test_full_project_capacity_does_not_change_discovery_under_current_rules(): void
     {
         // ProjectAvailabilityService currently gates discovery on open status

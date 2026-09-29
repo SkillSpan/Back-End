@@ -5,8 +5,10 @@ namespace Tests\Feature\Projects;
 use App\Models\AlgorithmConfiguration;
 use App\Models\Project;
 use App\Models\ProjectMatchingSnapshot;
+use App\Models\ProjectRequiredSkill;
 use App\Models\Recommendation;
 use App\Models\Role;
+use App\Models\Skill;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -450,6 +452,39 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         $this->assertSame($snapshot->algorithm_version, $recommendation->algorithm_version);
         $this->assertSame($snapshot->configuration_version, $recommendation->configuration_version);
         $this->assertSame($snapshot->project_version, $recommendation->project_version);
+    }
+
+    // ------------------------------------------- 10. eligibility gate on the chain
+
+    public function test_ineligible_learner_is_rejected_before_fastapi_and_persists_nothing(): void
+    {
+        // Task 14 requirement: matching must not create a recommendation for an
+        // ineligible learner. Eligibility is enforced in the MATCHING flow
+        // (ProjectMatchingSnapshotService), not in project discovery.
+        $learner = $this->createLearner();
+        Sanctum::actingAs($learner);
+
+        $this->fakeFastApi();
+
+        $project = $this->createProject();
+
+        $skill = Skill::create(['name' => 'Rust', 'slug' => 'rust', 'category' => 'backend']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 4.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // The learner has no Rust evaluation at all.
+        $this->postJson(sprintf(self::ENDPOINT, $project->id))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_MATCH_INELIGIBLE');
+
+        $this->assertDatabaseCount('recommendations', 0);
+        // The ineligible learner must be rejected before any upstream call.
+        Http::assertNothingSent();
     }
 
     // ------------------------------------------------- 10. isolation on the chain
