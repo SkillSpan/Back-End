@@ -43,6 +43,20 @@ class Project extends Model
         return $this->hasMany(ProjectEligibilityConstraint::class);
     }
 
+    /**
+     * US-MATCH-02 — the roles a learner can select when applying.
+     *
+     * NOTE: project targeting is NOT modelled here. Relevance is decided by
+     * career role + required skills + learner skill levels + difficulty, which
+     * already flow through ProjectMatchingService / the FastAPI
+     * `target_career_role` payload. Academic specialization is deliberately not
+     * a project column or an application gate.
+     */
+    public function projectRoles()
+    {
+        return $this->hasMany(ProjectRole::class);
+    }
+
     public function applications()
     {
         return $this->hasMany(Application::class);
@@ -71,5 +85,20 @@ class Project extends Model
     public function matchingSnapshots()
     {
         return $this->hasMany(ProjectMatchingSnapshot::class);
+    }
+
+    /**
+     * Applications that currently occupy a capacity slot.
+     *
+     * WHICH statuses count is a capacity POLICY, not a schema fact. This
+     * relation only exposes the accepted ones so the eventual policy can be
+     * swapped without touching the schema. See the capacity policy question in
+     * US-MATCH-02_APPLICATION_WORKFLOW_REPORT.md — the rule is not yet
+     * confirmed.
+     */
+    public function acceptedApplications()
+    {
+        return $this->hasMany(Application::class)
+            ->whereIn('status', Application::CAPACITY_STATUSES);
     }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Services\Projects\ProjectAvailabilityService;
+use App\Services\Projects\ProjectCapacityPolicy;
 use App\Services\Projects\ProjectEligibilityService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -19,11 +20,15 @@ class ProjectController extends Controller
         'organization:id,title',
         'requiredSkills.skill:id,name',
         'eligibilityConstraints',
+        // US-MATCH-02 — the roles a learner may select when applying, surfaced
+        // as `available_project_roles` on the details response.
+        'projectRoles',
     ];
 
     public function __construct(
         private readonly ProjectAvailabilityService $availabilityService = new ProjectAvailabilityService,
         private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService,
+        private readonly ProjectCapacityPolicy $capacityPolicy = new ProjectCapacityPolicy,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -150,10 +155,33 @@ class ProjectController extends Controller
             );
         }
 
+        // US-MATCH-02 — per-learner details. Both blocks are produced by
+        // EXISTING services (eligibility + the capacity policy); neither rule is
+        // re-implemented here. They are attached only on the details endpoint,
+        // so the catalog list does not run one eligibility check per project.
+        $resource = new ProjectResource($accessibleProject);
+
+        $eligibility = $this->eligibilityService->check($accessibleProject, $user);
+
+        $resource->eligibility = [
+            'eligible' => $eligibility->eligible,
+            'reasons' => $eligibility->reasons,
+            'skill_failures' => $eligibility->skill_failures,
+        ];
+
+        $capacity = $this->capacityPolicy->check($accessibleProject);
+
+        $resource->capacityState = [
+            'capacity' => $capacity->capacity,
+            'seats_taken' => $capacity->seats_taken,
+            'seats_remaining' => $capacity->seats_remaining,
+            'full' => $capacity->full,
+        ];
+
         return response()->json([
             'success' => true,
             'message' => 'Project details retrieved successfully.',
-            'data' => new ProjectResource($accessibleProject),
+            'data' => $resource,
             'request_id' => $requestId,
         ]);
     }

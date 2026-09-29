@@ -136,9 +136,21 @@ class ProjectEligibilityService
      */
     private function getLearnerSkillLevel(User $learner, int $skillId, ?StudentProfile $studentProfile): ?float
     {
-        if ($studentProfile === null) {
+        // Resolve the profile id ONCE. A learner may have no student profile at
+        // all, in which case there is no evaluation to read and the
+        // learner_skills projection is the only remaining source.
+        //
+        // This also removes a latent crash: the previous shape fell through to
+        // `$studentProfile->id` when the profile was null, so any project with a
+        // critical required skill evaluated against a profile-less learner died
+        // with "Attempt to read property id on null" instead of returning a
+        // normal ineligibility result. Behaviour is unchanged whenever a profile
+        // exists (evaluation first, learner_skills as fallback).
+        $profileId = $studentProfile?->id ?? $learner->studentProfile()->value('id');
+
+        if ($profileId !== null) {
             $evaluation = SkillEvaluation::where('skill_id', $skillId)
-                ->where('student_profile_id', $learner->studentProfile()->value('id'))
+                ->where('student_profile_id', $profileId)
                 ->orderByDesc('calculated_at')
                 ->orderByDesc('id')
                 ->first();
@@ -146,16 +158,6 @@ class ProjectEligibilityService
             if ($evaluation !== null) {
                 return (float) $evaluation->level;
             }
-        }
-
-        $evaluation = SkillEvaluation::where('skill_id', $skillId)
-            ->where('student_profile_id', $studentProfile->id)
-            ->orderByDesc('calculated_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if ($evaluation !== null) {
-            return (float) $evaluation->level;
         }
 
         $learnerSkill = LearnerSkill::where('learner_id', $learner->id)
