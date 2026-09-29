@@ -409,4 +409,222 @@ class ProjectEligibilityServiceTest extends TestCase
 
         $this->assertFalse($this->service->isEligible($project, $learner));
     }
+
+    // --------------------------------------------------- schedule constraint
+
+    public function test_schedule_constraint_is_enforced(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $learner->studentProfile->update(['availability' => 'part_time']);
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'schedule',
+            'value' => 'full_time',
+        ]);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertFalse($result->eligible);
+        $this->assertStringContainsString('schedule', $result->reasons[0]);
+        $this->assertStringContainsString('part_time', $result->reasons[0]);
+        $this->assertStringContainsString('full_time', $result->reasons[0]);
+    }
+
+    public function test_matching_schedule_constraint_is_eligible(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $learner->studentProfile->update(['availability' => 'full_time']);
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'schedule',
+            'value' => 'full_time',
+        ]);
+
+        $this->assertTrue($this->service->check($project, $learner)->eligible);
+    }
+
+    public function test_missing_schedule_preference_makes_the_learner_ineligible(): void
+    {
+        // createLearnerWithProfile() leaves availability null — the learner has
+        // not stated a preference, so the project's requirement cannot be
+        // satisfied and the learner is treated as ineligible rather than
+        // silently passed.
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $this->assertNull($learner->studentProfile->availability);
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'schedule',
+            'value' => 'full_time',
+        ]);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertFalse($result->eligible);
+        $this->assertStringContainsString('does not specify a schedule preference', $result->reasons[0]);
+    }
+
+    public function test_location_constraint_is_not_enforced_by_the_current_business_rule(): void
+    {
+        // Documented existing behaviour: constraint_type allows 'location' and
+        // 'language', but student_profiles stores no comparable field, so the
+        // service deliberately skips them instead of inventing a comparison.
+        // A location-restricted project is therefore currently eligible for
+        // every learner.
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'location',
+            'value' => 'Berlin',
+        ]);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertTrue($result->eligible);
+        $this->assertSame([], $result->reasons);
+    }
+
+    // ------------------------------------------------- reasons consistency
+
+    public function test_reasons_are_accurate_when_multiple_rules_fail_together(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $learner->studentProfile->update(['preferred_work_type' => 'remote']);
+
+        $criticalSkill = Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $criticalSkill->id,
+            'minimum_level' => 4.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // Learner has the skill but below the required level.
+        $this->addSkillEvaluation($learner, $criticalSkill, 2.0);
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'work_mode',
+            'value' => 'onsite',
+        ]);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertFalse($result->eligible);
+        $this->assertCount(2, $result->reasons);
+
+        $this->assertContains(
+            'One or more critical required skills are missing or below the required level.',
+            $result->reasons,
+        );
+        $this->assertStringContainsString('work_mode', implode(' | ', $result->reasons));
+
+        // The skill failure detail matches the persisted project requirement.
+        $this->assertCount(1, $result->skill_failures);
+        $this->assertSame($criticalSkill->id, $result->skill_failures[0]['skill_id']);
+        $this->assertSame(4.0, $result->skill_failures[0]['required_level']);
+        $this->assertSame(2.0, $result->skill_failures[0]['learner_level']);
+    }
+
+    public function test_eligible_result_reports_no_reasons_or_skill_failures(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 3.0,
+            'is_critical_entry' => true,
+        ]);
+
+        $this->addSkillEvaluation($learner, $skill, 3.0);
+
+        $result = $this->service->check($project, $learner);
+
+        $this->assertTrue($result->eligible);
+        $this->assertSame([], $result->reasons);
+        $this->assertSame([], $result->skill_failures);
+    }
+
+    // ------------------------------------------------------ no side effects
+
+    public function test_eligibility_check_does_not_modify_learner_or_project_data(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $learner->studentProfile->update([
+            'preferred_work_type' => 'remote',
+            'availability' => 'part_time',
+        ]);
+
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 4.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // Deliberately failing on every rule.
+        $this->addSkillEvaluation($learner, $skill, 1.0);
+
+        ProjectEligibilityConstraint::create([
+            'project_id' => $project->id,
+            'constraint_type' => 'work_mode',
+            'value' => 'onsite',
+        ]);
+
+        $profileBefore = $learner->studentProfile->fresh()->toArray();
+        $projectBefore = $project->fresh()->toArray();
+        $requirementBefore = ProjectRequiredSkill::where('project_id', $project->id)->get()->toArray();
+        $evaluationBefore = SkillEvaluation::where('student_profile_id', $learner->studentProfile->id)->get()->toArray();
+
+        $this->service->check($project, $learner);
+
+        $this->assertSame($profileBefore, $learner->studentProfile->fresh()->toArray());
+        $this->assertSame($projectBefore, $project->fresh()->toArray());
+        $this->assertSame($requirementBefore, ProjectRequiredSkill::where('project_id', $project->id)->get()->toArray());
+        $this->assertSame($evaluationBefore, SkillEvaluation::where('student_profile_id', $learner->studentProfile->id)->get()->toArray());
+    }
+
+    public function test_learner_with_no_skill_evaluation_for_a_critical_skill_is_ineligible(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createProject();
+
+        $skill = Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 1.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // No evaluation at all — not even a low one.
+        $result = $this->service->check($project, $learner);
+
+        $this->assertFalse($result->eligible);
+        $this->assertCount(1, $result->skill_failures);
+        $this->assertNull($result->skill_failures[0]['learner_level']);
+        $this->assertStringContainsString('not found', $result->skill_failures[0]['reason']);
+    }
 }

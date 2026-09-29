@@ -62,6 +62,20 @@ Organization accounts (`POST /api/v1/auth/register/organization`) additionally r
 | GET | `/api/v1/readiness/latest` | Latest readiness result (learner only) |
 | GET | `/api/v1/organization/profile` | Organization self profile (approved orgs only) |
 
+### Project discovery & matching (learner only)
+
+All of these require `auth:sanctum` + an active account + the `learner` role.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/v1/projects` | Discover available projects. Filters: `search`, `type`, `domain`, `work_mode`, `difficulty`, `organization_id`, `skill_ids[]`, `minimum_level`. Paginated via `page` / `per_page` (default 50, max 50); returns `data` + `meta`. |
+| GET | `/api/v1/projects/{project}` | Details of one accessible, available project |
+| POST | `/api/v1/projects/{project}/match` | Run project matching via the FastAPI intelligence service and persist the recommendation. Gated on `DATA_SCIENCE_PROJECT_MATCHING_ENABLED`; disabled ⇒ `503`. |
+| GET | `/api/v1/projects/{project}/recommendation` | Stored explanation for this learner + project: `project_id`, `score`, `reasons`, `limiting_factors`, `algorithm_version`, `configuration_version`. Reads persisted data only — never recalculates. `404` when none is stored. |
+| GET | `/api/v1/recommendations` | The learner's own stored project recommendations, newest first, paginated |
+
+**Discovery vs eligibility.** `GET /api/v1/projects` applies availability (status `open`, unexpired `application_deadline`) and authorization (confidentiality / organization). Hard eligibility — critical required skills and project eligibility constraints — is enforced in the matching flow, not in discovery.
+
 ### Admin (`auth:sanctum` + admin role)
 
 | Method | Endpoint | Description |

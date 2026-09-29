@@ -379,7 +379,112 @@ class ProjectCatalogTest extends TestCase
         $response = $this->getJson('/api/v1/projects');
 
         $response->assertStatus(200)
-            ->assertJsonPath('success', true);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('meta.total', 60)
+            ->assertJsonPath('meta.per_page', 50)
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 2);
+
+        $this->assertCount(50, $response->json('data'));
+    }
+
+    public function test_pagination_page_and_per_page_are_applied(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        for ($i = 1; $i <= 5; $i++) {
+            $this->createOpenProject([
+                'title' => "Paged Project {$i}",
+                'created_at' => now()->addMinutes($i),
+                'organization_id' => $learner->organization_id,
+            ]);
+        }
+
+        $response = $this->getJson('/api/v1/projects?per_page=2&page=2');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.total', 5)
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 3);
+
+        $this->assertCount(2, $response->json('data'));
+    }
+
+    public function test_search_filters_and_pagination_work_together(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject(['title' => 'Laravel Remote One', 'domain' => 'backend', 'work_mode' => 'remote']);
+        $this->createOpenProject(['title' => 'Laravel Remote Two', 'domain' => 'backend', 'work_mode' => 'remote']);
+        $this->createOpenProject(['title' => 'Laravel Onsite', 'domain' => 'backend', 'work_mode' => 'onsite']);
+        $this->createOpenProject(['title' => 'React Remote', 'domain' => 'frontend', 'work_mode' => 'remote']);
+
+        $response = $this->getJson('/api/v1/projects?search=Laravel&domain=backend&work_mode=remote&per_page=1&page=2');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 2);
+
+        $this->assertCount(1, $response->json('data'));
+        $this->assertStringContainsString('Laravel Remote', $response->json('data.0.title'));
+    }
+
+    public function test_discovery_does_not_filter_by_hard_eligibility(): void
+    {
+        // Documented existing business rule: the discovery catalog applies
+        // availability (open status + application deadline) and authorization
+        // (confidentiality / organization), but NOT hard eligibility.
+        // Eligibility is enforced in the matching flow
+        // (ProjectMatchingSnapshotService) instead. A project whose critical
+        // skill the learner lacks is therefore still discoverable — this test
+        // pins that behaviour rather than silently changing the contract.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $skill = Skill::create(['name' => 'Rust', 'slug' => 'rust', 'category' => 'backend']);
+
+        $project = $this->createOpenProject([
+            'title' => 'Needs Rust',
+            'organization_id' => $learner->organization_id,
+        ]);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 4.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // The learner has no Rust evaluation at all.
+        $this->assertDatabaseCount('skill_evaluations', 0);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.id', $project->id);
+    }
+
+    public function test_full_project_capacity_does_not_change_discovery_under_current_rules(): void
+    {
+        // ProjectAvailabilityService currently gates discovery on open status
+        // and application_deadline only. There is no capacity/team-size gate
+        // yet, so a capacity=0 project remains discoverable until the business
+        // rule is implemented in production code.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $project = $this->createOpenProject([
+            'title' => 'Capacity Filled But Still Open',
+            'capacity' => 0,
+        ]);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.id', $project->id);
     }
 
     public function test_student_profile_required(): void

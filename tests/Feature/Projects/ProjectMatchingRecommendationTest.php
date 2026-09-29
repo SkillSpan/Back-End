@@ -626,6 +626,113 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->assertDatabaseCount('recommendations', 0);
     }
 
+    // ------------------------------------------------------- Task 12: project recommendation explanation
+
+    public function test_learner_can_retrieve_their_project_recommendation_explanation(): void
+    {
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+        $snapshot = $this->makeSnapshot($learner, $project);
+
+        $this->persist($snapshot, $this->validResult($snapshot, [
+            'score' => 66.5,
+            'explanation' => ['Recommended because the project aligns with backend goals.'],
+            'limiting_factors' => ['Schedule overlap is limited.'],
+        ]));
+
+        Sanctum::actingAs($learner);
+
+        $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation', [
+            'X-Request-ID' => 'rec-explain-123',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('request_id', 'rec-explain-123')
+            ->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.reasons', 'Recommended because the project aligns with backend goals.')
+            ->assertJsonPath('data.limiting_factors.0', 'Schedule overlap is limited.')
+            ->assertJsonPath('data.algorithm_version', 'project-matching-v1')
+            ->assertJsonPath('data.configuration_version', 'project-matching-config-v1');
+
+        $this->assertEquals(66.5, $response->json('data.score'));
+    }
+
+    public function test_project_recommendation_explanation_is_scoped_to_the_authenticated_learner(): void
+    {
+        $owner = $this->createLearner('owner-rec@test.com');
+        $other = $this->createLearner('other-rec@test.com');
+        $project = $this->createProject();
+
+        $snapshot = $this->makeSnapshot($owner, $project);
+        $this->persist($snapshot, $this->validResult($snapshot));
+
+        Sanctum::actingAs($other);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND')
+            ->assertJsonPath('details.project_id', $project->id);
+    }
+
+    public function test_missing_project_recommendation_returns_not_found(): void
+    {
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'RECOMMENDATION_NOT_FOUND');
+    }
+
+    public function test_nonexistent_project_recommendation_returns_project_not_found(): void
+    {
+        Sanctum::actingAs($this->createLearner());
+
+        $this->getJson('/api/v1/projects/999999/recommendation')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROJECT_NOT_FOUND')
+            ->assertJsonPath('details.project_id', 999999);
+    }
+
+    public function test_unauthenticated_project_recommendation_explanation_is_rejected(): void
+    {
+        $project = $this->createProject();
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(401);
+    }
+
+    public function test_non_learner_project_recommendation_explanation_is_rejected(): void
+    {
+        $admin = User::forceCreate([
+            'name' => 'Admin User',
+            'email' => 'admin-project-rec@test.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+        $admin->roles()->attach(Role::where('slug', 'admin')->first()->id);
+
+        Sanctum::actingAs($admin);
+
+        $project = $this->createProject();
+
+        $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'LEARNER_ONLY');
+    }
+
+    public function test_non_numeric_project_recommendation_route_returns_not_found(): void
+    {
+        Sanctum::actingAs($this->createLearner());
+
+        $this->getJson('/api/v1/projects/not-a-number/recommendation')
+            ->assertStatus(404);
+    }
+
     // ------------------------------------------------------- retrieval
 
     public function test_unauthenticated_request_is_rejected(): void

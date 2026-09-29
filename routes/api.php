@@ -65,6 +65,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/projects/{project}', [ProjectController::class, 'show'])
             ->name('projects.show')
             ->whereNumber('project');
+        Route::get('/projects/{project}/recommendation', [RecommendationController::class, 'showForProject'])
+            ->name('projects.recommendation.show')
+            ->whereNumber('project');
 
         // Task 10 — deterministic project-matching recommendation for one
         // learner + project. Composes the validated snapshot (Task 8) with

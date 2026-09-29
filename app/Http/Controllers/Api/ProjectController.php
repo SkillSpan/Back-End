@@ -97,13 +97,18 @@ class ProjectController extends Controller
         }
 
         $projects = $query->orderBy('created_at', 'desc')
-            ->limit(50)
-            ->get();
+            ->paginate((int) ($filters['per_page'] ?? 50));
 
         return response()->json([
             'success' => true,
             'message' => 'Accessible projects retrieved successfully.',
-            'data' => ProjectResource::collection($projects),
+            'data' => ProjectResource::collection($projects->items()),
+            'meta' => [
+                'current_page' => $projects->currentPage(),
+                'last_page' => $projects->lastPage(),
+                'per_page' => $projects->perPage(),
+                'total' => $projects->total(),
+            ],
             'request_id' => $requestId,
         ]);
     }
@@ -255,6 +260,8 @@ class ProjectController extends Controller
             'skill_ids' => ['nullable', 'array'],
             'skill_ids.*' => ['integer', 'gt:0', 'exists:skills,id'],
             'minimum_level' => ['nullable', 'numeric', 'min:0', 'max:5'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
 
         if ($validator->fails()) {
