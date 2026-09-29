@@ -12,9 +12,12 @@ use App\Models\StudentProfile;
 use App\Models\User;
 use App\Services\Projects\ProjectMatchingRecommendationService;
 use App\Services\Projects\ProjectMatchingSnapshotService;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
+use PDOException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -160,6 +163,22 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->fail("Expected IntelligenceException [{$codeName}] but none was thrown.");
     }
 
+    /**
+     * Persist as the snapshot's own learner unless a caller explicitly wants
+     * to act as someone else (the cross-learner ownership test does).
+     */
+    private function persist(
+        ProjectMatchingSnapshot $snapshot,
+        array $result,
+        ?User $learner = null,
+    ): Recommendation {
+        return $this->service->persist(
+            $learner ?? $snapshot->studentProfile->user,
+            $snapshot,
+            $result,
+        );
+    }
+
     // -------------------------------------------------------- persistence
 
     public function test_validated_result_is_persisted(): void
@@ -168,7 +187,7 @@ class ProjectMatchingRecommendationTest extends TestCase
         $project = $this->createProject();
         $snapshot = $this->makeSnapshot($learner, $project);
 
-        $recommendation = $this->service->persist($snapshot, $this->validResult($snapshot));
+        $recommendation = $this->persist($snapshot, $this->validResult($snapshot));
 
         $this->assertDatabaseHas('recommendations', [
             'id' => $recommendation->id,
@@ -191,8 +210,8 @@ class ProjectMatchingRecommendationTest extends TestCase
         $first = $this->makeSnapshot($learner, $this->createProject(['title' => 'First']));
         $second = $this->makeSnapshot($learner, $this->createProject(['title' => 'Second']));
 
-        $this->service->persist($first, $this->validResult($first));
-        $this->service->persist($second, $this->validResult($second, ['score' => 55.0]));
+        $this->persist($first, $this->validResult($first));
+        $this->persist($second, $this->validResult($second, ['score' => 55.0]));
 
         $this->assertDatabaseCount('recommendations', 2);
 
@@ -217,8 +236,8 @@ class ProjectMatchingRecommendationTest extends TestCase
         $firstSnapshot = $this->makeSnapshot($first, $project);
         $secondSnapshot = $this->makeSnapshot($second, $project);
 
-        $a = $this->service->persist($firstSnapshot, $this->validResult($firstSnapshot));
-        $b = $this->service->persist($secondSnapshot, $this->validResult($secondSnapshot));
+        $a = $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
+        $b = $this->persist($secondSnapshot, $this->validResult($secondSnapshot));
 
         $this->assertSame($first->id, $a->user_id);
         $this->assertSame($second->id, $b->user_id);
@@ -229,7 +248,7 @@ class ProjectMatchingRecommendationTest extends TestCase
     {
         $snapshot = $this->makeSnapshot();
 
-        $recommendation = $this->service->persist($snapshot, $this->validResult($snapshot));
+        $recommendation = $this->persist($snapshot, $this->validResult($snapshot));
 
         $this->assertSame('project-matching-v1', $recommendation->algorithm_version);
         $this->assertSame('project-matching-config-v1', $recommendation->configuration_version);
@@ -241,7 +260,7 @@ class ProjectMatchingRecommendationTest extends TestCase
     {
         $snapshot = $this->makeSnapshot();
 
-        $recommendation = $this->service->persist($snapshot, $this->validResult($snapshot, [
+        $recommendation = $this->persist($snapshot, $this->validResult($snapshot, [
             'explanation' => ['Reason one.', 'Reason two.'],
             'limiting_factors' => ['Factor A.', 'Factor B.'],
         ]));
@@ -255,7 +274,7 @@ class ProjectMatchingRecommendationTest extends TestCase
         $snapshot = $this->makeSnapshot();
 
         $result = $this->validResult($snapshot);
-        $recommendation = $this->service->persist($snapshot, $result);
+        $recommendation = $this->persist($snapshot, $result);
 
         // Loose comparison: whole floats round-trip through JSON as ints.
         $this->assertEquals($result['factor_scores'], $recommendation->factors);
@@ -269,8 +288,8 @@ class ProjectMatchingRecommendationTest extends TestCase
         $snapshot = $this->makeSnapshot();
         $result = $this->validResult($snapshot);
 
-        $first = $this->service->persist($snapshot, $result);
-        $second = $this->service->persist($snapshot, $result);
+        $first = $this->persist($snapshot, $result);
+        $second = $this->persist($snapshot, $result);
 
         $this->assertSame($first->id, $second->id);
         $this->assertDatabaseCount('recommendations', 1);
@@ -283,7 +302,7 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertFailsWith(
             'PROJECT_MATCH_INVALID_SNAPSHOT',
-            fn () => $this->service->persist($snapshot, $this->validResult($snapshot)),
+            fn () => $this->persist($snapshot, $this->validResult($snapshot)),
         );
 
         $this->assertDatabaseCount('recommendations', 0);
@@ -320,7 +339,7 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertFailsWith(
             'PROJECT_MATCH_INVALID_RESULT',
-            fn () => $this->service->persist($snapshot, $this->validResult($snapshot, $overrides)),
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, $overrides)),
         );
 
         $this->assertDatabaseCount('recommendations', 0);
@@ -335,11 +354,220 @@ class ProjectMatchingRecommendationTest extends TestCase
         });
 
         try {
-            $this->service->persist($snapshot, $this->validResult($snapshot));
+            $this->persist($snapshot, $this->validResult($snapshot));
             $this->fail('Expected the simulated persistence failure to propagate.');
         } catch (RuntimeException $e) {
             $this->assertSame('simulated persistence failure', $e->getMessage());
         }
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    // -------------------------------------------------- deduplication
+
+    public function test_repeated_matching_across_distinct_snapshots_does_not_duplicate(): void
+    {
+        // The real-world case: every POST /projects/{id}/match creates a NEW
+        // ProjectMatchingSnapshot (Task 8 is deliberately append-only), so
+        // keying dedup on the snapshot id would write a duplicate row on every
+        // repeated request. The logical result is identical, so one row.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $ids = [];
+
+        foreach (range(1, 3) as $ignored) {
+            $snapshot = $this->makeSnapshot($learner, $project);
+            $ids[] = $this->persist($snapshot, $this->validResult($snapshot))->id;
+        }
+
+        $this->assertCount(1, array_unique($ids), 'Repeated matching must reuse one recommendation.');
+        $this->assertDatabaseCount('recommendations', 1);
+        $this->assertDatabaseCount('project_matching_snapshots', 3);
+    }
+
+    public function test_existing_recommendation_is_reused_for_an_identical_result(): void
+    {
+        // Persistence has NO application-level existence pre-check — the unique
+        // index on dedup_key is the guard, so there is no TOCTOU window. The
+        // second call below therefore genuinely drives the conflict-recovery
+        // branch: its INSERT violates the constraint and the service returns
+        // the row that already represents that logical result instead of
+        // raising.
+        //
+        // LIMITATION: this exercises the recovery branch deterministically but
+        // does NOT prove real concurrent safety. The test environment runs
+        // SQLite :memory:, which cannot execute two writers in parallel, so a
+        // genuine two-writer race is not reproducible here.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $firstSnapshot = $this->makeSnapshot($learner, $project);
+        $first = $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
+
+        $secondSnapshot = $this->makeSnapshot($learner, $project);
+        $second = $this->persist($secondSnapshot, $this->validResult($secondSnapshot));
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertDatabaseCount('recommendations', 1);
+    }
+
+    public function test_a_changed_result_is_kept_as_its_own_recommendation(): void
+    {
+        // A different score is a genuinely different matching result, so it
+        // must not be collapsed into the existing row.
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $firstSnapshot = $this->makeSnapshot($learner, $project);
+        $this->persist($firstSnapshot, $this->validResult($firstSnapshot, ['score' => 40.0]));
+
+        $secondSnapshot = $this->makeSnapshot($learner, $project);
+        $this->persist($secondSnapshot, $this->validResult($secondSnapshot, ['score' => 88.0]));
+
+        $this->assertDatabaseCount('recommendations', 2);
+    }
+
+    public function test_a_new_project_version_is_kept_as_its_own_recommendation(): void
+    {
+        $learner = $this->createLearner();
+        $project = $this->createProject();
+
+        $firstSnapshot = $this->makeSnapshot($learner, $project);
+        $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
+
+        $project->update(['version' => 2]);
+
+        $secondSnapshot = $this->makeSnapshot($learner, $project);
+        $this->assertSame(2, $secondSnapshot->project_version);
+
+        $this->persist($secondSnapshot, $this->validResult($secondSnapshot));
+
+        $this->assertDatabaseCount('recommendations', 2);
+        $this->assertDatabaseHas('recommendations', ['project_version' => 1]);
+        $this->assertDatabaseHas('recommendations', ['project_version' => 2]);
+    }
+
+    public function test_dedup_key_is_unique_at_the_database_level(): void
+    {
+        // The guarantee must come from the database, not only from the
+        // service's existence check.
+        $learner = $this->createLearner();
+        $snapshot = $this->makeSnapshot($learner);
+        $recommendation = $this->persist($snapshot, $this->validResult($snapshot));
+
+        $this->expectException(QueryException::class);
+
+        DB::table('recommendations')->insert([
+            'user_id' => $recommendation->user_id,
+            'type' => 'project',
+            'candidate_type' => 'project',
+            'candidate_id' => $recommendation->candidate_id,
+            'dedup_key' => $recommendation->dedup_key,
+            'eligibility_state' => 'eligible',
+            'generated_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    public function test_unrelated_database_errors_are_not_swallowed(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        // A non-integrity failure must surface, not be mistaken for a dedup.
+        Recommendation::creating(function () {
+            throw new QueryException('sqlite', 'insert into "recommendations"', [], new PDOException('syntax error'));
+        });
+
+        $this->expectException(QueryException::class);
+
+        $this->persist($snapshot, $this->validResult($snapshot));
+    }
+
+    // ---------------------------------------------------- consistency
+
+    public function test_snapshot_belonging_to_another_learner_is_rejected(): void
+    {
+        $owner = $this->createLearner('owner@test.com');
+        $intruder = $this->createLearner('intruder@test.com');
+
+        $snapshot = $this->makeSnapshot($owner);
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_SNAPSHOT_NOT_OWNED',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot), $intruder),
+        );
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    public function test_mismatched_project_id_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_INCONSISTENT_RESULT',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, [
+                'project_id' => $snapshot->project_id + 999,
+            ])),
+        );
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    public function test_mismatched_project_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_INCONSISTENT_RESULT',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, [
+                'project_version' => $snapshot->project_version + 5,
+            ])),
+        );
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    public function test_mismatched_algorithm_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_INCONSISTENT_RESULT',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, [
+                'algorithm_version' => 'project-matching-v9',
+            ])),
+        );
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    public function test_missing_algorithm_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_INCONSISTENT_RESULT',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, [
+                'algorithm_version' => null,
+            ])),
+        );
+
+        $this->assertDatabaseCount('recommendations', 0);
+    }
+
+    public function test_mismatched_configuration_version_is_rejected(): void
+    {
+        $snapshot = $this->makeSnapshot();
+
+        $this->assertFailsWith(
+            'PROJECT_MATCH_INCONSISTENT_RESULT',
+            fn () => $this->persist($snapshot, $this->validResult($snapshot, [
+                'configuration_version' => 'project-matching-config-v9',
+            ])),
+        );
 
         $this->assertDatabaseCount('recommendations', 0);
     }
@@ -377,8 +605,8 @@ class ProjectMatchingRecommendationTest extends TestCase
         $mySnapshot = $this->makeSnapshot($mine, $this->createProject(['title' => 'Mine']));
         $theirSnapshot = $this->makeSnapshot($theirs, $this->createProject(['title' => 'Theirs']));
 
-        $this->service->persist($mySnapshot, $this->validResult($mySnapshot));
-        $this->service->persist($theirSnapshot, $this->validResult($theirSnapshot));
+        $this->persist($mySnapshot, $this->validResult($mySnapshot));
+        $this->persist($theirSnapshot, $this->validResult($theirSnapshot));
 
         Sanctum::actingAs($mine);
 
@@ -422,7 +650,7 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         foreach (['First', 'Second', 'Third'] as $title) {
             $snapshot = $this->makeSnapshot($learner, $this->createProject(['title' => $title]));
-            $this->service->persist($snapshot, $this->validResult($snapshot));
+            $this->persist($snapshot, $this->validResult($snapshot));
             $projectIds[] = $snapshot->project_id;
         }
 
@@ -458,7 +686,7 @@ class ProjectMatchingRecommendationTest extends TestCase
     {
         $learner = $this->createLearner();
         $snapshot = $this->makeSnapshot($learner);
-        $this->service->persist($snapshot, $this->validResult($snapshot));
+        $this->persist($snapshot, $this->validResult($snapshot));
 
         Sanctum::actingAs($learner);
 

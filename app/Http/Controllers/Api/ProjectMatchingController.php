@@ -79,7 +79,7 @@ class ProjectMatchingController extends Controller
             // snapshot's learner, in this same request. No second FastAPI
             // call, no duplicated calculation, and the response shape below
             // is deliberately unchanged from Task 10.
-            $this->recommendationService->persist($snapshot, $result);
+            $this->recommendationService->persist($user, $snapshot, $result);
 
             // Same success envelope as the sibling project endpoints
             // (ProjectController): success / message / data / request_id.

@@ -15,6 +15,7 @@ class Recommendation extends Model
         'type',
         'candidate_type',
         'candidate_id',
+        'dedup_key',
         'score',
         'factors',
         'weighted_contributions',
