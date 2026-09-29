@@ -5,53 +5,147 @@ namespace App\Services\Baseline;
 use App\Events\SkillDataChanged;
 use App\Exceptions\BaselineAssessmentException;
 use App\Models\BaselineAssessment;
+use App\Models\BaselineQuestionSnapshot;
+use App\Models\CareerRole;
 use App\Models\Skill;
 use App\Models\SkillEvaluation;
 use App\Models\SkillEvidence;
 use App\Models\StudentProfile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Orchestrates the dynamic baseline assessment lifecycle.
+ *
+ *  start()  — given a learner's chosen career role, select questions
+ *             (BaselineQuestionSelectionService), persist an immutable
+ *             snapshot of the role + selected questions + skill mappings,
+ *             and return an in-progress assessment.
+ *  submit() — validate the submission against the frozen snapshot, call
+ *             the intelligence service, validate that the returned skill
+ *             evaluations belong to the approved snapshot, then persist
+ *             SkillEvidence/SkillEvaluation transactionally and flip the
+ *             assessment to completed.
+ *
+ * Everything that mutates assessment state runs inside a DB transaction
+ * so a failed intelligence call or an invalid payload leaves the
+ * assessment resumable (still `in_progress`) and writes nothing.
+ */
 class BaselineAssessmentService
 {
     public const ASSESSMENT_TYPE = 'baseline';
 
     public function __construct(
         private readonly BaselineDataScienceClient $dataScienceClient,
+        private readonly BaselineQuestionSelectionService $questionSelection,
     ) {}
 
+    /**
+     * Start a dynamic baseline assessment for a learner and a career role.
+     *
+     * The role, its required skills, and the selected questions are
+     * frozen into baseline_question_snapshots at creation time so a later
+     * question-bank or career-role edit can never retroactively change
+     * what the learner was shown.
+     */
     public function start(
         StudentProfile $studentProfile,
+        CareerRole $careerRole,
         string $requestId
     ): BaselineAssessment {
         $version = $this->activeVersion();
+
+        // Role access + version are validated before any write.
+        if ($careerRole->status !== 'approved') {
+            throw new BaselineAssessmentException(
+                'The selected career role is not approved for baseline assessment.',
+                422,
+                'CAREER_ROLE_NOT_APPROVED',
+                ['career_role_id' => $careerRole->id, 'status' => $careerRole->status],
+            );
+        }
 
         $exists = BaselineAssessment::query()
             ->where('student_profile_id', $studentProfile->id)
             ->where('assessment_type', self::ASSESSMENT_TYPE)
             ->where('assessment_version', $version)
+            ->where('career_role_id', $careerRole->id)
             ->exists();
 
         if ($exists) {
             throw new BaselineAssessmentException(
-                'A baseline assessment for this version already exists for this learner.',
+                'A baseline assessment for this role and version already exists for this learner.',
                 409,
                 'ASSESSMENT_ALREADY_EXISTS',
-                ['assessment_version' => $version],
+                [
+                    'assessment_version' => $version,
+                    'career_role_id' => $careerRole->id,
+                ],
             );
         }
 
-        return BaselineAssessment::forceCreate([
-            'student_profile_id' => $studentProfile->id,
-            'assessment_type' => self::ASSESSMENT_TYPE,
-            'assessment_version' => $version,
-            'status' => 'in_progress',
-            'progress' => [],
-            'responses' => null,
-            'result' => null,
-            'normalized_skills' => null,
-            'completed_at' => null,
-        ]);
+        // Select before opening the transaction: selection failure (e.g.
+        // insufficient coverage) must not leave a half-written assessment.
+        $selectedQuestions = $this->questionSelection->select($careerRole, $version);
+
+        if ($selectedQuestions->isEmpty()) {
+            throw BaselineAssessmentException::careerRoleHasNoSkills(
+                (int) $careerRole->id
+            );
+        }
+
+        return DB::transaction(function () use (
+            $studentProfile,
+            $careerRole,
+            $version,
+            $selectedQuestions,
+            $requestId,
+        ) {
+            $coverage = $this->buildCoverage($selectedQuestions);
+
+            $assessment = BaselineAssessment::forceCreate([
+                'student_profile_id' => $studentProfile->id,
+                'career_role_id' => $careerRole->id,
+                'assessment_type' => self::ASSESSMENT_TYPE,
+                'assessment_version' => $version,
+                'question_count' => $selectedQuestions->count(),
+                'status' => 'in_progress',
+                'progress' => [],
+                'responses' => null,
+                'result' => null,
+                'normalized_skills' => null,
+                'skill_coverage' => $coverage,
+                'snapshot_metadata' => [
+                    'career_role_id' => (int) $careerRole->id,
+                    'career_role_slug' => $careerRole->slug,
+                    'career_role_title' => $careerRole->title,
+                    'career_role_version' => (int) $careerRole->version,
+                    'assessment_version' => $version,
+                    'question_count' => $selectedQuestions->count(),
+                    'skill_count' => $coverage['skill_count'],
+                    'critical_skill_count' => $coverage['critical_skill_count'],
+                    'selection_strategy' => config('services.baseline_assessment.deterministic_selection', false)
+                        ? 'deterministic'
+                        : 'randomised',
+                    'selected_at' => now()->toIso8601String(),
+                    'request_id' => $requestId,
+                ],
+                'completed_at' => null,
+            ]);
+
+            $this->persistSnapshots($assessment, $careerRole, $selectedQuestions);
+
+            Log::info('Baseline assessment started.', [
+                'request_id' => $requestId,
+                'assessment_id' => $assessment->id,
+                'student_profile_id' => $studentProfile->id,
+                'career_role_id' => $careerRole->id,
+                'question_count' => $selectedQuestions->count(),
+            ]);
+
+            return $assessment->fresh(['questionSnapshots.item']);
+        });
     }
 
     public function saveProgress(
@@ -78,7 +172,7 @@ class BaselineAssessmentService
 
         $assessment->update($data);
 
-        return $assessment->fresh();
+        return $assessment->fresh(['questionSnapshots.item']);
     }
 
     public function submit(
@@ -96,16 +190,50 @@ class BaselineAssessmentService
             );
         }
 
+        $snapshots = $this->snapshotsFor($assessment);
+
+        // Question membership, duplicates, answer format and allowed
+        // options — validated against the frozen snapshot, never against
+        // the live (mutable) question bank.
+        $this->questionSelection->validateResponsesAgainstSnapshot($snapshots, $responses);
+        $this->questionSelection->validateCompleteness($snapshots, $responses);
+
+        $allowedSkillIds = $snapshots
+            ->pluck('skill_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $metadata = $assessment->snapshot_metadata ?? [];
+
+        /*
+         * Data Science contract: the `question_ids` field carries the
+         * item bank's `item_id` string (the same value the client submits
+         * as `question_id`), NOT the internal primary key. We pass the
+         * frozen snapshot ids so the service scores the exact question set
+         * the learner saw.
+         */
+        $assessmentItemIds = $snapshots
+            ->map(fn (BaselineQuestionSnapshot $s) => $this->questionSelection->snapshotItemId($s))
+            ->values()
+            ->all();
+
         $serviceResult = $this->dataScienceClient->compute(
             $assessment->studentProfile,
             $assessment->assessment_version,
             $responses,
             $requestId,
+            $assessment->career_role_id !== null ? (int) $assessment->career_role_id : null,
+            isset($metadata['career_role_version']) ? (int) $metadata['career_role_version'] : null,
+            $assessmentItemIds,
         );
 
-        $normalizedSkills = $this->normalizedSkills($serviceResult);
+        // Intelligence evaluations must belong to the role's approved
+        // skill set — a hallucinated / out-of-scope skill is a hard error.
+        $normalizedSkills = $this->normalizedSkills($serviceResult, $allowedSkillIds);
 
-        $algorithmVersion = $this->extractAlgorithmVersion($serviceResult, $assessment);
+        $algorithmVersion = $this->extractAlgorithmVersion($serviceResult);
 
         return DB::transaction(function () use (
             $assessment,
@@ -144,11 +272,105 @@ class BaselineAssessmentService
                 $requestId,
             );
 
-            return $assessment->fresh();
+            return $assessment->fresh(['questionSnapshots.item']);
         });
     }
 
-    private function normalizedSkills(array $serviceResult): array
+    /**
+     * Freeze the role skill ↔ question mapping AND the question content
+     * for this assessment.
+     *
+     * Content (question_text, item_type, options) is copied here so a
+     * later edit to the live item bank cannot change what the learner was
+     * shown nor how their answers are validated.
+     *
+     * @param  Collection<int, array<string, mixed>>  $selectedQuestions
+     */
+    private function persistSnapshots(
+        BaselineAssessment $assessment,
+        CareerRole $careerRole,
+        Collection $selectedQuestions
+    ): void {
+        foreach ($selectedQuestions as $question) {
+            BaselineQuestionSnapshot::forceCreate([
+                'baseline_assessment_id' => $assessment->id,
+                'baseline_assessment_item_id' => $question['baseline_assessment_item_id'],
+                'career_role_id' => $careerRole->id,
+                'skill_id' => $question['skill_id'],
+                // Frozen content.
+                'item_id' => $question['item_id'],
+                'item_type' => $question['item_type'],
+                'question_text' => $question['question_text'],
+                'options' => $question['options'],
+                'importance_weight' => $question['importance_weight'],
+                'is_critical' => $question['is_critical'],
+            ]);
+        }
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $selectedQuestions
+     */
+    private function buildCoverage(Collection $selectedQuestions): array
+    {
+        $bySkill = $selectedQuestions->groupBy('skill_id')->map(
+            fn (Collection $rows, $skillId) => [
+                'skill_id' => (int) $skillId,
+                'skill_slug' => $rows->first()['skill_slug'],
+                'skill_name' => $rows->first()['skill_name'],
+                'question_count' => $rows->count(),
+                'importance_weight' => (float) $rows->first()['importance_weight'],
+                'required_level' => (float) $rows->first()['required_level'],
+                'is_critical' => (bool) $rows->first()['is_critical'],
+                'prerequisite_slugs' => $rows->first()['prerequisite_slugs'],
+                'covered' => true,
+            ]
+        )->values()->all();
+
+        return [
+            'total_questions' => $selectedQuestions->count(),
+            'skill_count' => count($bySkill),
+            'covered_skill_count' => count($bySkill),
+            'critical_skill_count' => $selectedQuestions
+                ->where('is_critical', true)
+                ->pluck('skill_id')
+                ->unique()
+                ->count(),
+            'skills' => $bySkill,
+        ];
+    }
+
+    /**
+     * @return Collection<int, BaselineQuestionSnapshot>
+     */
+    private function snapshotsFor(BaselineAssessment $assessment): Collection
+    {
+        return $assessment->questionSnapshots()
+            ->with('item')
+            ->get();
+    }
+
+    /**
+     * Validate and normalize the intelligence service's skill evaluations.
+     *
+     * Every entry must be internally consistent and belong to the
+     * approved snapshot:
+     *  - `slug` resolves to an active Skill;
+     *  - when the service also sends `skill_id`, it must match that
+     *    Skill's id (a mismatch means the service scored a different
+     *    skill than it named — reject rather than guess);
+     *  - the skill is one of the snapshot's skills;
+     *  - `level` is 0..5 and `confidence` is 0..1.
+     *
+     * An empty or non-array `skills` payload is rejected — we never
+     * fabricate evaluations to fill a gap. A partial result is persisted
+     * as-is (only what the service actually returned); readiness will
+     * then surface its own ASSESSMENT_INCOMPLETE for any skill it still
+     * has no evaluation for.
+     *
+     * @param  array<int>  $allowedSkillIds
+     */
+    private function normalizedSkills(array $serviceResult, array $allowedSkillIds): array
     {
         $skills = $serviceResult['skills'] ?? null;
 
@@ -196,6 +418,37 @@ class BaselineAssessmentService
                 );
             }
 
+            // skill_id ↔ slug consistency: when the service supplies an
+            // id it must agree with the slug it named.
+            if (array_key_exists('skill_id', $skill) && $skill['skill_id'] !== null) {
+                if (! is_numeric($skill['skill_id'])
+                    || (int) $skill['skill_id'] !== (int) $activeSkill->id) {
+                    throw new BaselineAssessmentException(
+                        'The intelligence service returned a skill_id that does not match its slug.',
+                        502,
+                        'INTELLIGENCE_SKILL_MISMATCH',
+                        [
+                            'slug' => $slug,
+                            'returned_skill_id' => $skill['skill_id'],
+                            'expected_skill_id' => (int) $activeSkill->id,
+                        ],
+                    );
+                }
+            }
+
+            // Every returned evaluation must map to a skill in the
+            // approved snapshot. This blocks the intelligence service from
+            // injecting evaluations for skills the learner was never
+            // assessed on.
+            if ($allowedSkillIds !== [] && ! in_array((int) $activeSkill->id, $allowedSkillIds, true)) {
+                throw new BaselineAssessmentException(
+                    'The intelligence service referenced a skill outside the approved assessment snapshot.',
+                    502,
+                    'INTELLIGENCE_SKILL_OUT_OF_SCOPE',
+                    ['slug' => $slug, 'skill_id' => (int) $activeSkill->id],
+                );
+            }
+
             if (! is_numeric($level) || (float) $level < 0 || (float) $level > 5) {
                 throw new BaselineAssessmentException(
                     'The intelligence service returned an invalid skill level.',
@@ -229,10 +482,8 @@ class BaselineAssessmentService
         return $normalized;
     }
 
-    private function extractAlgorithmVersion(
-        array $serviceResult,
-        BaselineAssessment $assessment
-    ): string {
+    private function extractAlgorithmVersion(array $serviceResult): string
+    {
         $version = $serviceResult['algorithm_version'] ?? null;
 
         if (! is_string($version) || trim($version) === '') {
@@ -256,6 +507,19 @@ class BaselineAssessmentService
         $evidenceDate = now()->toDateString();
 
         foreach ($normalizedSkills as $skill) {
+            // Retry safety: a re-dispatch of the same assessment must not
+            // create duplicate evidence/evaluation rows. The assessment is
+            // the natural idempotency key (source_record).
+            $alreadyPersisted = SkillEvidence::query()
+                ->where('source_record_type', BaselineAssessment::class)
+                ->where('source_record_id', $assessment->id)
+                ->where('skill_id', $skill['skill_id'])
+                ->exists();
+
+            if ($alreadyPersisted) {
+                continue;
+            }
+
             SkillEvidence::forceCreate([
                 'student_profile_id' => $studentProfileId,
                 'skill_id' => $skill['skill_id'],
@@ -282,6 +546,7 @@ class BaselineAssessmentService
                 'snapshot' => [
                     'assessment_id' => $assessment->id,
                     'assessment_version' => $assessment->assessment_version,
+                    'career_role_id' => $assessment->career_role_id,
                     'source' => 'baseline_assessment',
                     'request_id' => $requestId,
                 ],

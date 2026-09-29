@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Internal;
 
+use App\Models\BaselineAssessmentItem;
+use App\Models\Skill;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -80,5 +82,38 @@ class BaselineItemsSecretTest extends TestCase
         $this->getJson('/api/v1/internal/baseline-items?version=v1.0', [
             'X-Internal-Secret' => self::SECRET,
         ])->assertStatus(401);
+    }
+
+    /**
+     * The Data Science service needs the prompt text to render/score
+     * questions, so `question_text` is part of the internal contract.
+     */
+    public function test_items_payload_exposes_question_text(): void
+    {
+        $skill = Skill::create([
+            'name' => 'SQL', 'slug' => 'sql-', 'status' => 'active',
+        ]);
+
+        BaselineAssessmentItem::create([
+            'assessment_version' => 'v1.0',
+            'item_id' => 'sql-text-001',
+            'item_type' => 'single_choice',
+            'question_text' => 'Which clause filters rows?',
+            'skill_id' => $skill->id,
+            'options' => ['A', 'B'],
+            'correct_answer' => 'A',
+            'weight' => 1.000,
+            'is_active' => true,
+        ]);
+
+        $response = $this->getJson('/api/v1/internal/baseline-items?version=v1.0', [
+            'X-Internal-Secret' => self::SECRET,
+        ])->assertStatus(200);
+
+        $item = collect($response->json('items'))->firstWhere('item_id', 'sql-text-001');
+
+        $this->assertNotNull($item);
+        $this->assertArrayHasKey('question_text', $item);
+        $this->assertSame('Which clause filters rows?', $item['question_text']);
     }
 }
