@@ -92,7 +92,7 @@ class ProjectEligibilityService
      * evaluation exists, so eligibility can still be checked
      * after an evaluation has been calculated.
      *
-     * @param array $skillFailures Filled with details of failed skills.
+     * @param  array  $skillFailures  Filled with details of failed skills.
      */
     private function checkCriticalSkills(
         Project $project,
