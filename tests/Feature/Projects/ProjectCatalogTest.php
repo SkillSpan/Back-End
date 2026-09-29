@@ -379,7 +379,304 @@ class ProjectCatalogTest extends TestCase
         $response = $this->getJson('/api/v1/projects');
 
         $response->assertStatus(200)
-            ->assertJsonPath('success', true);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('meta.total', 60)
+            ->assertJsonPath('meta.per_page', 50)
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 2);
+
+        $this->assertCount(50, $response->json('data'));
+    }
+
+    public function test_pagination_page_and_per_page_are_applied(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        for ($i = 1; $i <= 5; $i++) {
+            $this->createOpenProject([
+                'title' => "Paged Project {$i}",
+                'created_at' => now()->addMinutes($i),
+                'organization_id' => $learner->organization_id,
+            ]);
+        }
+
+        $response = $this->getJson('/api/v1/projects?per_page=2&page=2');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.total', 5)
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 3);
+
+        $this->assertCount(2, $response->json('data'));
+    }
+
+    public function test_search_filters_and_pagination_work_together(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject(['title' => 'Laravel Remote One', 'domain' => 'backend', 'work_mode' => 'remote']);
+        $this->createOpenProject(['title' => 'Laravel Remote Two', 'domain' => 'backend', 'work_mode' => 'remote']);
+        $this->createOpenProject(['title' => 'Laravel Onsite', 'domain' => 'backend', 'work_mode' => 'onsite']);
+        $this->createOpenProject(['title' => 'React Remote', 'domain' => 'frontend', 'work_mode' => 'remote']);
+
+        $response = $this->getJson('/api/v1/projects?search=Laravel&domain=backend&work_mode=remote&per_page=1&page=2');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 2);
+
+        $this->assertCount(1, $response->json('data'));
+        $this->assertStringContainsString('Laravel Remote', $response->json('data.0.title'));
+    }
+
+    public function test_discovery_does_not_filter_by_hard_eligibility(): void
+    {
+        // Documented existing business rule: the discovery catalog applies
+        // availability (open status + application deadline) and authorization
+        // (confidentiality / organization), but NOT hard eligibility.
+        // Eligibility is enforced in the matching flow
+        // (ProjectMatchingSnapshotService) instead. A project whose critical
+        // skill the learner lacks is therefore still discoverable — this test
+        // pins that behaviour rather than silently changing the contract.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $skill = Skill::create(['name' => 'Rust', 'slug' => 'rust', 'category' => 'backend']);
+
+        $project = $this->createOpenProject([
+            'title' => 'Needs Rust',
+            'organization_id' => $learner->organization_id,
+        ]);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $skill->id,
+            'minimum_level' => 4.0,
+            'is_critical_entry' => true,
+        ]);
+
+        // The learner has no Rust evaluation at all.
+        $this->assertDatabaseCount('skill_evaluations', 0);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.id', $project->id);
+    }
+
+    public function test_pagination_is_deterministic_when_created_at_is_identical(): void
+    {
+        // `created_at` has second precision, so several projects can share it.
+        // Without a tie-breaker the database may return them in any order,
+        // which lets a row appear on two pages or vanish between them.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $sameMoment = now()->subMinutes(5);
+        $ids = [];
+
+        for ($i = 1; $i <= 5; $i++) {
+            $project = $this->createOpenProject([
+                'title' => "Tied Project {$i}",
+                'organization_id' => $learner->organization_id,
+            ]);
+
+            // Bypass mass assignment: created_at is not fillable.
+            Project::query()->whereKey($project->id)->update(['created_at' => $sameMoment]);
+
+            $ids[] = $project->id;
+        }
+
+        // Ordered by created_at DESC, id DESC — the documented tie-breaker.
+        $expected = [array_reverse($ids)[0], array_reverse($ids)[1], array_reverse($ids)[2], array_reverse($ids)[3], array_reverse($ids)[4]];
+
+        $collected = [];
+
+        foreach ([1, 2, 3] as $page) {
+            $response = $this->getJson("/api/v1/projects?per_page=2&page={$page}");
+
+            $response->assertStatus(200)
+                ->assertJsonPath('meta.total', 5)
+                ->assertJsonPath('meta.last_page', 3);
+
+            foreach ($response->json('data') as $row) {
+                $collected[] = $row['id'];
+            }
+        }
+
+        $this->assertSame($expected, $collected);
+        $this->assertCount(5, array_unique($collected), 'A project must not appear on two pages.');
+    }
+
+    public function test_invalid_per_page_is_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?per_page=51')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+
+        $this->getJson('/api/v1/projects?per_page=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_invalid_page_is_rejected(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?page=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+
+        $this->getJson('/api/v1/projects?page=not-a-number')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_empty_result_set_returns_empty_data_with_zeroed_metadata(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data', [])
+            ->assertJsonPath('meta.total', 0)
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 1);
+    }
+
+    public function test_discovery_response_keeps_the_established_envelope(): void
+    {
+        // Backward compatibility: `data` stays a flat array of projects and the
+        // success/message/request_id envelope is unchanged. Pagination only
+        // ADDED a `meta` key.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->createOpenProject(['title' => 'Envelope Check', 'organization_id' => $learner->organization_id]);
+
+        $response = $this->getJson('/api/v1/projects');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'data' => [['id', 'title', 'description', 'type', 'status', 'version']],
+                'meta' => ['current_page', 'last_page', 'per_page', 'total'],
+                'request_id',
+            ]);
+
+        $this->assertIsArray($response->json('data'));
+        $this->assertArrayNotHasKey('data', $response->json('data'));
+    }
+
+    public function test_full_project_capacity_does_not_change_discovery_under_current_rules(): void
+    {
+        // ProjectAvailabilityService currently gates discovery on open status
+        // and application_deadline only. There is no capacity/team-size gate
+        // yet, so a capacity=0 project remains discoverable until the business
+        // rule is implemented in production code.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $project = $this->createOpenProject([
+            'title' => 'Capacity Filled But Still Open',
+            'capacity' => 0,
+        ]);
+
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.id', $project->id);
+    }
+
+    public function test_duplicate_skill_ids_are_treated_as_one_required_skill(): void
+    {
+        // REGRESSION: the required-skills filter counts how many of the supplied
+        // ids the project matches, using count($skillIds). Duplicated ids
+        // inflated that count while the pivot can only match DISTINCT skills,
+        // so `skill_ids[]=1&skill_ids[]=1` matched no projects at all.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-duplicate']);
+        $project = $this->createOpenProject(['title' => 'PHP Only']);
+
+        ProjectRequiredSkill::create([
+            'project_id' => $project->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 3.0,
+        ]);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id)
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&skill_ids[]='.$php->id)
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $project->id);
+    }
+
+    public function test_minimum_level_without_skill_ids_is_rejected(): void
+    {
+        // minimum_level is the per-skill floor for the required-skills filter,
+        // so on its own it is meaningless. It used to be silently ignored, so a
+        // caller could believe a filter was applied and get unfiltered results.
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?minimum_level=3')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR')
+            ->assertJsonPath('details.errors.minimum_level.0', 'The minimum_level filter requires skill_ids.');
+    }
+
+    public function test_minimum_level_of_zero_without_skill_ids_is_also_rejected(): void
+    {
+        // 0 is falsy, so the guard must not use empty().
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $this->getJson('/api/v1/projects?minimum_level=0')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_minimum_level_with_skill_ids_still_filters_normally(): void
+    {
+        $learner = $this->createLearnerWithOrg();
+        Sanctum::actingAs($learner);
+
+        $php = Skill::create(['name' => 'PHP', 'slug' => 'php-minlevel']);
+
+        $strict = $this->createOpenProject(['title' => 'Strict']);
+        ProjectRequiredSkill::create([
+            'project_id' => $strict->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 4.0,
+        ]);
+
+        $loose = $this->createOpenProject(['title' => 'Loose']);
+        ProjectRequiredSkill::create([
+            'project_id' => $loose->id,
+            'skill_id' => $php->id,
+            'minimum_level' => 2.0,
+        ]);
+
+        $this->getJson('/api/v1/projects?skill_ids[]='.$php->id.'&minimum_level=3')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $strict->id);
     }
 
     public function test_student_profile_required(): void

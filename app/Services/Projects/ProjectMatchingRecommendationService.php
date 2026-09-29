@@ -7,7 +7,7 @@ use App\Models\Project;
 use App\Models\ProjectMatchingSnapshot;
 use App\Models\Recommendation;
 use App\Models\User;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -101,20 +101,24 @@ class ProjectMatchingRecommendationService
             // The unique index on dedup_key is the guard, and a conflict is
             // resolved by reusing the row that won.
             return DB::transaction(fn () => Recommendation::create($attributes));
-        } catch (QueryException $e) {
-            if (! $this->isIntegrityConstraintViolation($e)) {
-                // Anything that is not an integrity violation is a real
-                // failure — never swallow it.
-                throw $e;
-            }
-
-            // A concurrent request inserted the same logical result first.
-            // Reuse its row. When no row carries this key the violation came
-            // from something else (a foreign key, a check constraint) and must
-            // surface rather than being reported as a successful dedup.
+        } catch (UniqueConstraintViolationException $e) {
+            /*
+             * ONLY a duplicate-key violation is recoverable here.
+             *
+             * Laravel raises this specific subclass for duplicate keys and
+             * nothing else, classifying it per driver — MySQL/MariaDB error
+             * 1062, SQLite "UNIQUE constraint failed", PostgreSQL 23505. It is
+             * deliberately NOT the generic SQLSTATE 23000, which MySQL and
+             * SQLite also use for foreign-key, NOT NULL and CHECK violations.
+             * Those keep propagating as plain QueryException, so a real
+             * failure can never be reported as a successful dedup.
+             */
             $existing = $this->findByDedupKey($dedupKey);
 
             if ($existing === null) {
+                // A duplicate on some OTHER unique index, not on dedup_key —
+                // not something this method can resolve. Surface it rather
+                // than claiming a save that did not happen.
                 throw $e;
             }
 
@@ -346,16 +350,5 @@ class ProjectMatchingRecommendationService
     private function findByDedupKey(string $dedupKey): ?Recommendation
     {
         return Recommendation::query()->where('dedup_key', $dedupKey)->first();
-    }
-
-    /**
-     * 23000 is the SQLSTATE for an integrity constraint violation on MySQL and
-     * SQLite; 23505 is the PostgreSQL unique-violation code.
-     */
-    private function isIntegrityConstraintViolation(QueryException $e): bool
-    {
-        $sqlState = (string) ($e->errorInfo[0] ?? $e->getCode());
-
-        return $sqlState === '23000' || $sqlState === '23505';
     }
 }
