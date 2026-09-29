@@ -84,6 +84,16 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('recommendations', function (Blueprint $table) {
+            // Drop the foreign key BEFORE its supporting index. MySQL refuses
+            // to drop an index a foreign key still needs (error 1553), and
+            // recommendations_snapshot_unique is the only index MySQL has for
+            // project_matching_snapshot_id.
+            if (Schema::hasColumn('recommendations', 'project_matching_snapshot_id')) {
+                $table->dropForeign(['project_matching_snapshot_id']);
+            }
+        });
+
+        Schema::table('recommendations', function (Blueprint $table) {
             $table->dropUnique('recommendations_snapshot_unique');
         });
 
@@ -103,7 +113,7 @@ return new class extends Migration
             }
 
             if (Schema::hasColumn('recommendations', 'project_matching_snapshot_id')) {
-                $table->dropConstrainedForeignId('project_matching_snapshot_id');
+                $table->dropColumn('project_matching_snapshot_id');
             }
         });
     }
