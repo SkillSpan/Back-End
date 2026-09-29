@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ProjectMatchingController;
 use App\Http\Controllers\Api\ReadinessController;
+use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
@@ -72,6 +73,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/projects/{project}/match', [ProjectMatchingController::class, 'match'])
             ->name('projects.match')
             ->whereNumber('project');
+
+        // Task 11 — the learner's own stored project matching
+        // recommendations. Scoped to the authenticated learner.
+        Route::get('/recommendations', [RecommendationController::class, 'index'])
+            ->name('recommendations.index');
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
         Route::post('/skill-match', [SkillMatchController::class, 'store']);

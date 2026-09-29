@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\MatchProjectRequest;
 use App\Http\Resources\ProjectMatchingResource;
 use App\Models\Project;
+use App\Services\Projects\ProjectMatchingRecommendationService;
 use App\Services\Projects\ProjectMatchingService;
 use App\Services\Projects\ProjectMatchingSnapshotService;
 use Illuminate\Http\JsonResponse;
@@ -16,11 +17,11 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Task 10 — POST /api/v1/projects/{project}/match
+ * Task 10 / Task 11 — POST /api/v1/projects/{project}/match
  *
  * Thin controller, following the project's existing convention
  * (validation in a FormRequest, orchestration in services, presentation
- * in a resource). Two services are composed here and neither is
+ * in a resource). Three services are composed here and none is
  * duplicated:
  *
  *   1. ProjectMatchingSnapshotService (Task 8) validates availability,
@@ -29,11 +30,13 @@ use Throwable;
  *   2. ProjectMatchingService (Task 10) builds the FastAPI payload,
  *      calls POST /api/v1/project-matching through IntelligenceClient,
  *      validates the response schema and correlation, and normalizes it.
+ *   3. ProjectMatchingRecommendationService (Task 11) persists that
+ *      already-validated result against the snapshot's learner — in the
+ *      same request, with no second FastAPI call.
  *
- * No recommendations are persisted — the result is returned to the
- * caller only. Every failure mode is a typed ReadinessException
- * (IntelligenceException) carrying a stable `codeName` and HTTP status,
- * which maps straight onto the shared error envelope below.
+ * Every failure mode is a typed ReadinessException (IntelligenceException)
+ * carrying a stable `codeName` and HTTP status, which maps straight onto
+ * the shared error envelope below.
  *
  * Request-id note: the envelope's top-level `request_id` is the caller's
  * X-Request-ID (or a generated one), matching every other controller in
@@ -46,6 +49,7 @@ class ProjectMatchingController extends Controller
     public function __construct(
         private readonly ProjectMatchingSnapshotService $snapshotService,
         private readonly ProjectMatchingService $matchingService,
+        private readonly ProjectMatchingRecommendationService $recommendationService,
     ) {}
 
     public function match(MatchProjectRequest $request): JsonResponse
@@ -70,6 +74,12 @@ class ProjectMatchingController extends Controller
             $snapshot = $this->snapshotService->createForProject($project, $user);
 
             $result = $this->matchingService->match($snapshot);
+
+            // Task 11 — persist the already-validated result against the
+            // snapshot's learner, in this same request. No second FastAPI
+            // call, no duplicated calculation, and the response shape below
+            // is deliberately unchanged from Task 10.
+            $this->recommendationService->persist($snapshot, $result);
 
             // Same success envelope as the sibling project endpoints
             // (ProjectController): success / message / data / request_id.
