@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Http\Controllers\Api;
@@ -13,14 +14,9 @@ use Illuminate\Support\Str;
 /**
  * Task 11 — GET /api/v1/recommendations
  *
- * Returns the authenticated learner's own stored project matching
- * recommendations, newest first. Scoping is by user_id, so one learner can
- * never read another's rows (recommendations is keyed on user_id; there is no
- * student_profile_id column — see AssistantContextBuilder for the same note).
- *
- * Pagination and the success/message/data/meta envelope follow the existing
- * notification-list convention; the associated project is presented with the
- * existing ProjectResource.
+ * Returns the authenticated learner's stored project recommendations.
+ * Inaccessible projects are retained as historical records, but sensitive
+ * recommendation details are redacted.
  */
 class RecommendationController extends Controller
 {
@@ -32,9 +28,18 @@ class RecommendationController extends Controller
         private readonly ProjectAccessService $accessService = new ProjectAccessService,
     ) {}
 
+    /**
+     * GET /api/v1/recommendations
+     *
+     * Returns the learner's recommendations while enforcing project access.
+     * Historical records remain visible, but inaccessible project details
+     * and sensitive recommendation metadata are withheld.
+     */
     public function index(Request $request): JsonResponse
     {
-        $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
+        $requestId = (string) (
+            $request->header('X-Request-ID') ?: Str::uuid()
+        );
 
         $recommendations = Recommendation::query()
             ->where('user_id', $request->user()->id)
@@ -43,23 +48,19 @@ class RecommendationController extends Controller
             ->orderByDesc('id')
             ->paginate($this->perPage($request));
 
-        // Only projects the learner may STILL discover are attached. The
-        // recommendation row itself is always returned — historical records are
-        // never deleted — but project details are withheld once the learner has
-        // lost access. A project that became restricted to another organization
-        // (or closed, or past its deadline) must not keep leaking its content
-        // through the recommendation list.
-        //
-        // `project` is already nullable in RecommendationResource, so the
-        // response shape is unchanged; it just goes null more often.
         $candidateIds = collect($recommendations->items())
             ->pluck('candidate_id')
             ->unique()
             ->all();
 
+        // Only attach projects the learner is still allowed to discover.
         $projects = $this->accessService->accessibleProjectsQuery(
             $this->accessService->activeOrganizationIds($request->user()),
-            ['organization:id,title', 'requiredSkills.skill:id,name', 'eligibilityConstraints'],
+            [
+                'organization:id,title',
+                'requiredSkills.skill:id,name',
+                'eligibilityConstraints',
+            ],
         )
             ->whereIn('id', $candidateIds)
             ->get()
@@ -67,10 +68,28 @@ class RecommendationController extends Controller
 
         $data = collect($recommendations->items())
             ->map(function (Recommendation $recommendation) use ($projects) {
-                $resource = new RecommendationResource($recommendation);
-                $resource->project = $projects->get((int) $recommendation->candidate_id);
+                $project = $projects->get(
+                    (int) $recommendation->candidate_id
+                );
 
-                return $resource->toArray(request());
+                // Preserve the historical record without exposing details
+                // when the learner no longer has access to the project.
+                if ($project === null) {
+                    return [
+                        'id' => $recommendation->id,
+                        'project_id' => (int) $recommendation->candidate_id,
+                        'project' => null,
+                        'access_revoked' => true,
+                    ];
+                }
+
+                $resource = new RecommendationResource($recommendation);
+                $resource->project = $project;
+
+                $result = $resource->toArray(request());
+                $result['access_revoked'] = false;
+
+                return $result;
             })
             ->all();
 
@@ -91,35 +110,21 @@ class RecommendationController extends Controller
     /**
      * Task 12 — GET /api/v1/projects/{project}/recommendation
      *
-     * Return the latest persisted explanation for this learner + project.
-     * This endpoint NEVER recalculates matching and never calls FastAPI; it
-     * only reads the Task 11 recommendation rows.
-     *
-     * Authorization is enforced with the SAME rules as project discovery
-     * (ProjectAccessService), and it is checked BEFORE anything is read back:
-     * a learner who has lost access to the project — membership removed, the
-     * project made restricted to another organization, closed, or past its
-     * deadline — must not receive its score, reasons, limiting factors or
-     * version metadata. Stored rows are never deleted; only their exposure
-     * stops.
-     *
-     * An inaccessible project and a nonexistent one return the identical
-     * response, so the endpoint cannot be used to probe for the existence of
-     * restricted projects. A project the learner CAN see but that has no stored
-     * recommendation is reported distinctly, which reveals nothing they could
-     * not already read from the project catalog.
+     * Returns the latest stored recommendation for an accessible project.
+     * Access is checked before retrieving the recommendation.
      */
-    public function showForProject(Request $request, int $project): JsonResponse
-    {
-        $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
+    public function showForProject(
+        Request $request,
+        int $project
+    ): JsonResponse {
+        $requestId = (string) (
+            $request->header('X-Request-ID') ?: Str::uuid()
+        );
 
         $learner = $request->user();
 
-        // One query covers existence AND authorization, and answers `false` for
-        // both "does not exist" and "not accessible to this learner".
-        $isAccessible = $this->accessService->canAccessId($project, $learner);
-
-        if (! $isAccessible) {
+        // Nonexistent and inaccessible projects return the same response.
+        if (! $this->accessService->canAccessId($project, $learner)) {
             return $this->errorResponse(
                 'PROJECT_NOT_FOUND',
                 'The requested project does not exist.',
@@ -153,7 +158,9 @@ class RecommendationController extends Controller
             'message' => 'Project recommendation retrieved successfully.',
             'data' => [
                 'project_id' => (int) $recommendation->candidate_id,
-                'score' => $recommendation->score !== null ? (float) $recommendation->score : null,
+                'score' => $recommendation->score !== null
+                    ? (float) $recommendation->score
+                    : null,
                 'reasons' => $recommendation->reasons,
                 'limiting_factors' => $recommendation->limiting_factors,
                 'algorithm_version' => $recommendation->algorithm_version,
@@ -180,16 +187,22 @@ class RecommendationController extends Controller
             $payload['details'] = $details;
         }
 
-        return response()->json($payload, $status, ['X-Request-ID' => $requestId]);
+        return response()->json(
+            $payload,
+            $status,
+            ['X-Request-ID' => $requestId]
+        );
     }
 
     /**
-     * Clamp the requested page size so a caller cannot ask for an unbounded
-     * result set.
+     * Clamp the requested page size to prevent unbounded result sets.
      */
     private function perPage(Request $request): int
     {
-        $requested = (int) $request->query('per_page', self::DEFAULT_PER_PAGE);
+        $requested = (int) $request->query(
+            'per_page',
+            self::DEFAULT_PER_PAGE
+        );
 
         if ($requested < 1) {
             return self::DEFAULT_PER_PAGE;

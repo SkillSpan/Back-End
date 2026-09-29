@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Services\Projects;
@@ -47,22 +48,42 @@ class ProjectEligibilityService
         $reasons = [];
         $skillFailures = [];
 
-        $availabilityCheck = $this->checkCriticalSkills($project, $learner, $skillFailures);
+        $availabilityCheck = $this->checkCriticalSkills(
+            $project,
+            $learner,
+            $skillFailures
+        );
+
         if (! $availabilityCheck) {
             $reasons[] = 'One or more critical required skills are missing or below the required level.';
         }
 
-        $constraintCheck = $this->checkEligibilityConstraints($project, $learner);
+        $constraintCheck = $this->checkEligibilityConstraints(
+            $project,
+            $learner
+        );
+
         if (! $constraintCheck['passed']) {
-            $reasons = array_merge($reasons, $constraintCheck['reasons']);
+            $reasons = array_merge(
+                $reasons,
+                $constraintCheck['reasons']
+            );
         }
 
-        $duplicateCheck = $this->checkDuplicateActiveApplication($project, $learner);
+        $duplicateCheck = $this->checkDuplicateActiveApplication(
+            $project,
+            $learner
+        );
+
         if (! $duplicateCheck) {
             $reasons[] = 'The learner already has an active application for this project.';
         }
 
-        $conflictCheck = $this->checkActiveAssignmentConflict($project, $learner);
+        $conflictCheck = $this->checkActiveAssignmentConflict(
+            $project,
+            $learner
+        );
+
         if (! $conflictCheck) {
             $reasons[] = 'The learner already has an active assignment on this project.';
         }
@@ -84,10 +105,13 @@ class ProjectEligibilityService
      * evaluation exists, so eligibility can still be checked
      * after an evaluation has been calculated.
      *
-     * @param  array  $skillFailures  Filled with details of failed skills.
+     * @param array $skillFailures Filled with details of failed skills.
      */
-    private function checkCriticalSkills(Project $project, User $learner, array &$skillFailures): bool
-    {
+    private function checkCriticalSkills(
+        Project $project,
+        User $learner,
+        array &$skillFailures
+    ): bool {
         $criticalSkills = $project->relationLoaded('requiredSkills')
             ? $project->requiredSkills->where('is_critical_entry', true)
             : ProjectRequiredSkill::where('project_id', $project->id)
@@ -101,7 +125,11 @@ class ProjectEligibilityService
         $studentProfile = $learner->studentProfile;
 
         foreach ($criticalSkills as $requiredSkill) {
-            $learnerLevel = $this->getLearnerSkillLevel($learner, $requiredSkill->skill_id, $studentProfile);
+            $learnerLevel = $this->getLearnerSkillLevel(
+                $learner,
+                $requiredSkill->skill_id,
+                $studentProfile
+            );
 
             if ($learnerLevel === null) {
                 $skillFailures[] = [
@@ -134,14 +162,14 @@ class ProjectEligibilityService
      * student profile. Falls back to the LearnerSkill read
      * projection level when no evaluation exists.
      */
-    private function getLearnerSkillLevel(User $learner, int $skillId, ?StudentProfile $studentProfile): ?float
-    {
-        // Resolve the profile id defensively. The previous implementation
-        // dereferenced `$studentProfile->id` on the fall-through path, so a
-        // learner WITHOUT a student profile raised
-        // "Attempt to read property 'id' on null" instead of simply having no
-        // evaluation for the skill.
-        $studentProfileId = $studentProfile?->id ?? $learner->studentProfile?->id;
+    private function getLearnerSkillLevel(
+        User $learner,
+        int $skillId,
+        ?StudentProfile $studentProfile
+    ): ?float {
+        // Resolve the profile ID safely, even if the learner has no profile.
+        $studentProfileId = $studentProfile?->id
+            ?? $learner->studentProfile?->id;
 
         if ($studentProfileId !== null) {
             $evaluation = SkillEvaluation::where('skill_id', $skillId)
@@ -155,14 +183,14 @@ class ProjectEligibilityService
             }
         }
 
-        // Source priority preserved: skill_evaluations first, then the
-        // learner_skills read projection. No level is ever fabricated — an
-        // absent source yields null, which callers treat as a failed check.
+        // Fall back to the learner_skills read projection.
         $learnerSkill = LearnerSkill::where('learner_id', $learner->id)
             ->where('skill_id', $skillId)
             ->first();
 
-        return $learnerSkill !== null ? (float) $learnerSkill->level : null;
+        return $learnerSkill !== null
+            ? (float) $learnerSkill->level
+            : null;
     }
 
     /**
@@ -174,8 +202,10 @@ class ProjectEligibilityService
      * constraint types (location, language) are skipped because
      * the student profile does not store comparable fields.
      */
-    private function checkEligibilityConstraints(Project $project, User $learner): array
-    {
+    private function checkEligibilityConstraints(
+        Project $project,
+        User $learner
+    ): array {
         $reasons = [];
         $studentProfile = $learner->studentProfile;
 
@@ -195,7 +225,10 @@ class ProjectEligibilityService
                 continue;
             }
 
-            $learnerValue = $this->getLearnerValueForConstraint($type, $studentProfile);
+            $learnerValue = $this->getLearnerValueForConstraint(
+                $type,
+                $studentProfile
+            );
 
             if ($learnerValue === null) {
                 $reasons[] = "Learner profile does not specify a {$type} preference matching the project requirement.";
@@ -208,15 +241,20 @@ class ProjectEligibilityService
             }
         }
 
-        return ['passed' => empty($reasons), 'reasons' => $reasons];
+        return [
+            'passed' => empty($reasons),
+            'reasons' => $reasons,
+        ];
     }
 
     /**
      * Determine whether a constraint type can be enforced given
      * the current student profile schema.
      */
-    private function canEnforceConstraint(string $constraintType, ?StudentProfile $studentProfile): bool
-    {
+    private function canEnforceConstraint(
+        string $constraintType,
+        ?StudentProfile $studentProfile
+    ): bool {
         if ($studentProfile === null) {
             return false;
         }
@@ -233,8 +271,10 @@ class ProjectEligibilityService
     /**
      * Get the learner's value for a given constraint type.
      */
-    private function getLearnerValueForConstraint(string $constraintType, ?StudentProfile $studentProfile): ?string
-    {
+    private function getLearnerValueForConstraint(
+        string $constraintType,
+        ?StudentProfile $studentProfile
+    ): ?string {
         if ($studentProfile === null) {
             return null;
         }
@@ -254,11 +294,18 @@ class ProjectEligibilityService
      * waitlisted. Submitted applications that have not been withdrawn
      * count as an active application.
      */
-    private function checkDuplicateActiveApplication(Project $project, User $learner): bool
-    {
+    private function checkDuplicateActiveApplication(
+        Project $project,
+        User $learner
+    ): bool {
         return ! $learner->applications()
             ->where('project_id', $project->id)
-            ->whereIn('status', ['submitted', 'shortlisted', 'accepted', 'waitlisted'])
+            ->whereIn('status', [
+                'submitted',
+                'shortlisted',
+                'accepted',
+                'waitlisted',
+            ])
             ->exists();
     }
 
@@ -266,8 +313,10 @@ class ProjectEligibilityService
      * Check whether the learner already has an active assignment on
      * the same project via project team membership.
      */
-    private function checkActiveAssignmentConflict(Project $project, User $learner): bool
-    {
+    private function checkActiveAssignmentConflict(
+        Project $project,
+        User $learner
+    ): bool {
         return ! ProjectTeamMember::whereHas('team', function ($q) use ($project) {
             $q->where('project_id', $project->id);
         })
