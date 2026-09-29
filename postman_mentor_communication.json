@@ -30,17 +30,85 @@
     }
   ],
   "variable": [
-    { "key": "base_url", "value": "http://back-end-feature-authentication.test", "type": "string" },
-    { "key": "token", "value": "", "type": "string" },
-    { "key": "email", "value": "mentor@test.com", "type": "string" },
-    { "key": "password", "value": "password123", "type": "string" },
-    { "key": "student_email", "value": "student@test.com", "type": "string" },
-    { "key": "student_password", "value": "password123", "type": "string" },
-    { "key": "student_id", "value": "2", "type": "string" },
-    { "key": "project_id", "value": "1", "type": "string" },
-    { "key": "connection_id", "value": "1", "type": "string" },
-    { "key": "conversation_id", "value": "1", "type": "string" },
-    { "key": "notification_id", "value": "1", "type": "string" }
+    {
+      "key": "base_url",
+      "value": "http://back-end-feature-authentication.test",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "mentor@test.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "student_email",
+      "value": "student@test.com",
+      "type": "string"
+    },
+    {
+      "key": "student_password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "student_id",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "connection_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "conversation_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "mentor_setup_secret",
+      "value": "",
+      "type": "string",
+      "description": "نفس قيمة MENTOR_SETUP_SECRET في .env — فاضية = الـ endpoint مقفول"
+    },
+    {
+      "key": "professional_profile_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتخزن أوتوماتيك بعد create-mentor"
+    },
+    {
+      "key": "new_mentor_email",
+      "value": "",
+      "type": "string",
+      "description": "بيتولّد أوتوماتيك قبل طلب \"تسجيل مرشد جديد\""
+    },
+    {
+      "key": "new_mentor_password",
+      "value": "",
+      "type": "string",
+      "description": "الباسورد المؤقت للمرشد الجديد — بيرجع مرة واحدة بس"
+    }
   ],
   "item": [
     {
@@ -70,8 +138,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -109,7 +183,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/mentor/students",
             "description": "بيرجع الطلاب المسموح للمرشد يشوفهم حسب قواعد الـ visibility. أول student id بيتخزن أوتوماتيك."
@@ -137,7 +214,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/mentor/students/{{student_id}}",
             "description": "ملخص بيانات الطالب. لو الطالب visibility=private ومفيش connection → 403 `STUDENT_NOT_VISIBLE`."
@@ -164,8 +244,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -196,8 +282,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -223,7 +315,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/mentor/connections",
             "description": "كل connections المرشد (paginated)."
@@ -245,8 +340,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -283,8 +384,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -310,7 +417,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations",
             "description": "محادثات المستخدم الحالي (paginated)."
@@ -332,7 +442,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}",
             "description": "لو المستخدم مش مشارك → 403 `UNAUTHORIZED_CONVERSATION`."
@@ -358,8 +471,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -385,7 +504,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/messages",
             "description": "الرسائل (paginated, الأحدث الأول)."
@@ -407,7 +529,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/read",
             "description": "بيعلّم رسائل الطرف التاني كمقروءة (مش رسائلك انت)."
@@ -429,7 +554,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/status",
             "description": "بيرجّع: status، unread_count، last_message_at، آخر رسالة، و retention_expires_at."
@@ -461,8 +589,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -488,7 +622,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/chatbot/messages",
             "description": "بيرجّع رسائل الشات بوت بس (مش الرسائل البشرية)."
@@ -523,8 +660,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -557,7 +700,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/notifications",
             "description": "إشعاراتك انت بس. ممكن تضيف `?category=message` أو `?unread_only=1`."
@@ -579,7 +725,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/notifications/unread-count",
             "description": "خفيف للـ badge. ممكن تضيف `?category=message`."
@@ -601,7 +750,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/notifications/{{notification_id}}/read",
             "description": "لو الإشعار مش بتاعك → 404 `NOTIFICATION_NOT_FOUND`."
@@ -623,8 +775,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -650,7 +808,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "url": "{{base_url}}/api/v1/notifications/preferences",
             "description": "الصفوف الصريحة بس. مفيش صف = مفعّل (opt-out)."
@@ -672,8 +833,14 @@
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Accept", "value": "application/json" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -681,6 +848,201 @@
             },
             "url": "{{base_url}}/api/v1/notifications/preferences",
             "description": "بعد ما تعطّل `message`، جرّب تبعت رسالة تانية من فولدر Conversations — مش هيتولّد notification جديد. رجّع `\"enabled\": true` عشان تلغي التعطيل."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 · Setup (create-mentor)",
+      "description": "تسجيل المرشدين + تغيير باسوردهم عبر `POST /api/v1/setup/create-mentor`.\n\n**ما فيش OTP ولا verify** — السر نفسه هو التصريح.\n\n**شغّل الطلبات بالترتيب** (1 → 4): الطلب 3 بيعتمد على الإيميل اللي الطلب 1 عمله.\n\nقبل ما تبدأ: حط `MENTOR_SETUP_SECRET` في `.env`، وبعدين `php artisan config:clear`، وحط نفس القيمة في متغير `mentor_setup_secret`.\n\nالفولدر ده مستقل عن باقي الفولدرات — مش لازم تشغّل اللي قبله.",
+      "item": [
+        {
+          "name": "1) تسجيل مرشد جديد (إيميل جديد)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('new_mentor_email', 'mentor' + Date.now() + '@test.com');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 403) {",
+                  "    console.warn('⚠️ السر فاضي أو غلط — حط قيمة MENTOR_SETUP_SECRET في متغير mentor_setup_secret');",
+                  "}",
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('registered = true', () => pm.expect(j.data.registered).to.eql(true));",
+                  "pm.test('status = active', () => pm.expect(j.data.status).to.eql('active'));",
+                  "pm.test('type = mentor', () => pm.expect(j.data.type).to.eql('mentor'));",
+                  "pm.test('verification_status = verified', () => pm.expect(j.data.verification_status).to.eql('verified'));",
+                  "pm.test('generated_password طوله 16', () => {",
+                  "    pm.expect(j.data.generated_password).to.be.a('string');",
+                  "    pm.expect(j.data.generated_password.length).to.eql(16);",
+                  "});",
+                  "pm.collectionVariables.set('new_mentor_password', j.data.generated_password);",
+                  "pm.collectionVariables.set('new_mentor_email', j.data.email);",
+                  "pm.collectionVariables.set('professional_profile_id', j.data.professional_profile_id);",
+                  "console.log('✅ مرشد جديد: ' + j.data.email + ' | باسورد مؤقت: ' + j.data.generated_password);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"{{mentor_setup_secret}}\",\n  \"email\": \"{{new_mentor_email}}\",\n  \"name\": \"Postman Mentor\",\n  \"expertise\": \"Backend Development\",\n  \"affiliation\": \"SkillSpan\",\n  \"availability\": \"weekdays\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/setup/create-mentor",
+            "description": "بيسجّل حساب مرشد **جديد من الصفر** — بدون OTP وبدون verify، وstatus بيطلع active على طول.\n\nالإيميل بيتولّد أوتوماتيك بإضافة `Date.now()` في pre-request script، فكل مرة بتشغّله بيعمل حساب جديد.\n\n`generated_password` بترجع **مرة واحدة بس** — منسوخة أوتوماتيك في متغير `new_mentor_password`."
+          }
+        },
+        {
+          "name": "2) تسجيل/ترقية إيميل موجود ({{email}})",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 403) {",
+                  "    console.warn('⚠️ السر فاضي أو غلط — حط قيمة MENTOR_SETUP_SECRET في متغير mentor_setup_secret');",
+                  "}",
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('type = mentor', () => pm.expect(j.data.type).to.eql('mentor'));",
+                  "pm.test('verification_status = verified', () => pm.expect(j.data.verification_status).to.eql('verified'));",
+                  "console.log(j.data.registered ? 'ℹ️ الحساب ما كانش موجود — اتعمل جديد' : 'ℹ️ الحساب كان موجود — اترقّى (الباسورد ما اتغيّرش)');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"{{mentor_setup_secret}}\",\n  \"email\": \"{{email}}\",\n  \"expertise\": \"Backend Development\",\n  \"affiliation\": \"SkillSpan\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/setup/create-mentor",
+            "description": "نفس الـ endpoint على إيميل موجود أصلاً. لو الحساب موجود وحالته active → بيترقّى (registered=false)، ولو مش موجود → بيتعمل جديد (registered=true).\n\nلأنك ما بعتّش `password`، الباسورد القديم **ما بيتغيّرش**."
+          }
+        },
+        {
+          "name": "3) تغيير باسورد مرشد (لو نسي) — بدون OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 403) {",
+                  "    console.warn('⚠️ السر فاضي أو غلط — حط قيمة MENTOR_SETUP_SECRET في متغير mentor_setup_secret');",
+                  "}",
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('verification_status = verified', () => pm.expect(j.data.verification_status).to.eql('verified'));",
+                  "if (j.data.registered) {",
+                  "    console.warn('ℹ️ الإيميل ما كانش موجود فاتعمل جديد — شغّل الطلب رقم 1 الأول عشان تشوف الـ reset بجد');",
+                  "} else {",
+                  "    pm.test('password_reset = true', () => pm.expect(j.data.password_reset).to.eql(true));",
+                  "    pm.collectionVariables.set('new_mentor_password', 'postman-reset-password-9');",
+                  "    console.log('✅ الباسورد اتغيّر لـ: postman-reset-password-9');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"{{mentor_setup_secret}}\",\n  \"email\": \"{{new_mentor_email}}\",\n  \"password\": \"postman-reset-password-9\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/setup/create-mentor",
+            "description": "**ده مسار الـ reset بتاعك** لو المرشد نسي الباسورد: نفس الرابط، بس بتبعت `password` جديد.\n\nمش محتاج OTP ولا وصول على إيميله — إنت صاحب السر وإنت المسؤول.\n\nبيشتغل على `{{new_mentor_email}}` (الحساب اللي الطلب 1 عمله) عشان مايلمسش حسابك الحقيقي."
+          }
+        },
+        {
+          "name": "4) سر غلط (لازم 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('success = false', () => pm.expect(pm.response.json().success).to.eql(false));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"definitely-wrong-secret\",\n  \"email\": \"{{email}}\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/setup/create-mentor",
+            "description": "مقارنة السر timing-safe — السر الغلط بيرجّع 403 وما بيسجّل ولا بيغيّر أي حاجة."
           }
         }
       ]

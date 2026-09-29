@@ -99,16 +99,65 @@ highly_ready 90-100.
 - **Never fabricate** versions/configs/scores. Missing active config = explicit 422.
 - `phpunit.xml` pins SQLite `:memory:`. Keep it that way.
 - **Never send two edits to the same file in one message** — second silently reverts first.
+- **`ProfessionalProfile::$fillable` deliberately omits `verification_status`.**
+  `EnsureUserIsMentor` gates mentor endpoints on it, so mass-assigning it would let
+  any future `create($request->all())` self-promote. Write it explicitly
+  (`$p->verification_status = 'verified'`), never via `updateOrCreate`/`fill`.
+  Tests bypass the guard with `forceCreate` — that is intentional.
+- **The checked-in `.env` points at the LIVE Clever Cloud MySQL with
+  `APP_ENV=production`.** Before any `migrate`/`seed`/`serve`/`tinker`, export
+  `DB_CONNECTION=sqlite DB_DATABASE=<local file>` — exported vars win over `.env`
+  (Dotenv `safeLoad` is immutable).
+- **`POST /api/v1/setup/create-mentor` REGISTERS the mentor** — it is not a
+  promote-only endpoint. Secret-gated (`MENTOR_SETUP_SECRET`), no OTP/verify
+  on purpose: the user is the sole person responsible for onboarding mentors.
+  Creates the user `active` + `email_verified_at=now()` when the email is
+  unknown; activates a `pending` one; 422 on `suspended`/`deleted`. Returns a
+  generated password once as `data.generated_password` (never echoes a
+  caller-supplied one). New users get **no role** — mentor identity is the
+  ProfessionalProfile.
+- **The same endpoint is the admin's password-reset path.** On an EXISTING user
+  a supplied `password` is applied (`password_reset: true`); omitting it leaves
+  the old password untouched (never silently mint a new one). This exists
+  because the OTP reset flow mails the code to the MENTOR's inbox, which the
+  admin may not control.
+- **Always look users up with `User::withTrashed()` before any insert.** A
+  soft-deleted row still owns the unique index on `users.email`, so a
+  model-scoped lookup returns null and the following insert dies with
+  `UNIQUE constraint failed: users.email` (a 500) instead of a clean 422.
 - **Laravel 12 `getJson($uri, $headers, $options)`** — headers are 2nd param, NOT 3rd.
   `postJson`/`patchJson` take `($uri, $data, $headers)` — different signature.
 - Verify changes with: `php -l <files> ; php artisan test ; php vendor/bin/pint --test <files>`
-- Current test baseline: **419 passed (1444 assertions)**.
+- Current test baseline: **434 passed (1565 assertions)**.
 
-## Git gotcha
+## Git gotcha — READ BEFORE ANY GIT WRITE
 
-`git commit` on this checkout can delete the nested ref directory. Recover:
+This checkout deletes the **nested** ref `refs/heads/feature/authentication`
+(the `feature/` directory is removed) on git *write* operations. `core.logAllRefUpdates`
+is `false`, so there is **no reflog** to recover from — you must know the SHA.
+
+**What triggers it:**
+- `git commit` — the commit SUCCEEDS, then the ref is deleted. Capture the new SHA
+  from the commit output (e.g. `[feature/authentication e395541]`) and restore.
+- `git reset` — worse: it deletes the ref FIRST, leaving the repo reporting
+  "does not have any commits yet" and everything staged as new. **Never run
+  `git reset` on this checkout.** The objects survive; only the ref is lost.
+
+**Safe alternatives:**
+- To unstage / reset the index use `git read-tree HEAD` (does not touch refs).
+- `git update-ref` reports success but does NOT reliably persist here — use
+  `mkdir -p` + `printf` instead.
+
+**Recovery (objects always survive):**
 ```bash
 mkdir -p .git/refs/heads/feature
-printf '<sha>\n' > .git/refs/heads/feature/authentication
+printf '<full-40-char-sha>\n' > .git/refs/heads/feature/authentication
+git log --oneline -3   # verify
 ```
+Find the SHA after a commit via `git rev-parse <short-sha>`; if the ref is already
+gone, `git fsck --no-reflogs --unreachable` or scan `git cat-file --batch-all-objects`.
+
+**Verify after EVERY git write:**
+`ls .git/refs/heads/feature/authentication` — if missing, restore immediately.
+
 Use system git (`/c/Program Files/Git/cmd/git.exe`) for pushes.

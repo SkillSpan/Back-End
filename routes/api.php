@@ -181,6 +181,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/setup/create-admin', [SetupController::class, 'createAdmin'])
         ->middleware('throttle:5,1');
 
+    Route::post('/setup/create-mentor', [SetupController::class, 'createMentor'])
+        ->middleware('throttle:10,1');
+
     // Server-to-server: called by the Data Science FastAPI service, not by
     // logged-in users. Auth is a shared secret checked inside the
     // controller (X-Internal-Secret), not Sanctum.
