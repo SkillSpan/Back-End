@@ -51,6 +51,22 @@ use Illuminate\Support\Facades\Schema;
  * construction. Any future duplicate guard belongs on the frozen
  * `item_id` string, not on a column that may be nulled out.
  *
+ * ## Index ordering (why a replacement index is added before the drop)
+ *
+ * `bqs_assessment_item_unique` is `(baseline_assessment_id,
+ * baseline_assessment_item_id)`, so its LEFTMOST column is
+ * `baseline_assessment_id` — which carries the foreign key
+ * `baseline_question_snapshots_baseline_assessment_id_foreign`. It is the
+ * only index that can serve that key (`baseline_assessment_item_id`,
+ * `skill_id` and `career_role_id` each have their own). MySQL therefore
+ * refuses the drop:
+ *
+ *   SQLSTATE[HY000]: General error: 1553 Cannot drop index
+ *   'bqs_assessment_item_unique': needed in a foreign key constraint
+ *
+ * A replacement index on `baseline_assessment_id` is created FIRST, so the
+ * foreign key is supported at every point in the migration.
+ *
  * Note: SQLite cannot ALTER a foreign key in place; the driver rebuilds
  * the table via its own table-copy. RefreshDatabase runs the whole
  * migration chain on SQLite, so this path is exercised by the test
@@ -60,6 +76,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Support the baseline_assessment_id foreign key BEFORE removing the
+        // unique index that currently serves it (MySQL error 1553 otherwise).
+        Schema::table('baseline_question_snapshots', function (Blueprint $table) {
+            $table->index('baseline_assessment_id', 'bqs_assessment_id_fk_idx');
+        });
+
         Schema::table('baseline_question_snapshots', function (Blueprint $table) {
             // Dropping an index on a nullable column must happen before
             // the column is rebuilt by the foreign-key change on some
@@ -120,6 +142,13 @@ return new class extends Migration
                 ['baseline_assessment_id', 'baseline_assessment_item_id'],
                 'bqs_assessment_item_unique'
             );
+        });
+
+        // The restored unique index serves the baseline_assessment_id foreign
+        // key again, so the replacement index is no longer needed. Dropped
+        // last, mirroring the ordering in up().
+        Schema::table('baseline_question_snapshots', function (Blueprint $table) {
+            $table->dropIndex('bqs_assessment_id_fk_idx');
         });
     }
 };
