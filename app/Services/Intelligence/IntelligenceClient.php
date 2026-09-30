@@ -173,6 +173,75 @@ class IntelligenceClient
         ];
     }
 
+    /**
+     * Map the canonical internal payload onto the FastAPI Roadmap v1
+     * request (POST /api/v1/roadmap).
+     *
+     * The internal payload is a SUPERSET: it also carries Laravel-only
+     * concerns (`skill_gap_result` when the caller enriched it, the
+     * per-skill `evidence` summary, persistence metadata, …). None of that
+     * belongs on the wire. This method is an explicit ALLOW-LIST — it
+     * forwards only the fields the Roadmap contract declares:
+     *
+     *   learner  : student_profile_id, user_id, availability,
+     *              weekly_availability_hours
+     *   role     : id, title, version
+     *   skills[] : skill_id, skill_name, current_level, required_level,
+     *              importance_weight, is_critical, confidence,
+     *              prerequisite_skill_ids
+     *   algorithm_version, configuration_version
+     *
+     * It deliberately does NOT forward `skill_gap_result`, the per-skill
+     * `evidence` summary, or any Laravel-owned field (`roadmap_version`,
+     * `status`, decision-snapshot metadata). It never fabricates a value
+     * and never renames a field: the mapping is deterministic.
+     *
+     * `confidence` is forwarded unchanged (0..100) — it is not rescaled.
+     *
+     * @param  array<string, mixed>  $payload  internal intelligence payload
+     * @return array<string, mixed> the Roadmap v1 request body
+     */
+    public function toRoadmapRequest(array $payload): array
+    {
+        $learner = $payload['learner'] ?? [];
+        $role = $payload['role'] ?? [];
+
+        $skills = [];
+
+        foreach ($payload['skills'] ?? [] as $skill) {
+            $skills[] = [
+                'skill_id' => (int) $skill['skill_id'],
+                'skill_name' => (string) $skill['skill_name'],
+                'current_level' => (float) $skill['current_level'],
+                'required_level' => (float) $skill['required_level'],
+                'importance_weight' => (float) $skill['importance_weight'],
+                'is_critical' => (bool) $skill['is_critical'],
+                'confidence' => (float) $skill['confidence'],
+                'prerequisite_skill_ids' => array_values(array_map(
+                    static fn ($id): int => (int) $id,
+                    $skill['prerequisite_skill_ids'] ?? [],
+                )),
+            ];
+        }
+
+        return [
+            'learner' => [
+                'student_profile_id' => (int) $learner['student_profile_id'],
+                'user_id' => (int) $learner['user_id'],
+                'availability' => $learner['availability'] ?? null,
+                'weekly_availability_hours' => $learner['weekly_availability_hours'] ?? null,
+            ],
+            'role' => [
+                'id' => (int) $role['id'],
+                'title' => (string) $role['title'],
+                'version' => (int) $role['version'],
+            ],
+            'skills' => $skills,
+            'algorithm_version' => (string) $payload['algorithm_version'],
+            'configuration_version' => (string) $payload['configuration_version'],
+        ];
+    }
+
     public function generateRoadmap(array $payload, string $requestId): array
     {
         if (! config('services.data_science.roadmap_enabled', false)) {
@@ -186,13 +255,15 @@ class IntelligenceClient
         /*
          * UNVERIFIED PATH. The deployed service exposes no roadmap endpoint
          * in any form, so unlike skill-gap this cannot be confirmed against
-         * a live contract. The body is Laravel's nested internal payload,
-         * also unconfirmed. Enabling roadmap generation without first
-         * confirming both against the service will fail.
+         * a live contract. The internal payload is mapped to the Roadmap v1
+         * request by toRoadmapRequest() — the raw internal payload (with its
+         * skill_gap_result / evidence / persistence metadata) is NEVER sent.
+         * Enabling roadmap generation without first confirming the contract
+         * will fail.
          */
         return $this->post(
             (string) config('services.data_science.roadmap_path', '/api/v1/roadmap'),
-            $payload,
+            $this->toRoadmapRequest($payload),
             $requestId,
             'roadmap',
         );

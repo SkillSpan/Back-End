@@ -112,9 +112,9 @@ class IntelligenceResultResource extends JsonResource
                         ->all(),
                     'priority_score' => $action->priority_score === null ? null : (float) $action->priority_score,
                     'estimated_hours' => $action->estimated_hours === null ? null : (float) $action->estimated_hours,
-                    'estimated_duration_hours' => $action->estimated_duration_hours === null
+                    'estimated_duration_weeks' => $action->estimated_duration_weeks === null
                         ? null
-                        : (float) $action->estimated_duration_hours,
+                        : (float) $action->estimated_duration_weeks,
                     'order_index' => $action->order_index,
                     'completion_criteria' => $action->completion_criteria,
                     'explanation' => $action->explanation,

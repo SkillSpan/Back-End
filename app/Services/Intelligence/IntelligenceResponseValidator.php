@@ -570,18 +570,31 @@ class IntelligenceResponseValidator
             $this->assertNumberInRange($action, 'priority_score', 0, 1);
         }
 
-        foreach (['estimated_hours', 'estimated_duration_hours'] as $field) {
-            if (array_key_exists($field, $action) && $action[$field] !== null) {
-                $value = $action[$field];
-
-                if (! is_numeric($value) || (float) $value <= 0) {
-                    throw new IntelligenceException(
-                        'The intelligence service response contains an invalid action effort estimate.',
-                        502,
-                        'INTELLIGENCE_INVALID_RESPONSE',
-                        ['field' => $field, 'phase' => $phaseName],
-                    );
-                }
+        /*
+         * Roadmap v1 effort/duration contract.
+         *
+         * `estimated_hours` is the EFFORT required to complete the action;
+         * `estimated_duration_weeks` is the CALENDAR duration in weeks
+         * (derived from the learner's weekly availability). They are two
+         * distinct quantities and are both REQUIRED on every action.
+         *
+         * The legacy `estimated_duration_hours` is NOT part of the contract
+         * and is never accepted as a substitute for
+         * `estimated_duration_weeks` — there is no fallback and no
+         * conversion between the two.
+         */
+        foreach (['estimated_hours', 'estimated_duration_weeks'] as $field) {
+            if (
+                ! array_key_exists($field, $action)
+                || ! is_numeric($action[$field])
+                || (float) $action[$field] <= 0
+            ) {
+                throw new IntelligenceException(
+                    'The intelligence service response contains an invalid action effort estimate.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => $field, 'phase' => $phaseName],
+                );
             }
         }
     }
