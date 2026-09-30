@@ -44,11 +44,20 @@ class DecisionSnapshotService
      * Accepts both payload shapes: the new intelligence contract
      * (learner/role sub-arrays) and the legacy readiness flat payload
      * (top-level student_profile_id/career_role_id).
+     *
+     * `$flow` records WHICH flow owns the decision. It is promoted to a
+     * real column rather than left inside the JSON payload because
+     * `GET /api/v1/intelligence/latest` has to *select* by it: both flows
+     * write SUCCEEDED snapshots, and only the intelligence flow ever has a
+     * roadmap. Selecting the newest succeeded row without this
+     * discriminator let a legacy readiness decision shadow the learner's
+     * roadmap.
      */
     public function createPendingSnapshot(
         array $payload,
         string $decisionUuid,
         string $requestId,
+        ?string $flow = null,
     ): DecisionSnapshot {
         $studentProfileId = $payload['learner']['student_profile_id']
             ?? $payload['student_profile_id'];
@@ -59,6 +68,7 @@ class DecisionSnapshotService
 
         return DecisionSnapshot::create([
             'decision_uuid' => $decisionUuid,
+            'flow' => $this->resolveFlow($flow, $payload),
             'student_profile_id' => (int) $studentProfileId,
             'career_role_id' => (int) $careerRoleId,
             'career_role_version' => (int) $careerRoleVersion,
@@ -68,6 +78,43 @@ class DecisionSnapshotService
             'snapshot' => $payload,
             'status' => DecisionSnapshot::STATUS_PENDING,
         ]);
+    }
+
+    /**
+     * Resolve the owning flow for a new snapshot.
+     *
+     * The explicit argument wins; otherwise the payload's own `flow` key is
+     * honoured (that is how the legacy readiness flow has always tagged
+     * itself). Anything else falls back to the intelligence flow, which is
+     * the default and the only flow the read model treats as primary.
+     *
+     * An unrecognised value is rejected instead of silently relabelled: a
+     * typo'd flow would misattribute the decision, which is precisely the
+     * class of bug this column exists to prevent.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function resolveFlow(?string $flow, array $payload): string
+    {
+        $flow ??= is_string($payload['flow'] ?? null) ? $payload['flow'] : null;
+
+        if ($flow === null) {
+            return DecisionSnapshot::FLOW_INTELLIGENCE;
+        }
+
+        if (! in_array($flow, [
+            DecisionSnapshot::FLOW_INTELLIGENCE,
+            DecisionSnapshot::FLOW_READINESS_LEGACY,
+        ], true)) {
+            throw new IntelligenceException(
+                'The decision snapshot was created with an unknown flow.',
+                500,
+                'INTELLIGENCE_INVALID_FLOW',
+                ['flow' => $flow],
+            );
+        }
+
+        return $flow;
     }
 
     public function markSucceeded(DecisionSnapshot $snapshot): DecisionSnapshot

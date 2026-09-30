@@ -192,22 +192,40 @@ class EvidenceController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $evidence = SkillEvidence::with([
-            'skill',
-            'reviewer',
-        ])->findOrFail($id);
-
         $user = $request->user();
-        $studentProfile = $user->studentProfile;
 
-        $owns = $studentProfile
-            && $evidence->student_profile_id === $studentProfile->id;
+        /*
+         * Admins can access any evidence record.
+         */
+        if ($user->hasRole('admin')) {
+            $evidence = SkillEvidence::with([
+                'skill',
+                'reviewer',
+            ])->findOrFail($id);
+        } else {
+            /*
+             * Non-admin users can only access evidence
+             * belonging to their own student profile.
+             *
+             * The ownership check is now part of the query,
+             * so we do not retrieve another user's evidence
+             * before checking authorization.
+             */
+            $studentProfile = $user->studentProfile;
 
-        if (! $user->hasRole('admin') && ! $owns) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized to view this evidence record.',
-            ], 403);
+            if (! $studentProfile) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You must complete your student profile first.',
+                ], 422);
+            }
+
+            $evidence = SkillEvidence::with([
+                'skill',
+                'reviewer',
+            ])
+                ->where('student_profile_id', $studentProfile->id)
+                ->findOrFail($id);
         }
 
         return response()->json([
@@ -264,24 +282,22 @@ class EvidenceController extends Controller
         ]);
 
         /*
-            * Recalculate skill level and confidence after
-            * the evidence verification status changes.
-        */
+         * Recalculate skill level and confidence after
+         * the evidence verification status changes.
+         */
         $this->skillEvaluationService->recalculate(
             $evidence->studentProfile,
             $evidence->skill
         );
 
         /*
-         * US-INT-01: any evidence review can change the learner's effective
+         * US-INT-01:
+         * Any evidence review can change the learner's effective
          * skill levels, so it triggers a queued intelligence recalculation
-         * for this learner. The sync skill recalculation above already ran —
-         * this only enqueues the decision refresh.
+         * for this learner.
          *
-         * This block used to sit after an early `return`, which made both the
-         * dispatch and the `data` key in the response below permanently
-         * unreachable — the event never fired, and callers never received
-         * the reviewed record.
+         * The synchronous skill recalculation above already ran.
+         * This event only enqueues the decision refresh.
          */
         SkillDataChanged::dispatch(
             $evidence->studentProfile,

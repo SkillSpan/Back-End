@@ -16,16 +16,32 @@ class CareerRoleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $requestId = $this->requestId($request);
+
+        /*
+         * `version` alone is not a total order. Most approved roles share
+         * version 1, and with no tie-breaker the engine is free to return
+         * equal rows in any order — so a role could appear on two pages or
+         * be skipped entirely, which is exactly how an unstable sort breaks
+         * a paginated list. Ordering by `id` descending as well makes the
+         * order (and therefore the pagination) deterministic; the same rule
+         * is used by the project catalog and the assistant's roadmap lookup.
+         *
+         * `per_page` is deliberately fixed at 15: the frontend contract
+         * documents this endpoint's pagination as fixed (handoff Pattern C).
+         */
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
             ->latest('version')
+            ->orderByDesc('id')
             ->paginate(15);
 
         return response()->json([
             'success' => true,
             'message' => 'Career roles retrieved successfully.',
             'data' => $careerRoles,
-        ]);
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
     }
 
     /**
@@ -45,6 +61,7 @@ class CareerRoleController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Career role retrieved successfully.',
+            'request_id' => $requestId,
             'data' => [
                 'id' => $careerRole->id,
                 'title' => $careerRole->title,
@@ -52,7 +69,7 @@ class CareerRoleController extends Controller
                 'effective_date' => $careerRole->effective_date,
                 'status' => $careerRole->status,
             ],
-        ]);
+        ], 200, ['X-Request-ID' => $requestId]);
     }
 
     /**

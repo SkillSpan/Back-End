@@ -151,7 +151,7 @@ class ReadinessService
                 'student_profile_id' => (int) $studentProfile->id,
                 'user_id' => (int) $studentProfile->user_id,
                 'target_role' => (string) $careerRole->title,
-                'flow' => 'readiness_legacy',
+                'flow' => DecisionSnapshot::FLOW_READINESS_LEGACY,
                 // Placeholder only — the persisted value always comes from
                 // the validated response below. Deliberately NOT the shared
                 // `services.data_science.algorithm_version` hint, which
@@ -166,6 +166,7 @@ class ReadinessService
             ]),
             (string) Str::uuid(),
             $requestId,
+            DecisionSnapshot::FLOW_READINESS_LEGACY,
         );
 
         $result = $this->dataScienceClient->analyze(
@@ -398,7 +399,7 @@ class ReadinessService
                 'status' => DecisionSnapshot::STATUS_SUCCEEDED,
                 'calculated_at' => $calculatedAt,
                 'snapshot' => [
-                    'flow' => 'readiness_legacy',
+                    'flow' => DecisionSnapshot::FLOW_READINESS_LEGACY,
                     'career_role_id' => (int) $careerRole->id,
                     'career_role_version' => (int) $careerRole->version,
                     'student_profile_id' => (int) $studentProfile->id,
