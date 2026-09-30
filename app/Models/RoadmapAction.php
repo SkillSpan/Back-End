@@ -9,6 +9,20 @@ class RoadmapAction extends Model
 {
     use HasFactory;
 
+    /**
+     * The ONLY allowed roadmap action types. Mirrors the `type` enum in
+     * the roadmap_actions migration and is the single source consumed by
+     * the response validator and the persistence service — an unknown
+     * type is a contract violation and must never be coerced.
+     */
+    public const TYPES = [
+        'assessment',
+        'resource',
+        'practice',
+        'simulated_project',
+        'real_project',
+    ];
+
     protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_hours', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
 
     protected $casts = ['completed_at' => 'datetime'];
@@ -23,9 +37,32 @@ class RoadmapAction extends Model
         return $this->belongsTo(Skill::class, 'target_skill_id');
     }
 
+    /**
+     * Legacy single-prerequisite relation. Kept for backward compatibility;
+     * new code reads the full set through prerequisites().
+     */
     public function prerequisiteSkill()
     {
         return $this->belongsTo(Skill::class, 'prerequisite_skill_id');
+    }
+
+    /**
+     * The full prerequisite set, via roadmap_action_prerequisites.
+     * Source of truth for multiple prerequisites per action.
+     */
+    public function prerequisiteEntries()
+    {
+        return $this->hasMany(RoadmapActionPrerequisite::class);
+    }
+
+    public function prerequisites()
+    {
+        return $this->belongsToMany(
+            Skill::class,
+            'roadmap_action_prerequisites',
+            'roadmap_action_id',
+            'skill_id'
+        );
     }
 
     public function learningActivities()

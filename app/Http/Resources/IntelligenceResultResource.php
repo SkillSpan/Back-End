@@ -82,6 +82,16 @@ class IntelligenceResultResource extends JsonResource
                 'id' => $roadmap->id,
                 'roadmap_version' => $roadmap->version,
                 'status' => $roadmap->status,
+                /*
+                 * The ROADMAP's own algorithm/configuration versions (owned
+                 * by FastAPI and echoed on the roadmap response). These are
+                 * deliberately NOT the top-level readiness/skill-gap
+                 * versions above — the two calculations may report
+                 * different versions, so they must never be mixed.
+                 */
+                'algorithm_version' => $roadmap->algorithm_version,
+                'configuration_version' => $roadmap->configuration_version,
+                'next_best_action_id' => $roadmap->next_best_action_id,
                 'generated_at' => optional($roadmap->generated_at)->toIso8601String(),
                 'explanation' => $roadmap->explanation,
                 'actions' => $roadmap->actions->map(fn ($action): array => [
@@ -92,7 +102,14 @@ class IntelligenceResultResource extends JsonResource
                     'objective' => $action->objective,
                     'description' => $action->description,
                     'target_skill_id' => $action->target_skill_id,
+                    // Legacy single prerequisite, kept for backward
+                    // compatibility; `prerequisite_skill_ids` is the full set.
                     'prerequisite_skill_id' => $action->prerequisite_skill_id,
+                    'prerequisite_skill_ids' => $action->prerequisites
+                        ->pluck('id')
+                        ->map(fn ($id): int => (int) $id)
+                        ->values()
+                        ->all(),
                     'priority_score' => $action->priority_score === null ? null : (float) $action->priority_score,
                     'estimated_hours' => $action->estimated_hours === null ? null : (float) $action->estimated_hours,
                     'estimated_duration_hours' => $action->estimated_duration_hours === null

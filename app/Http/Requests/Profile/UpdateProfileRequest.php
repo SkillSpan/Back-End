@@ -36,6 +36,7 @@ class UpdateProfileRequest extends FormRequest
             'interests' => ['sometimes', 'nullable', 'array'],
             'interests.*' => ['string', 'max:100'],
             'availability' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'weekly_availability_hours' => ['sometimes', 'nullable', 'numeric', 'between:0,168'],
             'preferred_work_type' => ['sometimes', 'nullable', 'string', 'max:100'],
 
             // US-INT-01 §24: a career-role change must target an

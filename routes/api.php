@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
+use App\Http\Controllers\Api\Admin\ProjectController as AdminProjectController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\AuthController;
@@ -61,6 +62,40 @@ Route::prefix('v1')->group(function () {
             ->name('admin.organizations.proof-file');
         Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
         Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
+
+        // ──────────────────────────────────────────────────────────────
+        // Admin project management — the platform-administrator read and
+        // moderation surface.
+        //
+        // These are READ plus CANCEL only. Every actual lifecycle move
+        // (submit / approve / request-changes / reject / open) already has
+        // an endpoint above and is reused as-is, so the allowed transitions,
+        // the audit trail and the versioned matching snapshot have exactly
+        // one writer: ProjectLifecycleService.
+        //
+        // The list/detail pair cannot be served by the owner or learner
+        // controllers — one is owner-scoped, the other needs a student
+        // profile — so an administrator could not see a `draft` at all.
+        // ──────────────────────────────────────────────────────────────
+        Route::get('/projects', [AdminProjectController::class, 'index'])
+            ->name('admin.projects.index');
+        Route::get('/projects/{project}', [AdminProjectController::class, 'show'])
+            ->name('admin.projects.show')
+            ->whereNumber('project');
+        // Create/edit mirror the owner API's endpoints exactly, because the
+        // underlying request classes and lifecycle service are the same ones.
+        // They are exposed under /admin so the admin panel's session routes can
+        // delegate to this one controller instead of reaching across groups.
+        Route::post('/projects', [AdminProjectController::class, 'store'])
+            ->name('admin.projects.store');
+        Route::patch('/projects/{project}', [AdminProjectController::class, 'update'])
+            ->name('admin.projects.update')
+            ->whereNumber('project');
+        // Soft delete: marks the project `cancelled` and keeps every
+        // application, recommendation and audit entry pointing at it.
+        Route::post('/projects/{project}/cancel', [AdminProjectController::class, 'cancel'])
+            ->name('admin.projects.cancel')
+            ->whereNumber('project');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {

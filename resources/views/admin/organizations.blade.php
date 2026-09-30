@@ -384,6 +384,12 @@
         Organizations
         <span class="badge" id="nav-pending-badge" style="display:none">0</span>
       </a>
+      <a class="nav-item" href="{{ route('admin.projects') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+        Projects
+      </a>
       <a class="nav-item disabled" title="Coming soon">
         <span class="ic">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 3a5 5 0 0 1 4 8.06V20l-3-2-3 2-3-2-3 2V11.06A5 5 0 0 1 8 3a5 5 0 0 1 8 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>

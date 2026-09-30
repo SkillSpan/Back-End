@@ -13,7 +13,7 @@ class Roadmap extends Model
 
     public const STATUS_SUPERSEDED = 'superseded';
 
-    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'status', 'generated_at', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
+    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'status', 'next_best_action_id', 'generated_at', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
 
     protected $casts = ['generated_at' => 'datetime'];
 
@@ -35,5 +35,14 @@ class Roadmap extends Model
     public function actions()
     {
         return $this->hasMany(RoadmapAction::class)->orderBy('order_index');
+    }
+
+    /**
+     * The action FastAPI nominated as the learner's Next Best Action,
+     * resolved to the persisted action of THIS roadmap (nullable).
+     */
+    public function nextBestAction()
+    {
+        return $this->belongsTo(RoadmapAction::class, 'next_best_action_id');
     }
 }
