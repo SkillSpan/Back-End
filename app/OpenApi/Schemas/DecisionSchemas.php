@@ -1,0 +1,131 @@
+<?php
+
+namespace App\OpenApi\Schemas;
+
+use OpenApi\Attributes as OA;
+
+#[OA\Schema(
+    schema: 'ReadinessResult',
+    title: 'ReadinessResult',
+    description: 'A stored career readiness result, as serialised by App\Http\Resources\ReadinessResultResource.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer'),
+        new OA\Property(property: 'student_profile_id', type: 'integer'),
+        new OA\Property(property: 'career_role_id', type: 'integer'),
+        new OA\Property(property: 'career_role_version', type: 'integer', nullable: true),
+        new OA\Property(property: 'decision_id', type: 'string', nullable: true),
+        new OA\Property(property: 'score', type: 'number', format: 'float'),
+        new OA\Property(property: 'skill_match_component', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'practical_experience_component', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'assessment_reliability_component', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'profile_completeness_component', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'critical_cap_applied', type: 'boolean'),
+        new OA\Property(property: 'is_provisional', type: 'boolean'),
+        new OA\Property(property: 'critical_skill_readiness_cap', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'critical_skill_gap_count', type: 'integer'),
+        new OA\Property(property: 'critical_skill_names', type: 'array', items: new OA\Items(type: 'string')),
+        new OA\Property(property: 'band', type: 'string', nullable: true),
+        new OA\Property(property: 'algorithm_version', type: 'string', nullable: true),
+        new OA\Property(property: 'configuration_version', type: 'string', nullable: true),
+        new OA\Property(property: 'calculated_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'total_skills', type: 'integer', nullable: true),
+        new OA\Property(property: 'met_skills', type: 'integer', nullable: true),
+        new OA\Property(property: 'skills_with_gap', type: 'integer', nullable: true),
+        new OA\Property(property: 'skill_results', type: 'array', items: new OA\Items(type: 'object', additionalProperties: true)),
+    ],
+)]
+#[OA\Schema(
+    schema: 'IntelligenceResult',
+    title: 'IntelligenceResult',
+    description: 'The combined decision (readiness + skill gaps + roadmap) as serialised by IntelligenceResultResource.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'decision_id', type: 'string', nullable: true),
+        new OA\Property(property: 'request_id', type: 'string', nullable: true),
+        new OA\Property(property: 'status', type: 'string', nullable: true),
+        new OA\Property(property: 'role_id', type: 'integer', nullable: true),
+        new OA\Property(property: 'role_version', type: 'integer', nullable: true),
+        new OA\Property(property: 'algorithm_version', type: 'string', nullable: true),
+        new OA\Property(property: 'configuration_version', type: 'string', nullable: true),
+        new OA\Property(property: 'calculated_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(
+            property: 'readiness',
+            type: 'object',
+            nullable: true,
+            properties: [
+                new OA\Property(property: 'score', type: 'number', format: 'float'),
+                new OA\Property(property: 'skill_match_component', type: 'number', format: 'float', nullable: true),
+                new OA\Property(property: 'practical_experience_component', type: 'number', format: 'float', nullable: true),
+                new OA\Property(property: 'assessment_reliability_component', type: 'number', format: 'float', nullable: true),
+                new OA\Property(property: 'profile_completeness_component', type: 'number', format: 'float', nullable: true),
+                new OA\Property(property: 'critical_cap_applied', type: 'boolean'),
+                new OA\Property(property: 'band', type: 'string', nullable: true),
+            ],
+        ),
+        new OA\Property(
+            property: 'skill_gaps',
+            type: 'array',
+            items: new OA\Items(
+                type: 'object',
+                properties: [
+                    new OA\Property(property: 'skill_id', type: 'integer'),
+                    new OA\Property(property: 'skill_name', type: 'string', nullable: true),
+                    new OA\Property(property: 'current_level', type: 'number', format: 'float'),
+                    new OA\Property(property: 'required_level', type: 'number', format: 'float'),
+                    new OA\Property(property: 'gap', type: 'number', format: 'float'),
+                    new OA\Property(property: 'match_score', type: 'number', format: 'float', nullable: true),
+                    new OA\Property(property: 'importance_weight', type: 'number', format: 'float'),
+                    new OA\Property(property: 'is_critical', type: 'boolean'),
+                    new OA\Property(property: 'confidence', type: 'number', format: 'float', nullable: true),
+                    new OA\Property(property: 'status', type: 'string', nullable: true),
+                    new OA\Property(property: 'explanation', type: 'string', nullable: true),
+                ],
+            ),
+        ),
+        new OA\Property(
+            property: 'roadmap',
+            type: 'object',
+            nullable: true,
+            properties: [
+                new OA\Property(property: 'id', type: 'integer'),
+                new OA\Property(property: 'roadmap_version', type: 'integer', nullable: true),
+                new OA\Property(property: 'status', type: 'string', nullable: true),
+                new OA\Property(property: 'algorithm_version', type: 'string', nullable: true),
+                new OA\Property(property: 'configuration_version', type: 'string', nullable: true),
+                new OA\Property(property: 'next_best_action_id', type: 'integer', nullable: true),
+                new OA\Property(property: 'generated_at', type: 'string', format: 'date-time', nullable: true),
+                new OA\Property(property: 'explanation', type: 'string', nullable: true),
+                new OA\Property(property: 'actions', type: 'array', items: new OA\Items(type: 'object', additionalProperties: true)),
+            ],
+        ),
+    ],
+)]
+#[OA\Schema(
+    schema: 'BaselineAssessment',
+    title: 'BaselineAssessment',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer'),
+        new OA\Property(property: 'student_profile_id', type: 'integer', nullable: true),
+        new OA\Property(property: 'status', type: 'string', nullable: true, example: 'in_progress'),
+        new OA\Property(property: 'started_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'submitted_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'created_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'updated_at', type: 'string', format: 'date-time', nullable: true),
+    ],
+)]
+#[OA\Schema(
+    schema: 'AssistantInteraction',
+    title: 'AssistantInteraction',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer'),
+        new OA\Property(property: 'user_id', type: 'integer', nullable: true),
+        new OA\Property(property: 'question', type: 'string', nullable: true),
+        new OA\Property(property: 'answer', type: 'string', nullable: true),
+        new OA\Property(property: 'report_reason', type: 'string', nullable: true),
+        new OA\Property(property: 'created_at', type: 'string', format: 'date-time', nullable: true),
+    ],
+)]
+class DecisionSchemas {}
