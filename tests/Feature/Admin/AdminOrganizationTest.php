@@ -250,6 +250,115 @@ class AdminOrganizationTest extends TestCase
     }
 
     /**
+     * Every organization detail the registration form collects must survive
+     * the round trip. The frontend previously sent these seven values under
+     * unprefixed names (`description`, `website`, `country`, ...) which match
+     * no validation rule, so they arrived as null and were silently dropped -
+     * the root cause of the admin panel reporting "No description was
+     * provided" for an organization whose owner had typed one.
+     */
+    public function test_every_registration_detail_is_stored_and_returned_to_the_admin_panel(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/api/v1/auth/register/organization', [
+            'name' => 'Detail Owner',
+            'email' => 'details@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => 1,
+            'privacy_accepted' => 1,
+            'organization_name' => 'Northwind Traders',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'hello@northwind.example.com',
+            'organization_contact_phone' => '+962791234567',
+            'organization_website' => 'https://northwind.example.com',
+            'organization_description' => 'We build developer tooling for the region.',
+            'organization_industry' => 'Software & IT Services',
+            'organization_company_size' => '11 - 50 employees',
+            'organization_country' => 'Jordan',
+            'organization_city' => 'Amman',
+            'organization_address' => '123 Main St',
+            'organization_postal_code' => '11183',
+            'proof_file' => \Illuminate\Http\UploadedFile::fake()
+                ->create('proof.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        $org = Organization::where('name', 'Northwind Traders')->firstOrFail();
+
+        // The database rows, not just the response body.
+        $this->assertSame('hello@northwind.example.com', $org->contact_email);
+        $this->assertSame('+962791234567', $org->contact_phone);
+        $this->assertSame('https://northwind.example.com', $org->website);
+        $this->assertSame('We build developer tooling for the region.', $org->description);
+        $this->assertSame('Software & IT Services', $org->industry);
+        $this->assertSame('11 - 50 employees', $org->company_size);
+        $this->assertSame('Jordan', $org->country);
+        $this->assertSame('Amman', $org->city);
+        $this->assertSame('123 Main St', $org->address);
+        $this->assertSame('11183', $org->postal_code);
+
+        // ...and the same values reach the panel's endpoint.
+        Sanctum::actingAs($admin);
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath('data.contact_email', 'hello@northwind.example.com')
+            ->assertJsonPath('data.contact_phone', '+962791234567')
+            ->assertJsonPath('data.website', 'https://northwind.example.com')
+            ->assertJsonPath('data.description', 'We build developer tooling for the region.')
+            ->assertJsonPath('data.industry', 'Software & IT Services')
+            ->assertJsonPath('data.company_size', '11 - 50 employees')
+            ->assertJsonPath('data.country', 'Jordan')
+            ->assertJsonPath('data.city', 'Amman')
+            ->assertJsonPath('data.address', '123 Main St')
+            ->assertJsonPath('data.postal_code', '11183');
+    }
+
+    /**
+     * The same round trip reaches the list endpoint the panel loads first, so
+     * a card is never rendered from a half-populated record.
+     */
+    public function test_the_organization_list_carries_every_registration_detail(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        Organization::forceCreate([
+            'name' => 'Listed Co',
+            'type' => 'company',
+            'verification_status' => 'pending',
+            'contact_email' => 'listed@example.com',
+            'website' => 'https://listed.example.com',
+            'description' => 'Listed description.',
+            'industry' => 'Education',
+            'company_size' => '51 - 200 employees',
+            'country' => 'Jordan',
+            'city' => 'Irbid',
+            'address' => '9 University St',
+            'postal_code' => '21110',
+        ]);
+
+        $listedId = Organization::where('name', 'Listed Co')->firstOrFail()->id;
+
+        $response = $this->getJson('/api/v1/admin/organizations')->assertOk();
+
+        // The list is `latest()` first and paginated (the rows live under
+        // data.data), so locate this record by id instead of assuming index 0.
+        $row = collect($response->json('data.data'))
+            ->firstWhere('id', $listedId);
+
+        $this->assertNotNull($row, 'The newly created organization was not in the list.');
+        $this->assertSame('https://listed.example.com', $row['website']);
+        $this->assertSame('Listed description.', $row['description']);
+        $this->assertSame('Education', $row['industry']);
+        $this->assertSame('51 - 200 employees', $row['company_size']);
+        $this->assertSame('Jordan', $row['country']);
+        $this->assertSame('Irbid', $row['city']);
+        $this->assertSame('9 University St', $row['address']);
+        $this->assertSame('21110', $row['postal_code']);
+    }
+
+    /**
      * An organization that genuinely submitted no description must still come
      * back with the key present and null, so the panel can tell the two cases
      * apart instead of relying on an absent key.
