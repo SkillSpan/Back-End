@@ -115,6 +115,14 @@ class EvidenceController extends Controller
             'normalized_value' => 0,
             'reference' => $reference,
 
+            /*
+             * The learner's own description of the evidence. Validated above,
+             * and stored here — it used to be validated and then dropped on
+             * the floor, so a client that sent one got a 201 with nothing
+             * recorded and no error explaining it.
+             */
+            'description' => $request->input('description'),
+
             'evidence_date' => $request->filled('evidence_date')
                 ? $request->evidence_date
                 : now()->toDateString(),

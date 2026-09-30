@@ -25,7 +25,7 @@
 | `skill_id` | ✅ | integer | لازم يكون موجود في جدول `skills` و `status = active`. هاته من `GET /api/v1/skills/taxonomy` |
 | `evidence_url` | ⚠️ | string (url) | **واحد من الاتنين إلزامي**: `evidence_url` أو `evidence_file` |
 | `evidence_file` | ⚠️ | file | أقصى حجم **10MB** (10,000 كيلوبايت). مفيش قيد على نوع الملف |
-| `description` | ❌ | string (max 500) | **⚠️ بيتقبل بس مش بيتخزّن — اقرا الملاحظات تحت** |
+| `description` | ❌ (اختياري) | string (max 500) | ✅ بيتخزّن وبيترجّع — اتصحّح |
 | `evidence_date` | ❌ | date | افتراضيًا تاريخ النهاردة |
 
 لو بعتّ الاتنين (`evidence_url` و `evidence_file`) → الـ `evidence_url` هو اللي بيكسب، والملف بيتجاهل.
@@ -77,10 +77,12 @@
 
 ## ⚠️ ملاحظات مهمة — لازم الفرونت ياخد باله
 
-1. **`description` بيتقبل في الفاليديشن بس مش بيتخزّن أبدًا.**
-   الحقل موجود في `validate()` لكن مش موجود في `SkillEvidence::create()` ولا في أعمدة الجدول.
-   يعني لو الفرونت بعت وصف، بيروح في الهوا بدون أي إيرور. **لو محتاجينه، ده باگ من ناحيتنا —
-   قولوا ونصلّحه.**
+1. **`description` — اتصحّح ✅ (كان بيتقبل ومش بيتخزّن).**
+   كان الحقل موجود في `validate()` بس مش موجود في `SkillEvidence::create()` ولا في أعمدة الجدول،
+   يعني أي وصف كان بيروح في الهوا بدون أي إيرور. **اتصلّح:** ضفنا عمود `description` (nullable،
+   الحد 500) وربطناه في الموديل والكونترولّر. دلوقتي الوصف بيتخزّن فعليًا وبيترجّع في
+   `POST` و`GET /api/v1/evidence/{id}` و`GET /api/v1/evidence`.
+   ⚠️ لو السيرفر لسا على نسخة قديمة، لازم deploy الأول.
 
 2. **القيم العشرية بترجع كـ strings على الإنتاج، مش numbers.**
    `"value": "0.00"` و `"normalized_value": "0.00"` و `"recency_factor": "1.00"`.
@@ -114,6 +116,7 @@ curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
   -d '{
         "skill_id": 12,
         "evidence_url": "https://example.com/cert.pdf",
+        "description": "خلصت كورس SQL المتقدم بامتياز.",
         "evidence_date": "2026-09-01"
       }'
 ```
@@ -125,6 +128,7 @@ curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/json" \
   -F "skill_id=12" \
+  -F "description=مشروع تحليل بيانات سلمته واتقيّم." \
   -F "evidence_file=@cert.pdf"
 ```
 

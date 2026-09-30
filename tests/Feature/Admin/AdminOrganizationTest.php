@@ -197,6 +197,59 @@ class AdminOrganizationTest extends TestCase
     }
 
     /**
+     * The test above proves the read side against a hand-seeded row. It does
+     * NOT prove that a description submitted through the real registration
+     * endpoint ever reaches the database — and that gap is exactly where the
+     * bug could come back: `AuthService::createOrganization` builds the row
+     * with `Organization::forceCreate([...])` and maps the request's
+     * `organization_description` onto the `description` column by hand. If
+     * that mapping is dropped, or the key is renamed on one side only, the
+     * read-side test still passes (it writes the column directly) while every
+     * real organization silently loses its description.
+     *
+     * Registration uses `multipart/form-data` because of the required
+     * `proof_file`, so this walks the whole chain: register -> stored ->
+     * returned by the admin detail endpoint.
+     */
+    public function test_a_description_submitted_at_registration_reaches_the_admin_panel(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/api/v1/auth/register/organization', [
+            'name' => 'Org Owner',
+            'email' => 'owner@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => 1,
+            'privacy_accepted' => 1,
+            'organization_name' => 'Taqat LLC',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'contact@taqat.example.com',
+            'organization_description' => 'We build developer tools for Arabic-speaking teams.',
+            'organization_industry' => 'Software & IT Services',
+            'proof_file' => \Illuminate\Http\UploadedFile::fake()
+                ->create('proof.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        // 1) The value actually landed in the column...
+        $org = Organization::where('name', 'Taqat LLC')->firstOrFail();
+        $this->assertSame(
+            'We build developer tools for Arabic-speaking teams.',
+            $org->description
+        );
+
+        // 2) ...and comes back out through the panel's own endpoint.
+        Sanctum::actingAs($admin);
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath(
+                'data.description',
+                'We build developer tools for Arabic-speaking teams.'
+            );
+    }
+
+    /**
      * An organization that genuinely submitted no description must still come
      * back with the key present and null, so the panel can tell the two cases
      * apart instead of relying on an absent key.
