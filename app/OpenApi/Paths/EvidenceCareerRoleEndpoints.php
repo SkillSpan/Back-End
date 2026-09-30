@@ -1,7 +1,5 @@
 <?php
 
-
-
 namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
