@@ -11,6 +11,19 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
+/**
+ * The registration fixtures deliberately use example.com, NOT test.com.
+ *
+ * test.com is on the disposable-domains blocklist that
+ * propaganistas/laravel-disposable-email ships, so any address at that domain
+ * is now rejected with 422 by the 'indisposable' rule on both self-registration
+ * FormRequests. Using it here made these tests pass for the wrong reason —
+ * e.g. the duplicate-email test still went green because the address was
+ * rejected as disposable before the unique rule was ever reached.
+ *
+ * Disposable-email behaviour itself is covered separately in
+ * DisposableEmailRegistrationTest.
+ */
 class RegistrationTest extends TestCase
 {
     use RefreshDatabase;
@@ -30,7 +43,7 @@ class RegistrationTest extends TestCase
         $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'أحمد محمد',
-            'email' => 'ahmed@test.com',
+            'email' => 'ahmed@example.com',
             'phone' => '966501234567',
             'password' => 'password123',
             'password_confirmation' => 'password123',
@@ -44,18 +57,18 @@ class RegistrationTest extends TestCase
 
         $response->assertStatus(201);
         $this->assertDatabaseHas('users', [
-            'email' => 'ahmed@test.com',
+            'email' => 'ahmed@example.com',
             'status' => 'pending',
         ]);
         $this->assertDatabaseHas('student_profiles', [
-            'user_id' => User::where('email', 'ahmed@test.com')->first()->id,
+            'user_id' => User::where('email', 'ahmed@example.com')->first()->id,
             'career_status' => 'طالب',
             // SRS PROF-05: an untouched profile has zero completeness —
             // no hardcoded baseline outranking real progress.
             'completeness_percent' => 0,
         ]);
-        $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->terms_accepted_at);
-        $this->assertNotNull(User::where('email', 'ahmed@test.com')->first()->privacy_accepted_at);
+        $this->assertNotNull(User::where('email', 'ahmed@example.com')->first()->terms_accepted_at);
+        $this->assertNotNull(User::where('email', 'ahmed@example.com')->first()->privacy_accepted_at);
     }
 
     public function test_organization_registration_success(): void
@@ -130,7 +143,7 @@ class RegistrationTest extends TestCase
     {
         User::forceCreate([
             'name' => 'Test User',
-            'email' => 'duplicate@test.com',
+            'email' => 'duplicate@example.com',
             'password' => Hash::make('password123'),
             'status' => 'active',
         ]);
@@ -138,7 +151,7 @@ class RegistrationTest extends TestCase
         $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
-            'email' => 'duplicate@test.com',
+            'email' => 'duplicate@example.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
             'terms_accepted' => true,
@@ -154,7 +167,7 @@ class RegistrationTest extends TestCase
         $response = $this->postJson('/api/v1/auth/register', [
             'user_type' => 'individual',
             'name' => 'Test User',
-            'email' => 'test@test.com',
+            'email' => 'test@example.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
             'terms_accepted' => false,

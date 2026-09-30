@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>SkillSpan API — دليل التسليم للفرونت إند</title>
+<style>
+@page { size: A4; margin: 16mm 13mm 18mm 13mm; }
+
+* { box-sizing: border-box; }
+
+body {
+  direction: rtl;
+  text-align: right;
+  font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.85;
+  color: #1c1c1c;
+  margin: 0;
+}
+
+h1 {
+  font-size: 20pt; font-weight: 600; color: #0b3d5c;
+  margin: 0 0 6px; padding-bottom: 10px;
+  border-bottom: 2.5px solid #0b3d5c;
+}
+h2 {
+  font-size: 14pt; font-weight: 600; color: #0b3d5c;
+  margin: 26px 0 10px; padding: 6px 10px 6px 0;
+  border-right: 4px solid #2f7fa8; background: #eef6fa;
+  page-break-after: avoid;
+}
+h3 {
+  font-size: 11.5pt; font-weight: 600; color: #14506e;
+  margin: 18px 0 8px; page-break-after: avoid;
+}
+
+p { margin: 8px 0; }
+
+blockquote {
+  margin: 10px 0; padding: 9px 14px;
+  background: #f4f7f9; border-right: 4px solid #9db8c7;
+  color: #3a4a54; font-size: 9.5pt;
+}
+blockquote p { margin: 3px 0; }
+
+ul, ol { margin: 8px 0; padding-right: 22px; }
+li { margin: 5px 0; }
+
+code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 9pt; direction: ltr; unicode-bidi: embed;
+  background: #f0f2f4; color: #a4232b;
+  padding: 1px 4px; border-radius: 3px;
+}
+
+pre {
+  direction: ltr; text-align: left;
+  background: #f6f8fa; border: 1px solid #d8dee4;
+  border-radius: 6px; padding: 10px 12px; margin: 10px 0;
+  page-break-inside: avoid; overflow-wrap: break-word;
+}
+pre code {
+  background: none; color: #1c1c1c; padding: 0;
+  font-size: 8.5pt; line-height: 1.6; white-space: pre-wrap;
+}
+
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 12px 0; font-size: 9pt;
+  page-break-inside: auto;
+}
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th {
+  background: #0b3d5c; color: #fff; font-weight: 600;
+  padding: 7px 9px; text-align: right; border: 1px solid #0b3d5c;
+}
+td {
+  padding: 6px 9px; border: 1px solid #cdd7de;
+  vertical-align: top; text-align: right;
+}
+tbody tr:nth-child(even) td { background: #f7fafc; }
+
+strong { font-weight: 600; color: #10334a; }
+
+hr { border: none; border-top: 1px solid #d8dee4; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>SkillSpan Back-End — دليل تسليم الـ API للفرونت إند</h1>
+<blockquote>
+<p>مُولَّد من <code dir="ltr">routes/api.php</code> الفعلي (84 مسار) + تحقّق حقيقي على بيئة الإنتاج.
+التاريخ: 2026-09-29</p>
+</blockquote>
+<hr />
+<h2>0. قبل ما تبدأ — 3 أمور لازم تنتبه لها</h2>
+<p><strong>Base URL</strong></p>
+<pre><code dir="ltr">https://back-end-zdip.onrender.com
+</code></pre>
+<p>⚠️ لو شفت <code dir="ltr">back-end-zdp.onrender.com</code> (بدون حرف <code dir="ltr">i</code>) في أي مستند قديم — هذا <strong>غلط مطبعي</strong>،
+وهذا العنوان مشغّل صفحة 404 فقط. لو الفرونت نسخه من هناك، كل الطلبات رح ترجع 404.</p>
+<p><strong>كل المسارات تبدأ بـ <code dir="ltr">/api/v1</code></strong></p>
+<p><strong>لازم ترسل هذين الهيدرين مع كل طلب</strong> — وإلا Laravel رح يرجّع HTML بدل JSON:</p>
+<pre><code dir="ltr">Accept: application/json
+Content-Type: application/json      # only on requests that carry a body
+</code></pre>
+<hr />
+<h2>1. المصادقة</h2>
+<ul>
+<li>التوكن من <code dir="ltr">POST /api/v1/auth/login</code> — نوعه <strong>Sanctum Bearer token</strong>.</li>
+<li>يُرسَل في كل طلب محمي:</li>
+</ul>
+<pre><code dir="ltr">Authorization: Bearer &lt;token&gt;
+</code></pre>
+<ul>
+<li><strong>حالة الحساب تحكم الوصول:</strong> <code dir="ltr">active</code> / <code dir="ltr">suspended</code> / <code dir="ltr">pending</code> / <code dir="ltr">deleted</code>. كل المسارات
+  المحمية تمرّ على middleware <code dir="ltr">account.active</code>، فحساب موقوف أو غير مُفعّل يُرفض حتى لو التوكن صحيح.</li>
+<li><strong>حساب المؤسسة له بوابة ثانية:</strong> لازم تكون المؤسسة <strong>معتمدة</strong> من الأدمن (<code dir="ltr">organization.approved</code>).
+  مؤسسة <code dir="ltr">pending</code> أو <code dir="ltr">rejected</code> تُرفض في <strong>تسجيل الدخول نفسه</strong>، مش بس في المسارات المحمية.</li>
+</ul>
+<h3>هيدر مفيد: <code dir="ltr">X-Request-ID</code></h3>
+<p>كل رد يحمل <code dir="ltr">request_id</code> في الجسم و<code dir="ltr">X-Request-ID</code> في الهيدرز. أرسل أنت قيمة خاصة بك في
+<code dir="ltr">X-Request-ID</code> لو بدك تتبّع طلب معيّن — الباك إند رح يستخدمها ويرجّعها زي ما هي. استعملها في تذاكر الدعم.</p>
+<hr />
+<h2>2. شكل الرد — ⚠️ يوجد أكثر من نمط</h2>
+<p>هذه أهم نقطة في هذا المستند. <strong>لا تكتب معالج أخطاء واحد يفترض وجود <code dir="ltr">success</code></strong> — لأنه ما رح ينفع مع 4 مسارات.</p>
+<h3>النمط A — السائد (19 من 23 controller)</h3>
+<pre><code class="language-json">{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Accessible projects retrieved successfully.&quot;,
+  &quot;data&quot;: { },
+  &quot;request_id&quot;: &quot;3f2a…&quot;
+}
+</code></pre>
+<p>عند الفشل:</p>
+<pre><code class="language-json">{
+  &quot;success&quot;: false,
+  &quot;message&quot;: &quot;…&quot;,
+  &quot;code&quot;: &quot;PROJECT_NOT_FOUND&quot;,
+  &quot;errors&quot;: { &quot;field&quot;: [&quot;…&quot;] },
+  &quot;request_id&quot;: &quot;3f2a…&quot;
+}
+</code></pre>
+<h3>النمط B — 4 مسارات فقط ترجع JsonResource مباشرة</h3>
+<p>تنطبق على: <strong><code dir="ltr">/api/v1/assistant/*</code></strong>، <strong><code dir="ltr">/api/v1/intelligence/*</code></strong>، <strong><code dir="ltr">/api/v1/readiness/*</code></strong>،
+<strong><code dir="ltr">POST /api/v1/skill-match</code></strong>.</p>
+<pre><code class="language-json">{ &quot;data&quot;: { } }
+</code></pre>
+<p>لا يوجد <code dir="ltr">success</code> ولا <code dir="ltr">message</code> ولا <code dir="ltr">request_id</code> في الجسم (فقط هيدر <code dir="ltr">X-Request-ID</code>).
+عند الفشل ترجع <code dir="ltr">{ "code": "…", "message": "…", "request_id": "…", "details": { } }</code>.</p>
+<p><strong>التوصية للفرونت:</strong> اقرأ البيانات هكذا — <code dir="ltr">const payload = res.data?.data ?? res.data;</code></p>
+<h3>النمط C — حالة خاصة: <code dir="ltr">GET /api/v1/career-roles</code></h3>
+<p>ترجع <code dir="ltr">success</code> و<code dir="ltr">data</code>، لكن <code dir="ltr">data</code> هو <strong>الـ paginator نفسه</strong>:</p>
+<pre><code class="language-json">{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Career roles retrieved successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;current_page&quot;: 1,
+    &quot;data&quot;: [ ],
+    &quot;per_page&quot;: 15,
+    &quot;total&quot;: 42
+  }
+}
+</code></pre>
+<p>يعني العناصر في <code dir="ltr">data.data</code> — وليس في <code dir="ltr">data</code> مثل باقي المسارات. ولا يوجد مفتاح <code dir="ltr">meta</code>.</p>
+<h3>أخطاء الـ middleware (Sanctum)</h3>
+<p>لا تمرّ على أي من الأنماط أعلاه:</p>
+<pre><code class="language-json">{ &quot;message&quot;: &quot;Unauthenticated.&quot; }
+</code></pre>
+<hr />
+<h2>3. أشكال الأخطاء — متحقَّق منها فعليًا على الإنتاج</h2>
+<table>
+<thead>
+<tr>
+<th>الكود</th>
+<th>متى</th>
+<th>الجسم الفعلي</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">401</code></td>
+<td>توكن مفقود/غلط</td>
+<td><code dir="ltr">{"message":"Unauthenticated."}</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">403</code></td>
+<td>صلاحية غير كافية (سر غلط، دور غلط)</td>
+<td><code dir="ltr">{"success":false,"message":"Invalid setup secret."}</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">404</code></td>
+<td>مسار أو مورد غير موجود</td>
+<td>رد Laravel القياسي</td>
+</tr>
+<tr>
+<td><code dir="ltr">422</code></td>
+<td>فشل التحقق (الأشهر)</td>
+<td><code dir="ltr">{"message":"…","errors":{"email":["The email field is required."]}}</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">429</code></td>
+<td>تجاوزت حد الطلبات</td>
+<td>رد throttle القياسي</td>
+</tr>
+<tr>
+<td><code dir="ltr">5xx</code></td>
+<td>خطأ داخلي</td>
+<td><code dir="ltr">{"code":"…","message":"…","request_id":"…"}</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>مهم:</strong> قيم <code dir="ltr">422</code> تُقرأ من <code dir="ltr">errors.&lt;field&gt;[0]</code> — وهذا ثابت في كل المسارات تقريبًا.</p>
+<p><strong>مهم:</strong> حدّ الطلبات (rate limit) مطبَّق على مسارات المصادقة: <code dir="ltr">10/دقيقة</code> للتسجيل والتحقق
+والباسورد، و<code dir="ltr">20/دقيقة</code> لتسجيل الدخول. اعرض رسالة واضحة للمستخدم عند <code dir="ltr">429</code>.</p>
+<hr />
+<h2>4. الترقيم (Pagination)</h2>
+<p>المسارات التالية ترجع كائن <code dir="ltr">meta</code> مع القائمة:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>ملاحظة</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET /api/v1/applications</code></td>
+<td><code dir="ltr">per_page</code> افتراضي 15، أقصى 100</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/projects/{project}/applications</code></td>
+<td>نفس الشي</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/recommendations</code></td>
+<td>نفس الشي</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/notifications</code></td>
+<td>نفس الشي</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/conversations</code></td>
+<td>افتراضي 20</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/conversations/{conversation}/messages</code></td>
+<td>افتراضي 50</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/conversations/{conversation}/chatbot/messages</code></td>
+<td>افتراضي 50</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET /api/v1/mentor/connections</code></td>
+<td>افتراضي 20</td>
+</tr>
+</tbody>
+</table>
+<p>شكل <code dir="ltr">meta</code>:</p>
+<pre><code class="language-json">{ &quot;meta&quot;: { &quot;current_page&quot;: 1, &quot;per_page&quot;: 15, &quot;total&quot;: 42, &quot;last_page&quot;: 3 } }
+</code></pre>
+<p>تُمرَّر كـ query params: <code dir="ltr">?page=2&amp;per_page=30</code>.</p>
+<p><strong>استثناءان:</strong>
+- <code dir="ltr">GET /api/v1/projects</code> — ترجع <strong>مصفوفة عادية</strong> (بحد أقصى 50 عنصر)، بلا ترقيم.
+- <code dir="ltr">GET /api/v1/career-roles</code> — ترقيم مثبَّت على 15، والـ paginator داخل <code dir="ltr">data</code> (انظر النمط C).</p>
+<hr />
+<h2>5. جدول المسارات الكامل — مصحَّح من الكود</h2>
+<p>العمود الأخير هو <strong>الصلاحية الفعلية</strong> كما هي في الـ middleware، وليست وصفًا نظريًا.</p>
+<p><strong>مفاتيح الصلاحية:</strong> <code dir="ltr">Token</code> = <code dir="ltr">Authorization: Bearer</code>، <code dir="ltr">حساب نشط</code> = الحساب <code dir="ltr">active</code>،
+<code dir="ltr">متعلم</code>/<code dir="ltr">أدمن</code>/<code dir="ltr">مرشد موثّق</code> = دور المستخدم، <code dir="ltr">rate-limit x,y</code> = حد الطلبات.</p>
+<h3>1. المصادقة والحسابات</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/forgot-password</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/forgot-password/resend</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/forgot-password/verify</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/login</code></td>
+<td>rate-limit 20,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/login/google</code></td>
+<td>rate-limit 20,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/login/organization</code></td>
+<td>rate-limit 20,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/logout</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/logout-all</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/register</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/register/organization</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/resend-otp</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/reset-password</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/auth/verify</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+</tbody>
+</table>
+<h3>2. الملف الشخصي</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/profile</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/profile</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/profile</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+</tbody>
+</table>
+<h3>3. إدارة المؤسسات (أدمن)</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/admin/organizations</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/admin/organizations/{organization}</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/admin/organizations/{organization}/approve</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/admin/organizations/{organization}/proof-file</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/admin/organizations/{organization}/reject</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+</tbody>
+</table>
+<h3>4. ملف المؤسسة</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/organization/profile</code></td>
+<td>Token + حساب نشط + مؤسسة معتمدة</td>
+</tr>
+</tbody>
+</table>
+<h3>5. المشاريع والتقديم والمطابقة</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/applications</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/applications/{application}/withdraw</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/projects</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/projects/{project}</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/projects/{project}/applications</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/projects/{project}/applications</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">PATCH</code></td>
+<td><code dir="ltr">/api/v1/projects/{project}/applications/{application}</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/projects/{project}/match</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/recommendations</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/recommendations/{recommendation}/feedback</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/skill-match</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+</tbody>
+</table>
+<h3>6. الجاهزية والذكاء والتقييم الأساسي</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/baseline-assessments</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/baseline-assessments/{assessment}</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">PATCH</code></td>
+<td><code dir="ltr">/api/v1/baseline-assessments/{assessment}</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/baseline-assessments/{assessment}/submit</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/intelligence/calculate</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/intelligence/latest</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/readiness/calculate</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/readiness/latest</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+</tbody>
+</table>
+<h3>7. المساعد الذكي</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/assistant/ask</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/assistant/interactions/{interaction}/report</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+</tbody>
+</table>
+<h3>8. البيانات المرجعية</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/reference/countries</code></td>
+<td>عام</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/reference/countries/{country}/universities</code></td>
+<td>عام</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/reference/specializations</code></td>
+<td>عام</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/reference/universities</code></td>
+<td>عام</td>
+</tr>
+</tbody>
+</table>
+<h3>9. المهارات والأدلة والأدوار المهنية</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/career-roles</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/career-roles/{id}</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/career-roles/{id}/skills</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/evidence</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/evidence</code></td>
+<td>Token + حساب نشط + متعلم</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/evidence/{id}</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/evidence/{id}/review</code></td>
+<td>Token + حساب نشط + أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/skills/matrix</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/skills/matrix</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/skills/matrix/{id}</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/skills/taxonomy</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+</tbody>
+</table>
+<h3>10. المرشد والطلاب</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/mentor/connections</code></td>
+<td>Token + حساب نشط + مرشد موثّق</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/mentor/connections</code></td>
+<td>Token + حساب نشط + مرشد موثّق</td>
+</tr>
+<tr>
+<td><code dir="ltr">PATCH</code></td>
+<td><code dir="ltr">/api/v1/mentor/connections/{connection}</code></td>
+<td>Token + حساب نشط + مرشد موثّق</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/mentor/students</code></td>
+<td>Token + حساب نشط + مرشد موثّق</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/mentor/students/{student}</code></td>
+<td>Token + حساب نشط + مرشد موثّق</td>
+</tr>
+</tbody>
+</table>
+<h3>11. المحادثات والرسائل</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/connections/{connection}/conversations</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/conversations</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/chatbot/messages</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/chatbot/messages</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/messages</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/messages</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/read</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/conversations/{conversation}/status</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+</tbody>
+</table>
+<h3>12. الإشعارات</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/notifications</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/notifications/preferences</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/notifications/preferences</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/notifications/read-all</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/notifications/unread-count</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/notifications/{notification}/read</code></td>
+<td>Token + حساب نشط</td>
+</tr>
+</tbody>
+</table>
+<h3>13. الإعداد والأنظمة</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية الفعلية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/documentation</code></td>
+<td>عام</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/oauth2-callback</code></td>
+<td>عام</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/internal/baseline-items</code></td>
+<td>rate-limit 60,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/setup/create-admin</code></td>
+<td>rate-limit 5,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/setup/create-mentor</code></td>
+<td>rate-limit 10,1</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/up</code></td>
+<td>عام</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>6. ملاحظات لازم تنعرف قبل التنفيذ</h2>
+<ol>
+<li>
+<p><strong><code dir="ltr">GET /api/v1/admin/organizations/{organization}/proof-file</code></strong> ترجع <strong>ملفًا للتنزيل</strong>
+   (binary)، وليست JSON. استعمل <code dir="ltr">responseType: 'blob'</code> في الفرونت.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">POST /api/v1/setup/create-admin</code> و <code dir="ltr">POST /api/v1/setup/create-mentor</code></strong> عامّان (بلا توكن)
+   لكنهما <strong>محميان بسر</strong> يُقارَن في الكود. أي طلب بدون السر الصحيح يرجّع <code dir="ltr">403</code>.
+   <strong>الفرونت ما بيحتاجهم إطلاقًا</strong> — هذولا للاستخدام الإداري من Postman/سكربت فقط.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">GET /api/v1/internal/baseline-items</code></strong> ليس للمستخدمين — يتطلب هيدر <code dir="ltr">X-Internal-Secret</code>
+   ويُستدعى من خدمة الـ Data Science فقط.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">GET /up</code></strong> فحص صحة بسيط (health check) — مفيد للمراقبة، ويرجّع صفحة HTML لا JSON.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">GET /api/documentation</code></strong> صفحة Swagger UI — موجودة لكنها <strong>فارغة حاليًا</strong> (لا يوجد
+   spec مُولَّد)، فلا تعتمد عليها. اعتمد على هذا المستند + مجموعة Postman.</p>
+</li>
+<li>
+<p><strong>مسارات خدمة Data Science</strong> (<code dir="ltr">/health</code>, <code dir="ltr">/welcome</code>, <code dir="ltr">POST /api/v1/skill-gap</code>) <strong>ليست جزءًا
+   من هذا المشروع</strong> — هي خدمة FastAPI منفصلة بعنوان ونظام مصادقة مختلفين. لا تخلط بينها وبين
+   <code dir="ltr">POST /api/v1/skill-match</code> الخاص بـ Laravel.</p>
+</li>
+<li>
+<p><strong>لا يوجد أي <code dir="ltr">DELETE</code></strong> في الـ API كله — الإلغاء يتم بمسارات <code dir="ltr">withdraw</code> أو بتغيير حالة.</p>
+</li>
+</ol>
+<hr />
+<h2>7. المطلوب من الفرونت عند أي خطأ</h2>
+<p>أرسل مع التذكرة: <strong>الـ endpoint + الـ HTTP status + قيمة <code dir="ltr">request_id</code> من الرد</strong>.
+بدون <code dir="ltr">request_id</code> ما نقدر نربط الخطأ بالسجل على الإنتاج.</p>
+</body>
+</html>

@@ -1,0 +1,5400 @@
+{
+  "info": {
+    "_postman_id": "5c1f7a2e-9b3d-4a86-9f10-skillspan0001",
+    "name": "SkillSpan — Complete API Collection (كل الـ Endpoints)",
+    "description": "# SkillSpan Backend API — المجموعة الكاملة\n\nكل الـ **83 endpoint** اللي على `/api/v1/*` (+ المسارات العامة)، مرتبة في **19 مجموعة**،\nوكل طلب مكتوب جنبه **شرح بالعربي**: بيعمل إيه، مين يقدر يناديه، الحقول المطلوبة، والردود المتوقعة.\n\n---\n\n## طريقة الاستخدام (3 خطوات)\n\n**1) عدّل المتغيرات**\nافتح تاب **Variables** على مستوى الـ Collection وعدّل على الأقل:\n`base_url` و إيميلات/باسوردات الحسابات اللي هتختبرها.\n\n**2) شغّل مجلد `00 · Setup` الأول**\nفيه 4 طلبات تسجيل دخول (طالب / صاحب مشروع / مرشد / أدمن).\nكل واحد **بيحفظ التوكن أوتوماتيك** في متغير (`learner_token`, `owner_token`, `mentor_token`, `admin_token`).\n\n**3) ابدأ اختبر**\nمعظم الطلبات بتستخدم `{{token}}` — وهو افتراضيًا بيشاور على `{{learner_token}}`.\nلما تختبر مسار بتاع دور تاني، عدّل `Authorization` بتاع الطلب:\n`Bearer {{mentor_token}}` أو `Bearer {{admin_token}}` أو `Bearer {{owner_token}}`.\n\n---\n\n## التقاط المتغيرات أوتوماتيك\n\nكتير من الطلبات بتقرأ الـ id من الرد وتحفظه في متغير، فمش محتاج تنسخه بإيدك:\n\n| الطلب | المتغير |\n|---|---|\n| تسجيل الدخول | `learner_token` / `owner_token` / `mentor_token` / `admin_token` |\n| قائمة المشاريع | `project_id` |\n| تقديم طلب | `application_id` |\n| قائمة التوصيات | `recommendation_id` |\n| المسارات المهنية | `career_role_id` |\n| بدء التقييم الأساسي | `assessment_id` |\n| مصفوفة المهارات | `learner_skill_id` |\n| روابط المرشد | `connection_id`, `student_id` |\n| المحادثات | `conversation_id` |\n| الإشعارات | `notification_id` |\n| الأدمن — المؤسسات | `organization_id` |\n| المساعد الذكي | `assistant_interaction_id` |\n| القوائم المرجعية | `country_id`, `university_id`, `specialization_id` |\n\n---\n\n## ملاحظات مهمة\n\n- **مفيش role اسمه `mentor`** — هوية المرشد هي `ProfessionalProfile` بـ `type=mentor` و\n  `verification_status=verified`.\n- **حسابات المؤسسات `pending` مش بتعمل login** لحد ما الأدمن يعتمدها.\n- **`create-mentor` و `create-admin` محميين بسر** في متغيرات البيئة. الاتنين مضبوطين على\n  `back-end-zdip` وشغّالين. القيمة **مش محفوظة في الملف** عن قصد — حطها بنفسك في متغير\n  `mentor_setup_secret` / `admin_setup_secret`.\n- **الردود بترجّع `success` + `message` + `data`** — والترقيم في `meta`.\n- **الأخطاء بترجّع `code`** (زي `APPLICATION_NOT_FOUND` أو `STUDENT_PROFILE_NOT_FOUND`) جنب\n  `message` و `request_id` — استخدم الكود مش الرسالة في الواجهة.\n- **`/api/v1/skill-match`** شكله مختلف عند الخطأ: `{\"detail\": {\"code\", \"message\"}}`.\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// كل الطلبات بتبعت Accept: application/json عشان الأخطاء ترجع JSON",
+          "// مش redirect للـ login page."
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://back-end-zdip.onrender.com",
+      "type": "string",
+      "description": "رابط الباك إند. للإنتاج سيبها زي ما هي، وللتشغيل المحلي حطها http://localhost:8000"
+    },
+    {
+      "key": "per_page",
+      "value": "15",
+      "type": "string",
+      "description": "حجم الصفحة في كل الـ list endpoints (افتراضي 15، أقصى 100)"
+    },
+    {
+      "key": "idempotency_key",
+      "value": "idem-demo-001",
+      "type": "string",
+      "description": "مفتاح التفرّد للتقديم — غيّره لما تحب تعمل تقديم جديد فعليًا"
+    },
+    {
+      "key": "token",
+      "value": "{{learner_token}}",
+      "type": "string",
+      "description": "التوكن الفعّال المستخدم في كل الطلبات (تغيّره حسب الدور اللي بتختبره)"
+    },
+    {
+      "key": "learner_email",
+      "value": "learner@test.com",
+      "type": "string",
+      "description": "إيميل حساب الطالب"
+    },
+    {
+      "key": "learner_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد حساب الطالب"
+    },
+    {
+      "key": "learner_token",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من طلب تسجيل الدخول"
+    },
+    {
+      "key": "learner_user_id",
+      "value": "1",
+      "type": "string",
+      "description": "الـ id بتاع الطالب (لازم لـ skill-match)"
+    },
+    {
+      "key": "owner_email",
+      "value": "owner@test.com",
+      "type": "string",
+      "description": "إيميل صاحب المشروع"
+    },
+    {
+      "key": "owner_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد صاحب المشروع"
+    },
+    {
+      "key": "owner_token",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "mentor_email",
+      "value": "mentor@test.com",
+      "type": "string",
+      "description": "إيميل المرشد"
+    },
+    {
+      "key": "mentor_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد المرشد"
+    },
+    {
+      "key": "mentor_token",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "admin_email",
+      "value": "admin@test.com",
+      "type": "string",
+      "description": "إيميل الأدمن"
+    },
+    {
+      "key": "admin_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد الأدمن"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "org_email",
+      "value": "org@test.com",
+      "type": "string",
+      "description": "إيميل حساب المؤسسة عند التسجيل"
+    },
+    {
+      "key": "org_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد حساب المؤسسة"
+    },
+    {
+      "key": "org_member_email",
+      "value": "member@org.test",
+      "type": "string",
+      "description": "إيميل عضو المؤسسة للدخول"
+    },
+    {
+      "key": "org_member_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد عضو المؤسسة"
+    },
+    {
+      "key": "org_token",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "new_learner_email",
+      "value": "new.learner@test.com",
+      "type": "string",
+      "description": "إيميل للتسجيل الجديد"
+    },
+    {
+      "key": "new_learner_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد للتسجيل الجديد"
+    },
+    {
+      "key": "new_admin_email",
+      "value": "new.admin@test.com",
+      "type": "string",
+      "description": "إيميل الأدمن الجديد"
+    },
+    {
+      "key": "new_admin_password",
+      "value": "password123",
+      "type": "string",
+      "description": "باسورد الأدمن الجديد"
+    },
+    {
+      "key": "new_mentor_email",
+      "value": "new.mentor@test.com",
+      "type": "string",
+      "description": "إيميل المرشد الجديد"
+    },
+    {
+      "key": "new_mentor_password",
+      "value": "",
+      "type": "string",
+      "description": "اتركه فاضي لو مش عايز تغيّر الباسورد لحساب موجود"
+    },
+    {
+      "key": "otp_code",
+      "value": "123456",
+      "type": "string",
+      "description": "كود الـ OTP المرسل على الإيميل (6 أرقام)"
+    },
+    {
+      "key": "google_credential",
+      "value": "",
+      "type": "string",
+      "description": "الـ ID token من Google Sign-In"
+    },
+    {
+      "key": "baseline_question_id",
+      "value": "q1",
+      "type": "string",
+      "description": "معرّف سؤال في التقييم الأساسي"
+    },
+    {
+      "key": "admin_setup_secret",
+      "value": "",
+      "type": "string",
+      "description": "قيمة ADMIN_SETUP_SECRET"
+    },
+    {
+      "key": "mentor_setup_secret",
+      "value": "",
+      "type": "string",
+      "description": "قيمة MENTOR_SETUP_SECRET — املأها بنفسك (مش محفوظة هنا عن قصد)"
+    },
+    {
+      "key": "internal_baseline_items_secret",
+      "value": "",
+      "type": "string",
+      "description": "قيمة INTERNAL_BASELINE_ITEMS_SECRET"
+    },
+    {
+      "key": "project_id",
+      "value": "1",
+      "type": "string",
+      "description": "مشروع للتجربة"
+    },
+    {
+      "key": "project_role_id",
+      "value": "1",
+      "type": "string",
+      "description": "الدور المطلوب في التقديم"
+    },
+    {
+      "key": "application_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من تقديم أو قائمة الطلبات"
+    },
+    {
+      "key": "application_status",
+      "value": "submitted",
+      "type": "string",
+      "description": "فلتر حالة الطلبات"
+    },
+    {
+      "key": "decision_status",
+      "value": "accepted",
+      "type": "string",
+      "description": "قرار صاحب المشروع: shortlisted/accepted/rejected/waitlisted"
+    },
+    {
+      "key": "recommendation_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من قائمة التوصيات"
+    },
+    {
+      "key": "recommendation_event_type",
+      "value": "save",
+      "type": "string",
+      "description": "التغذية الراجعة: save / hide / decline"
+    },
+    {
+      "key": "career_role_id",
+      "value": "1",
+      "type": "string",
+      "description": "مسار مهني معتمد"
+    },
+    {
+      "key": "skill_id",
+      "value": "1",
+      "type": "string",
+      "description": "مهارة موجودة"
+    },
+    {
+      "key": "learner_skill_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من مصفوفة المهارات"
+    },
+    {
+      "key": "student_profile_id",
+      "value": "1",
+      "type": "string",
+      "description": "الـ id بتاع StudentProfile"
+    },
+    {
+      "key": "assessment_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من بدء التقييم"
+    },
+    {
+      "key": "evidence_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "assistant_interaction_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من سؤال المساعد"
+    },
+    {
+      "key": "student_id",
+      "value": "",
+      "type": "string",
+      "description": "الـ id بتاع الطالب المرتبط بالمرشد"
+    },
+    {
+      "key": "connection_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من روابط المرشد"
+    },
+    {
+      "key": "conversation_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من قائمة المحادثات"
+    },
+    {
+      "key": "message_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك"
+    },
+    {
+      "key": "notification_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من قائمة الإشعارات"
+    },
+    {
+      "key": "unread_only",
+      "value": "false",
+      "type": "string",
+      "description": "true عشان تجيب غير المقروء بس"
+    },
+    {
+      "key": "notification_category",
+      "value": "application",
+      "type": "string",
+      "description": "فئة الإشعار"
+    },
+    {
+      "key": "organization_id",
+      "value": "",
+      "type": "string",
+      "description": "بيتعبّى أوتوماتيك من قائمة الأدمن"
+    },
+    {
+      "key": "organization_status",
+      "value": "pending",
+      "type": "string",
+      "description": "فلتر حالة المؤسسة: pending/verified/rejected"
+    },
+    {
+      "key": "country_id",
+      "value": "1",
+      "type": "string",
+      "description": "دولة من القائمة المرجعية"
+    },
+    {
+      "key": "university_id",
+      "value": "1",
+      "type": "string",
+      "description": "جامعة من القائمة المرجعية"
+    },
+    {
+      "key": "specialization_id",
+      "value": "1",
+      "type": "string",
+      "description": "تخصص من القائمة المرجعية"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Setup (شغّل ده الأول)",
+      "description": "تسجيل دخول لكل الأدوار + فحص الصحة. التوكنات بتتحفظ أوتوماتيك في المتغيرات.",
+      "item": [
+        {
+          "name": "تسجيل دخول — طالب / Learner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول الطالب. التوكن بيتحفظ في `learner_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"password\": \"{{learner_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('learner_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — صاحب مشروع / Owner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول صاحب المشروع. التوكن بيتحفظ في `owner_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{owner_email}}\",\n  \"password\": \"{{owner_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('owner_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — مرشد / Mentor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول المرشد. التوكن بيتحفظ في `mentor_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{mentor_email}}\",\n  \"password\": \"{{mentor_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('mentor_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — أدمن / Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول الأدمن. التوكن بيتحفظ في `admin_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('admin_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "فحص الصحة (Health Check)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/up",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "up"
+              ]
+            },
+            "description": "**GET /up** — 200 يعني التطبيق شغّال والنشر نجح.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 · Auth — المصادقة",
+      "description": "التسجيل، التفعيل، الدخول، استعادة كلمة المرور، والجلسة. **13 endpoint.**",
+      "item": [
+        {
+          "name": "تسجيل حساب طالب (Register)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "**POST /api/v1/auth/register** — تسجيل حساب فردي (طالب).\n\nبيتحقق من الإيميل (لازم يكون جديد)، الباسورد (8 أحرف على الأقل + تأكيد)، والموافقة على الشروط والسياسة.\n\n**لازم:** `name`, `email`, `password`, `password_confirmation`, `terms_accepted`, `privacy_accepted`.\n\n**اختياري:** `phone`, `locale` (`en`/`ar`), `career_status`, `academic_status`.\n\n**ممنوع** ترسل `organization_name` / `organization_type` / `proof_file` — دي بتاعة endpoint المؤسسات.\n\nبعد التسجيل بيوصلك OTP على الإيميل، وبتفعّل الحساب عبر `/auth/verify`.\n\n**معدّل الطلبات:** 10/دقيقة. **الرد:** 201.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"أحمد محمد\",\n  \"email\": \"{{new_learner_email}}\",\n  \"phone\": \"201234567890\",\n  \"password\": \"{{new_learner_password}}\",\n  \"password_confirmation\": \"{{new_learner_password}}\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"locale\": \"ar\",\n  \"career_status\": \"طالب\",\n  \"academic_status\": \"enrolled\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.user && j.data.user.email !== undefined && j.data && j.data.user && j.data.user.email !== null) {",
+                  "  pm.collectionVariables.set('new_learner_email', j.data && j.data.user && j.data.user.email);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل مؤسسة (Register Organization)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register/organization",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register",
+                "organization"
+              ]
+            },
+            "description": "**POST /api/v1/auth/register/organization** — تسجيل حساب مؤسسة (شركة / جامعة / شريك تدريب).\n\nهذا الطلب **multipart/form-data** لأن فيه ملف إثبات (`proof_file`) — jpg/jpeg/png/pdf بحد أقصى 5MB.\n\n**لازم:** `name`, `email`, `password`, `password_confirmation`, `terms_accepted`, `privacy_accepted`, `organization_name`, `organization_type` (`company`/`university`/`training_partner`), `organization_contact_email`, `proof_file`.\n\n**مهم:** المؤسسة بتتسجّل بحالة `pending` — وأعضاؤها **مش هيقدروا يعملوا login** لحد ما الأدمن يوافق عبر `/admin/organizations/{id}/approve`.\n\n**معدّل الطلبات:** 10/دقيقة. **الرد:** 201.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "منى حسن",
+                  "type": "text"
+                },
+                {
+                  "key": "email",
+                  "value": "{{org_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "201234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{org_password}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password_confirmation",
+                  "value": "{{org_password}}",
+                  "type": "text"
+                },
+                {
+                  "key": "terms_accepted",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "privacy_accepted",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "locale",
+                  "value": "ar",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_name",
+                  "value": "شركة سكيل سبان",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_type",
+                  "value": "company",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_contact_email",
+                  "value": "contact@skillspan.test",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_contact_phone",
+                  "value": "201234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_website",
+                  "value": "https://skillspan.test",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_description",
+                  "value": "منصة تدريب تقني",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_industry",
+                  "value": "تكنولوجيا المعلومات",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_company_size",
+                  "value": "11-50",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_country",
+                  "value": "مصر",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_city",
+                  "value": "القاهرة",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_address",
+                  "value": "التجمع الخامس",
+                  "type": "text"
+                },
+                {
+                  "key": "organization_postal_code",
+                  "value": "11835",
+                  "type": "text"
+                },
+                {
+                  "key": "proof_file",
+                  "value": "",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تأكيد الإيميل بـ OTP (Verify)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify"
+              ]
+            },
+            "description": "**POST /api/v1/auth/verify** — تأكيد الإيميل بالكود المرسل (6 أرقام).\n\n**لازم:** `email`, `otp` (نص بطول 6 بالظبط).\n\nلو الكود غلط أو منتهي → 422. **معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"otp\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إعادة إرسال كود التفعيل (Resend OTP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/resend-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "**POST /api/v1/auth/resend-otp** — إعادة إرسال كود تفعيل الإيميل.\n\n**لازم:** `email`. **معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — طالب / Learner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول حساب فردي (طالب).\n\n**لازم:** `email`, `password`.\n\nالتوكن بيتحفظ أوتوماتيك في متغير `learner_token` من سكربت الاختبار.\n\n**أخطاء شائعة:**\n- `403` حساب `suspended`.\n- `422` إيميل مش متأكد بعد (لازم `/auth/verify`).\n- لو الحساب تابع لمؤسسة لسه `pending` → بيترفض برسالة \"Your organization is still pending approval\".\n\n**معدّل الطلبات:** 20/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"password\": \"{{learner_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('learner_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — صاحب مشروع / Owner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — نفس الـ endpoint لكن لحساب صاحب المشروع.\n\nلازم عشان تختبر مسارات صاحب المشروع (قرارات الطلبات + عرض طلبات المشروع).\n\nالتوكن بيتحفظ في `owner_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{owner_email}}\",\n  \"password\": \"{{owner_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('owner_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — مرشد / Mentor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول حساب المرشد.\n\nالمرشد **مالوش role** — هويته هي `ProfessionalProfile` بـ `type=mentor` و `verification_status=verified`. التوكن بيتحفظ في `mentor_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{mentor_email}}\",\n  \"password\": \"{{mentor_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('mentor_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل دخول — أدمن / Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login** — دخول حساب الأدمن.\n\nلازم لمسارات `/api/v1/admin/*` ومراجعة الأدلة. التوكن بيتحفظ في `admin_token`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('admin_token', j.data && j.data.token);",
+                  "}",
+                  "",
+                  "pm.test('token returned', () => pm.expect(j.data && j.data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "دخول بحساب Google (Google Login)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login/google",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login",
+                "google"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login/google** — دخول/تسجيل عبر Google Identity.\n\n**لازم:** `credential` (الـ ID token اللي راجع من Google Sign-In في الفرونت).\n\n**اختياري:** `terms_accepted`, `privacy_accepted` — مطلوبين فعليًا لو ده مستخدم جديد.\n\nالرد فيه `is_new_user` عشان تعرف إذا كان اتسجّل جديد. **معدّل الطلبات:** 20/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": \"{{google_credential}}\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 401, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 401, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('learner_token', j.data && j.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "دخول حساب مؤسسة (Organization Login)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login/organization",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login",
+                "organization"
+              ]
+            },
+            "description": "**POST /api/v1/auth/login/organization** — دخول عضو في مؤسسة.\n\n**لازم:** `email`, `password`.\n\n**شرط مهم:** المؤسسة لازم تكون `verified`. لو `pending` أو `rejected` → الطلب بيترفض حتى لو بيانات الدخول صح.\n\nالرد بيرجّع `organizations` كمان. **معدّل الطلبات:** 20/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{org_member_email}}\",\n  \"password\": \"{{org_member_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('org_token', j.data && j.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "نسيت كلمة المرور (Forgot Password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "**POST /api/v1/auth/forgot-password** — يبعت كود OTP لإعادة تعيين كلمة المرور.\n\n**لازم:** `email`. **معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إعادة إرسال كود الاستعادة (Resend)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password/resend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password",
+                "resend"
+              ]
+            },
+            "description": "**POST /api/v1/auth/forgot-password/resend** — إعادة إرسال كود إعادة تعيين كلمة المرور.\n\n**لازم:** `email`. **معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "التحقق من كود الاستعادة (Verify Reset OTP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password",
+                "verify"
+              ]
+            },
+            "description": "**POST /api/v1/auth/forgot-password/verify** — خطوة وسيطة: التأكد إن الكود صحيح **قبل** ما تدخل الباسورد الجديد.\n\n**لازم:** `email`, `otp` (6 أرقام).\n\nبتفيدك في الواجهة عشان تمنع المستخدم يكمل لو الكود غلط. **معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"otp\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعيين كلمة مرور جديدة (Reset Password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/reset-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "**POST /api/v1/auth/reset-password** — تعيين كلمة المرور الجديدة بعد التحقق من الكود.\n\n**لازم:** `email`, `otp` (6 أرقام), `password`, `password_confirmation` (8 أحرف على الأقل).\n\n**معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"otp\": \"{{otp_code}}\",\n  \"password\": \"{{new_learner_password}}\",\n  \"password_confirmation\": \"{{new_learner_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "خروج من الجهاز الحالي (Logout)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "**POST /api/v1/auth/logout** — يلغي التوكن الحالي بس.\n\nمحتاج توكن. بيستخدم `{{token}}` — عدّل المتغير ده للتوكن اللي عايز تسجّله خروج."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 401]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 401]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "خروج من كل الأجهزة (Logout All)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout-all"
+              ]
+            },
+            "description": "**POST /api/v1/auth/logout-all** — يلغي **كل** توكنات المستخدم على كل الأجهزة.\n\nمفيد لو الحساب اتسرق. **الرد:** 200 وكل التوكنات القديمة بتبقى 401."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 401]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 401]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Profile — الملف الشخصي للطالب",
+      "description": "إنشاء/عرض/تعديل `StudentProfile`. **3 endpoints.**",
+      "item": [
+        {
+          "name": "إنشاء الملف الشخصي للطالب (Store Profile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile"
+              ]
+            },
+            "description": "**POST /api/v1/profile** — إنشاء `StudentProfile` لأول مرة.\n\n**لازم:** `university_name`, `student_university_number`, `specialization`, `academic_level`.\n\n**اختياري:** `expected_graduation` (2024–2150), `bio` (2000 حرف), `career_status`, `interests` (مصفوفة), `availability`, `preferred_work_type`, `visibility` (`public` / `organization_only` / `private`).\n\n**مهم:** من غير StudentProfile معظم مسارات الطالب بترجّع `422 STUDENT_PROFILE_NOT_FOUND` (المشاريع، الأدلة، مطابقة المشروع).\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"university_name\": \"جامعة القاهرة\",\n  \"student_university_number\": \"20210001\",\n  \"specialization\": \"علوم الحاسب\",\n  \"academic_level\": \"الفرقة الرابعة\",\n  \"expected_graduation\": 2027,\n  \"bio\": \"مهتم بالذكاء الاصطناعي وتطوير الويب.\",\n  \"career_status\": \"طالب\",\n  \"interests\": [\n    \"AI\",\n    \"Web Development\"\n  ],\n  \"availability\": \"20 ساعة أسبوعيًا\",\n  \"preferred_work_type\": \"remotely\",\n  \"visibility\": \"organization_only\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "عرض الملف الشخصي (Show Profile)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile"
+              ]
+            },
+            "description": "**GET /api/v1/profile** — يرجّع `StudentProfile` الخاص بالمستخدم الحالي.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعديل الملف الشخصي (Update Profile)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile"
+              ]
+            },
+            "description": "**PUT /api/v1/profile** — تعديل جزئي: كل الحقول `sometimes`.\n\nفيه حقل زيادة عن الإنشاء: `primary_career_role_id` — لازم يكون مسار مهني **موجود و`status=approved`** (`exists:career_roles,id,status,approved`).\n\nده الحقل اللي بيتغذّى منه محرك التوصيات (target career role).\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bio\": \"مهتم بالذكاء الاصطناعي وتطوير الويب — محدّث.\",\n  \"availability\": \"30 ساعة أسبوعيًا\",\n  \"primary_career_role_id\": \"{{career_role_id}}\",\n  \"visibility\": \"public\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Reference Data — بيانات مرجعية",
+      "description": "قوائم الاختيار العامة (دول، جامعات، تخصصات) — **بدون توكن**. **4 endpoints.**",
+      "item": [
+        {
+          "name": "قائمة الجامعات (Universities)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reference/universities",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reference",
+                "universities"
+              ]
+            },
+            "description": "**GET /api/v1/reference/universities** — كل الجامعات المفعّلة (`is_active=true`)، مرتبة أبجديًا، ويرجّع `id` و `name` بس.\n\n**بدون توكن** — endpoint عام لقوائم الاختيار في التسجيل.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('university_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "قائمة التخصصات (Specializations)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reference/specializations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reference",
+                "specializations"
+              ]
+            },
+            "description": "**GET /api/v1/reference/specializations** — كل التخصصات المفعّلة (`id`, `name`).\n\n**بدون توكن.**",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('specialization_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "قائمة الدول (Countries)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reference/countries",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reference",
+                "countries"
+              ]
+            },
+            "description": "**GET /api/v1/reference/countries** — كل الدول مع الاسم العربي والكودين (`id`, `name`, `name_ar`, `iso2`, `iso3`)، مرتبة بالإنجليزي عشان الترتيب يبقى ثابت.\n\n**بدون توكن.** بتغذّي قائمة الدولة في التسجيل.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('country_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "جامعات دولة معينة (Country → Universities)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reference/countries/{{country_id}}/universities",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reference",
+                "countries",
+                "{{country_id}}",
+                "universities"
+              ]
+            },
+            "description": "**GET /api/v1/reference/countries/{country}/universities** — الجامعات المفعّلة لدولة معينة (قائمة معتمدة على اختيار سابق).\n\n**بدون توكن.** لو الدولة مش موجودة → 404.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 · Career Roles — المسارات المهنية",
+      "description": "المسارات المعتمدة ومهاراتها. **3 endpoints.**",
+      "item": [
+        {
+          "name": "قائمة المسارات المهنية (Career Roles)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles"
+              ]
+            },
+            "description": "**GET /api/v1/career-roles** — المسارات المهنية **المعتمدة بس** (`status=approved`)، مع `skills_count` لكل مسار، ومرتبة بالأحدث إصدارًا. **مُصفّحة 15/صفحة.**\n\nالرد بيرجّع الـ paginator كامل جوه `data` (`data.data` فيه العناصر).\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.data && j.data.data[0] && j.data.data[0].id !== undefined && j.data && j.data.data && j.data.data[0] && j.data.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('career_role_id', j.data && j.data.data && j.data.data[0] && j.data.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل مسار مهني (Career Role Details)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles/{{career_role_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles",
+                "{{career_role_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/career-roles/{id}** — تفاصيل مسار معتمد: `title`, `version`, `effective_date`, `status`.\n\nلو المسار مش معتمد أو مش موجود → 404.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "مهارات المسار المهني (Career Role Skills)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles/{{career_role_id}}/skills",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles",
+                "{{career_role_id}}",
+                "skills"
+              ]
+            },
+            "description": "**GET /api/v1/career-roles/{id}/skills** — المهارات المطلوبة للمسار مع المتطلبات السابقة (`prerequisites`) لكل مهارة.\n\nلو المسار مالوش مهارات → `422 CAREER_ROLE_NO_SKILLS`.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 · Projects — المشاريع والاستكشاف",
+      "description": "كتالوج المشاريع المفتوح + التفاصيل + مطابقة AI. **3 endpoints.**",
+      "item": [
+        {
+          "name": "استكشاف المشاريع (Project Catalog)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects?per_page={{per_page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/projects** — كتالوج المشاريع المفتوح للطالب (Discovery).\n\nمش pre-assignment: الطالب بيشوف المشاريع المتاحة له حسب **المسار المهني المستهدف + المهارات المطلوبة + مستواه + الصعوبة**. التخصص الأكاديمي **مش** عامل استهداف.\n\n**فلاتر اختيارية (query):**\n- `search` — بحث نصي في `title`/`description`/`objectives` (أقصى 100 حرف)\n- `type` — `simulation` أو `company_sponsored`\n- `domain`, `work_mode` — مطابقة تامة\n- `difficulty` — رقم من 0 لـ 5\n- `organization_id` — لازم موجود\n- `skill_ids[]` — المشروع لازم يطلب **كل** المهارات دي\n- `minimum_level` — بيشتغل مع `skill_ids` (أدنى مستوى مطلوب)\n\nبيرجّع أقصى 50 مشروع مرتبين بالأحدث. لو مفيش StudentProfile → `422 STUDENT_PROFILE_NOT_FOUND`.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('project_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل مشروع (Project Details)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/projects/{project}** — تفاصيل مشروع واحد بنفس قواعد الوصول/الإتاحة بتاعة الكتالوج.\n\nبيرجّع كمان `available_project_roles` — الأدوار اللي الطالب يقدر يختار منها وقت التقديم (الـ `project_role_id`).\n\n**الصلاحية:** `role:learner`. **404** لو المشروع مش متاح للطالب."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "مطابقة المشروع بالذكاء الاصطناعي (Project Match)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}/match",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}",
+                "match"
+              ]
+            },
+            "description": "**POST /api/v1/projects/{project}/match** — يشغّل مطابقة AI بين الطالب والمشروع.\n\n**مفيش body** — المشروع جاي من الـ URL والمستخدم من التوكن.\n\n**اللي بيحصل جوه:**\n1. `ProjectMatchingSnapshotService` بيتحقق من الإتاحة والصلاحية والأهلية وبيحفظ snapshot.\n2. `ProjectMatchingService` بيبني payload ويبعت لـ FastAPI `POST /api/v1/project-matching`.\n3. `ProjectMatchingRecommendationService` بيحفظ النتيجة لنفس الطالب في نفس الطلب (مفيش نداء تاني لـ FastAPI).\n\n**ملاحظة:** `request_id` العلوي هو بتاعك، و `data.request_id` هو اللي سافر لـ FastAPI — الاتنين مقصودين ومحفوظين.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 404, 422, 502]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 404, 422, 502]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 · Applications — طلبات التقديم",
+      "description": "تقديم، متابعة، سحب، قرارات صاحب المشروع. **5 endpoints.**",
+      "item": [
+        {
+          "name": "تقديم طلب على مشروع (Apply)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}/applications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}",
+                "applications"
+              ]
+            },
+            "description": "**POST /api/v1/projects/{project}/applications** — الطالب بيقدّم على مشروع.\n\n**اختياري:**\n- `project_role_id` — الدور المطلوب (من `available_project_roles`)\n- `application_data` — **object** مش string (إجابات الطلب)\n- `recommendation_id` — لو التقديم جاي من توصية\n- `idempotency_key` — مفتاح تفرّد (أقصى 191 حرف) عشان تعيد المحاولة بأمان\n\n**الترتيب داخل الخدمة (مهم):** إعادة تشغيل idempotent → الإتاحة → **المراجع (الدور + التوصية)** → التكرار → السعة → الأهلية → الحفظ.\n\nيعني لو بعت `project_role_id` أو `recommendation_id` غلط، هترجّعلك `422` على المرجع حتى لو فيه سبب تاني (تكرار/سعة) صحيح — عشان الخطأ ما يتغطّاش.\n\n**الردود:**\n- `201` أول تقديم\n- `200` إعادة تشغيل بنفس `idempotency_key` (بيرجّع نفس النتيجة حتى لو المشروع امتلى بعد كده)\n- `409` تقديم مكرر وانت لسه عندك طلب نشط\n- `422` مشروع مقفول / مش متاح / مش مطابق للأهلية / مرجع غلط\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_role_id\": \"{{project_role_id}}\",\n  \"application_data\": {\n    \"motivation\": \"مهتم بالمشروع لخبرتي في تحليل البيانات.\",\n    \"availability\": \"20 ساعة أسبوعيًا\"\n  },\n  \"recommendation_id\": \"{{recommendation_id}}\",\n  \"idempotency_key\": \"{{idempotency_key}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 409, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 409, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('application_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "طلباتي (My Applications)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/applications?status={{application_status}}&per_page={{per_page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "{{application_status}}"
+                },
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/applications** — كل الطلبات اللي قدّمها الطالب الحالي.\n\n**فلاتر:**\n- `status` — `submitted` / `shortlisted` / `accepted` / `rejected` / `waitlisted` / `withdrawn`\n- `per_page` — افتراضي 15، وأقصى 100 (الباقي بيتقصّ تلقائيًا)\n\nالرد فيه `meta` (current_page, last_page, per_page, total).\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('application_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "سحب طلب (Withdraw)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/applications/{{application_id}}/withdraw",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "applications",
+                "{{application_id}}",
+                "withdraw"
+              ]
+            },
+            "description": "**POST /api/v1/applications/{application}/withdraw** — الطالب بيسحب طلبه.\n\n**مفيش body.** الطلب بيبقى `withdrawn`، وبكده يقدر يقدّم تاني على نفس المشروع (التفرّد `unique(project_id, applicant_id, active_key)` بيسمح بكده لأن `active_key` بيبقى `NULL` للطلبات المنتهية).\n\nالسبب بيتسجّل في `audit_events` — مفيش عمود reason منفصل.\n\n**الصلاحية:** `role:learner`. **404** لو الطلب مش موجود، **422** لو مش قابل للسحب."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "طلبات مشروع معين — لصاحب المشروع (Project Applications)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}/applications?per_page={{per_page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/projects/{project}/applications** — صاحب المشروع بيشوف كل المتقدمين.\n\n**ملاحظة مهمة:** المسار ده **مش** `role:learner` — أي مستخدم مسجّل ممكن يملك مشروع، والملكية بتتحقق جوه الخدمة. لو انت مش المالك → **403**.\n\n**فلاتر:** `per_page` (افتراضي 15، أقصى 100).\n\nاستخدم `{{owner_token}}` عشان تختبره (عدّل الـ Authorization)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "قرار صاحب المشروع (Decide)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}/applications/{{application_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}",
+                "applications",
+                "{{application_id}}"
+              ]
+            },
+            "description": "**PATCH /api/v1/projects/{project}/applications/{application}** — قبول/رفض/ترشيح/قائمة انتظار.\n\n**لازم:** `status` — واحدة من: `shortlisted`, `accepted`, `rejected`, `waitlisted`.\n**اختياري:** `reason` (أقصى 2000 حرف).\n\n**ملاحظات:**\n- `withdrawn` مش مسموح هنا (دي بتيجي من الطالب).\n- لو الطلب مش تابع للمشروع المذكور → `404 APPLICATION_PROJECT_MISMATCH`.\n- `accepted` هي الحالة اللي بتستهلك مقعد من `capacity` (حسب `ProjectCapacityPolicy`).\n- الملكية بتتحقق جوه الخدمة، مش بالـ middleware.\n\n**لازم توكن صاحب المشروع.**",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"{{decision_status}}\",\n  \"reason\": \"قرار المراجعة.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 · Recommendations — التوصيات",
+      "description": "توصيات المشاريع + التغذية الراجعة. **2 endpoints.**",
+      "item": [
+        {
+          "name": "توصياتي (My Recommendations)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/recommendations?per_page={{per_page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "recommendations"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/recommendations** — توصيات المشاريع المولّدة للمستخدم الحالي (`type=project`)، مرتبة بالأحدث.\n\n**فلاتر:** `per_page` (افتراضي 15، أقصى 100). الرد فيه `meta`.\n\nكل توصية جواها بيانات المشروع كاملة (المؤسسة + المهارات المطلوبة + شروط الأهلية) عشان الواجهة تعرضها من غير نداءات إضافية.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('recommendation_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تغذية راجعة على توصية (Recommendation Feedback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/recommendations/{{recommendation_id}}/feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "recommendations",
+                "{{recommendation_id}}",
+                "feedback"
+              ]
+            },
+            "description": "**POST /api/v1/recommendations/{recommendation}/feedback** — الطالب بيقول رأيه في التوصية.\n\n**لازم:** `event_type` — `save` أو `hide` أو `decline`.\n**اختياري:** `reason` (أقصى 2000 حرف).\n\n**ملاحظة:** `decline` بتتخزّن في قاعدة البيانات كـ `reject` — الاسم مختلف عن اللي بتبعتّه.\nأي قيمة تانية → `422 RECOMMENDATION_FEEDBACK_UNSUPPORTED` (والرد بيقولك القيم المدعومة).\n\n**مهم:** التوصية لازم تكون بتاعة نفس المستخدم — لو بتاعة حد تاني → **404**.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"{{recommendation_event_type}}\",\n  \"reason\": \"مش مناسب لمستواي حاليًا.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 · Readiness & Intelligence — الجاهزية والذكاء",
+      "description": "الجاهزية المركبة، فجوة المهارات، ومطابقة المهارات. **5 endpoints.**",
+      "item": [
+        {
+          "name": "حساب الجاهزية المركبة (Calculate Readiness)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/readiness/calculate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "readiness",
+                "calculate"
+              ]
+            },
+            "description": "**POST /api/v1/readiness/calculate** — يحسب **Composite Readiness** للطالب.\n\n**اختياري:** `career_role_id` (أكبر من صفر). لو مش بعتّه بيستخدم `primary_career_role_id` من الملف الشخصي.\n\n**اللي بيحصل:** Laravel بيحسب المكوّنات المحلية (الخبرة العملية، موثوقية التقييم، اكتمال الملف) + بينده FastAPI `/skill-match` (خوارزمية `skill-match-v1`)، والأوزان `0.65/0.20/0.10/0.05` مع Critical Skill Cap `69.0`.\n\n**النطاقات:** foundation_needed 0–39.99 · developing 40–59.99 · moderate_readiness 60–74.99 · near_ready 75–89.99 · highly_ready 90–100.\n\nكل عملية حساب بتكتب صف في `decision_snapshots` الأول (pending → succeeded/failed). لو مفيش configuration نشِط → `422` صريح، ومفيش أي أرقام مُختلقة.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"career_role_id\": \"{{career_role_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422, 502]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422, 502]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "آخر جاهزية محسوبة (Latest Readiness)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/readiness/latest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "readiness",
+                "latest"
+              ]
+            },
+            "description": "**GET /api/v1/readiness/latest** — آخر نتيجة جاهزية محفوظة (مفيش حساب جديد).\n\nمفيد للواجهة عشان تعرض آخر رقم من غير ما تشغّل الخوارزمية تاني.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "حساب فجوة المهارات (Calculate Intelligence)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/intelligence/calculate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "intelligence",
+                "calculate"
+              ]
+            },
+            "description": "**POST /api/v1/intelligence/calculate** — يحسب **Skill Gap Intelligence**.\n\n**اختياري:** `career_role_id`.\n\nLaravel بينده FastAPI `/skill-gap` (خوارزمية `skill-gap-v1`) عبر `IntelligenceClient`.\n\n**تحذير:** متخلطش بينه وبين الجاهزية — دي تدفقات مختلفة تمامًا (Readiness / Intelligence / Baseline) لكل واحدة نسخة خوارزمية مستقلة.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"career_role_id\": \"{{career_role_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422, 502]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422, 502]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "آخر تحليل مهارات (Latest Intelligence)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/intelligence/latest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "intelligence",
+                "latest"
+              ]
+            },
+            "description": "**GET /api/v1/intelligence/latest** — آخر تحليل فجوة مهارات محفوظ.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "مطابقة المهارات المباشرة (Skill Match — DS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/skill-match",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "skill-match"
+              ]
+            },
+            "description": "**POST /api/v1/skill-match** — واجهة مباشرة لمحرك مطابقة المهارات (بدون تجميع الجاهزية).\n\n**لازم كل دي:** `student_profile_id`, `career_role_id`, `career_role_version`, `user_id`, `target_role`, و `skills` (مصفوفة عنصر واحد على الأقل).\n\n**كل عنصر في `skills`:** `skill_id`, `skill_name`, `current_level` (0–5), `required_level` (0–5), `importance_weight` (>0 وأقصى 1), `is_critical` (boolean).\n\n**الرد على الخطأ:** `422` بشكل `{\"detail\": {\"code\", \"message\"}}` — شكل مختلف عن باقي الـ API، خد بالك.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"student_profile_id\": \"{{student_profile_id}}\",\n  \"career_role_id\": \"{{career_role_id}}\",\n  \"career_role_version\": 1,\n  \"user_id\": \"{{learner_user_id}}\",\n  \"target_role\": \"Backend Developer\",\n  \"skills\": [\n    {\n      \"skill_id\": 1,\n      \"skill_name\": \"PHP\",\n      \"current_level\": 3,\n      \"required_level\": 4,\n      \"importance_weight\": 0.9,\n      \"is_critical\": true\n    },\n    {\n      \"skill_id\": 2,\n      \"skill_name\": \"Laravel\",\n      \"current_level\": 2,\n      \"required_level\": 4,\n      \"importance_weight\": 0.8,\n      \"is_critical\": false\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 · Baseline Assessments — التقييم الأساسي",
+      "description": "بدء/متابعة/تسليم التقييم الأساسي الديناميكي. **4 endpoints.**",
+      "item": [
+        {
+          "name": "بدء تقييم أساسي (Start Baseline)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/baseline-assessments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "baseline-assessments"
+              ]
+            },
+            "description": "**POST /api/v1/baseline-assessments** — يبدأ جلسة تقييم أساسي للطالب.\n\n**لازم:** `career_role_id` — لازم يكون موجود و `status=approved`.\n\nبيرجّع `id` بتاع الجلسة اللي بتستخدمه في باقي المسارات. **الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"career_role_id\": \"{{career_role_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && (j.data.id || j.data.assessment_id) !== undefined && j.data && (j.data.id || j.data.assessment_id) !== null) {",
+                  "  pm.collectionVariables.set('assessment_id', j.data && (j.data.id || j.data.assessment_id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "عرض جلسة التقييم (Show Assessment)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "baseline-assessments",
+                "{{assessment_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/baseline-assessments/{assessment}** — تفاصيل الجلسة والأسئلة.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "حفظ تقدّم مبدئي (Save Progress)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "baseline-assessments",
+                "{{assessment_id}}"
+              ]
+            },
+            "description": "**PATCH /api/v1/baseline-assessments/{assessment}** — حفظ تقدّم مؤقت قبل التسليم النهائي.\n\n**اختياري:** `progress` (object), `responses` (object).\n\nمفيد لو الطالب قفل الصفحة ورجع. **الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"progress\": {\n    \"answered\": 3,\n    \"total\": 10\n  },\n  \"responses\": {\n    \"q1\": \"a\",\n    \"q2\": \"b\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسليم التقييم (Submit Baseline)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/baseline-assessments/{{assessment_id}}/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "baseline-assessments",
+                "{{assessment_id}}",
+                "submit"
+              ]
+            },
+            "description": "**POST /api/v1/baseline-assessments/{assessment}/submit** — التسليم النهائي والتقييم.\n\n**لازم:** `responses` — **مصفوفة** (list) فيها عنصر واحد على الأقل، وكل عنصر فيه `question_id` (نص، أقصى 100) و `answer` (أي نوع).\n\nبعد التسليم Laravel بينده FastAPI `/baseline` (خوارزمية `baseline-v1.0`) عبر `BaselineDataScienceClient`، وبيحدّث مستويات المهارات.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responses\": [\n    {\n      \"question_id\": \"{{baseline_question_id}}\",\n      \"answer\": \"a\"\n    },\n    {\n      \"question_id\": \"q2\",\n      \"answer\": [\n        \"b\",\n        \"c\"\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422, 502]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422, 502]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 · Skills — المهارات",
+      "description": "مصفوفة المهارات والتصنيف المرجعي. **4 endpoints.**",
+      "item": [
+        {
+          "name": "مصفوفة مهاراتي (My Skill Matrix)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/skills/matrix?career_role_id={{career_role_id}}&learner_id={{learner_user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "skills",
+                "matrix"
+              ],
+              "query": [
+                {
+                  "key": "career_role_id",
+                  "value": "{{career_role_id}}"
+                },
+                {
+                  "key": "learner_id",
+                  "value": "{{learner_user_id}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/skills/matrix** — مهارات المستخدم الحالي.\n\n**فلاتر اختيارية:**\n- `career_role_id` — يرجّع بس المهارات المرتبطة بالمسار ده\n- `learner_id` — **للأدمن بس**: يقدر يقرا مصفوفة طالب تاني. لو مش أدمن الحقل ده بيتتجاهل وهو دايمًا بياخد مصفوفته هو.\n\n**الصلاحية:** أي مستخدم مسجّل ونشِط."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('learner_skill_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إضافة/تحديث مهارة (Upsert Skill)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/skills/matrix",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "skills",
+                "matrix"
+              ]
+            },
+            "description": "**POST /api/v1/skills/matrix** — إضافة أو تحديث مهارة للطالب (upsert على `learner_id`+`skill_id`).\n\n**لازم:** `learner_id`, `skill_id`, `level` (0–5), `confidence_score` (0–100).\n**اختياري:** `source_type`, `algorithm_version`, `configuration_version`, `source_contributions` (object مش string).\n\n**صلاحيات:** الطالب بيكتب صفوفه هو بس — لو بعت `learner_id` بتاع حد تاني وإنت مش أدمن → **403**. الأدمن مسموح له.\n\n**الرد:** 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"learner_id\": \"{{learner_user_id}}\",\n  \"skill_id\": \"{{skill_id}}\",\n  \"level\": 3.5,\n  \"confidence_score\": 80,\n  \"source_type\": \"self_assessment\",\n  \"source_contributions\": {\n    \"self\": 1.0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('learner_skill_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعديل صف مهارة (Update Skill Row)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/skills/matrix/{{learner_skill_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "skills",
+                "matrix",
+                "{{learner_skill_id}}"
+              ]
+            },
+            "description": "**PUT /api/v1/skills/matrix/{id}** — تعديل صف مهارة موجود.\n\n**اختياري:** `level` (0–5), `confidence_score` (0–100), `source_type`, `algorithm_version`, `configuration_version`, `source_contributions`.\n\n**مهم:** `calculated_at` **مش** بيُقبل من العميل — خادم فقط (منعًا لتزوير وقت الحساب).\n\nلو الصف مش بتاعك وانت مش أدمن → **404** (مش 403، عشان ما نأكدش وجود الـ id).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"level\": 4.0,\n  \"confidence_score\": 85\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تصنيف المهارات (Skills Taxonomy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/skills/taxonomy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "skills",
+                "taxonomy"
+              ]
+            },
+            "description": "**GET /api/v1/skills/taxonomy** — شجرة/تصنيف المهارات المرجعي.\n\n**الصلاحية:** أي مستخدم مسجّل ونشِط."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('skill_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11 · Evidence — الأدلة",
+      "description": "رفع الأدلة ومراجعتها من الأدمن. **4 endpoints.**",
+      "item": [
+        {
+          "name": "أدلتي المعتمدة (My Evidence)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/evidence",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "evidence"
+              ]
+            },
+            "description": "**GET /api/v1/evidence** — الأدلة **المعتمدة بس** (`verification_status=verified`) للطالب الحالي.\n\nلو مفيش StudentProfile → `422`.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('evidence_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "رفع دليل جديد (Submit Evidence)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/evidence",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "evidence"
+              ]
+            },
+            "description": "**POST /api/v1/evidence** — رفع دليل مهارة. **multipart/form-data** لو بترفع ملف.\n\n**لازم:** `skill_id` — لازم يكون موجود و `status=active`.\n**ولازم واحد من الاتنين:** `evidence_url` (رابط صحيح) أو `evidence_file` (أقصى 10MB).\n**اختياري:** `description` (500), `evidence_date` (تاريخ، افتراضيًا النهاردة).\n\nالدليل بيتسجّل `pending` لحد ما أدمن يراجعه. لو نفس الدليل مرفوع قبل كده (نفس الطالب + المهارة + المصدر + المرجع) → **409**.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "skill_id",
+                  "value": "{{skill_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "evidence_url",
+                  "value": "https://example.com/certificate.pdf",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "شهادة إتمام دورة Laravel",
+                  "type": "text"
+                },
+                {
+                  "key": "evidence_date",
+                  "value": "2026-09-01",
+                  "type": "text"
+                },
+                {
+                  "key": "evidence_file",
+                  "value": "",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 409, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 409, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('evidence_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل دليل (Evidence Details)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/evidence/{{evidence_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "evidence",
+                "{{evidence_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/evidence/{id}** — تفاصيل دليل واحد.\n\n**الصلاحية:** أي مستخدم مسجّل ونشِط (الـ middleware على المسار ده `account.active` بس)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "مراجعة دليل — أدمن (Review Evidence)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/evidence/{{evidence_id}}/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "evidence",
+                "{{evidence_id}}",
+                "review"
+              ]
+            },
+            "description": "**PUT /api/v1/evidence/{id}/review** — الأدمن يعتمد أو يرفض الدليل.\n\n**لازم:** `verification_status` — `verified` أو `rejected`.\n**اختياري:** `reviewer_notes` (أقصى 500).\n\nالاعتماد بيحدّث مستوى المهارة وحساب الثقة.\n\n**الصلاحية:** `role:admin` — **لازم توكن أدمن** (عدّل Authorization لـ `{{admin_token}}`).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"verification_status\": \"verified\",\n  \"reviewer_notes\": \"الشهادة صحيحة.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "12 · Assistant — المساعد الذكي",
+      "description": "أسئلة المساعد المقيّدة بالنطاق + الإبلاغ. **2 endpoints.**",
+      "item": [
+        {
+          "name": "سؤال المساعد الذكي (Ask Assistant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/ask",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "ask"
+              ]
+            },
+            "description": "**POST /api/v1/assistant/ask** — المساعد الذكي، **مقيّد بنطاق محدد**.\n\n**لازم:** `intent` — واحدة من الستة دي بالظبط:\n`explain_readiness`, `explain_skill_gap`, `explain_roadmap`, `explain_next_best_action`, `explain_project_recommendation`, `project_bounded_help`.\n\n**ولازم:** `question` (من 3 لـ 2000 حرف).\n**اختياري:** `recommendation_id`, `project_id` (أعداد أكبر من صفر).\n\n**خطأ مميّز:** لو الـ intent بره النطاق → `422` بكود `ASSISTANT_INTENT_NOT_ALLOWED` (مش `VALIDATION_ERROR`)، عشان الواجهة تفرّق بينهم.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intent\": \"explain_readiness\",\n  \"question\": \"اشرحلي ليه نتيجة الجاهزية بتاعتي كده؟\",\n  \"recommendation_id\": \"{{recommendation_id}}\",\n  \"project_id\": \"{{project_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('assistant_interaction_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "الإبلاغ عن رد مساعد (Report Interaction)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/interactions/{{assistant_interaction_id}}/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "interactions",
+                "{{assistant_interaction_id}}",
+                "report"
+              ]
+            },
+            "description": "**PUT /api/v1/assistant/interactions/{interaction}/report** — الإبلاغ عن رد مسيء/غلط.\n\n**لازم:** `report_status` — واحدة من: `unsafe`, `irrelevant`, `unfair`, `incorrect`.\n**اختياري:** `report_reason` (أقصى 1000 حرف).\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"report_status\": \"incorrect\",\n  \"report_reason\": \"المعلومة مش دقيقة.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "13 · Mentor — المرشد",
+      "description": "الطلاب، الروابط، وملخصات الطلاب. **5 endpoints.**",
+      "item": [
+        {
+          "name": "طلابي (Mentor Students)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mentor/students",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mentor",
+                "students"
+              ]
+            },
+            "description": "**GET /api/v1/mentor/students** — كل الطلاب المرتبطين بالمرشد الحالي.\n\n**الصلاحية:** `mentor` — الهوية هي `ProfessionalProfile` بـ `type=mentor` و `verification_status=verified`. **مفيش role اسمه mentor.**\n\n**لازم توكن مرشد** (عدّل Authorization لـ `{{mentor_token}}`)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && (j.data[0].id || j.data[0].student_id) !== undefined && j.data && j.data[0] && (j.data[0].id || j.data[0].student_id) !== null) {",
+                  "  pm.collectionVariables.set('student_id', j.data && j.data[0] && (j.data[0].id || j.data[0].student_id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ملخص طالب معين (Student Summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mentor/students/{{student_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mentor",
+                "students",
+                "{{student_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/mentor/students/{student}** — ملخص تقدّم طالب مرتبط بالمرشد.\n\nلو الطالب مش مرتبط بالمرشد → مرفوض.\n\n**الصلاحية:** مرشد."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ربط طالب (Connect Student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mentor/connections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mentor",
+                "connections"
+              ]
+            },
+            "description": "**POST /api/v1/mentor/connections** — المرشد يربط طالب.\n\n**لازم:** `student_id` — لازم يكون مستخدم موجود.\n**اختياري:** `project_id` (لازم يكون مشروع موجود), `initiated_by` (`mentor` / `student` / `admin`).\n\nالتفرّد على (mentor + student + project) — نفس الربط ما يتكرّرش.\n\n**الصلاحية:** مرشد.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"student_id\": \"{{student_id}}\",\n  \"project_id\": \"{{project_id}}\",\n  \"initiated_by\": \"mentor\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('connection_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "روابطي (Mentor Connections)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mentor/connections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mentor",
+                "connections"
+              ]
+            },
+            "description": "**GET /api/v1/mentor/connections** — كل روابط المرشد (مع الطلاب).\n\n**الصلاحية:** مرشد. الرد فيه `meta` للترقيم."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('connection_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تحديث رابط (Update Connection)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mentor/connections/{{connection_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mentor",
+                "connections",
+                "{{connection_id}}"
+              ]
+            },
+            "description": "**PATCH /api/v1/mentor/connections/{connection}** — تغيير حالة الربط.\n\n**لازم:** `status` — `active` / `disconnected` / `archived`.\n**اختياري:** `reason` (أقصى 500 حرف).\n\n**الصلاحية:** مرشد.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\",\n  \"reason\": \"تم القبول.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "14 · Conversations & Chatbot — المحادثات",
+      "description": "المحادثات، الرسائل، والشات بوت. **9 endpoints.**",
+      "item": [
+        {
+          "name": "فتح محادثة على رابط (Create Conversation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/connections/{{connection_id}}/conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "connections",
+                "{{connection_id}}",
+                "conversations"
+              ]
+            },
+            "description": "**POST /api/v1/connections/{connection}/conversations** — فتح محادثة جوه رابط مرشد↔طالب.\n\n**مفيش body مطلوب.** لازم يكون المستخدم طرف في الرابط ده.\n\n**الصلاحية:** مستخدم مسجّل ونشِط. **الرد:** 201."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('conversation_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "محادثاتي (My Conversations)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations"
+              ]
+            },
+            "description": "**GET /api/v1/conversations** — كل محادثات المستخدم الحالي.\n\n**الترقيم:** `communication.conversations_per_page` (افتراضي 20). الرد فيه `meta`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('conversation_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل محادثة (Conversation Details)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/conversations/{conversation}** — تفاصيل محادثة بتحقق صلاحية (لازم تكون طرف فيها).\n\n**404/403** لو مش من محادثاتك."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إرسال رسالة (Send Message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "messages"
+              ]
+            },
+            "description": "**POST /api/v1/conversations/{conversation}/messages** — إرسال رسالة نصية.\n\n**لازم:** `body` — أقصى طول من `communication.message_max_length` (افتراضي 5000).\n**اختياري:** `message_type` (`text` / `system` / `chatbot`), `metadata` (object).\n\n**الصلاحية:** لازم تكون طرف في المحادثة.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"السلام عليكم، محتاج مساعدة في المشروع.\",\n  \"message_type\": \"text\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('message_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "قراءة الرسائل (List Messages)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "messages"
+              ]
+            },
+            "description": "**GET /api/v1/conversations/{conversation}/messages** — رسائل المحادثة.\n\n**الترقيم:** `communication.messages_per_page` (افتراضي 50). الرد فيه `meta`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعليم كمقروء (Mark as Read)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "read"
+              ]
+            },
+            "description": "**POST /api/v1/conversations/{conversation}/read** — تعليم رسائل المحادثة كمقروءة.\n\n**مفيش body.** بيصفّر عدّاد غير المقروء."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "حالة المحادثة (Conversation Status)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "status"
+              ]
+            },
+            "description": "**GET /api/v1/conversations/{conversation}/status** — حالة المحادثة وعدّاد غير المقروء.\n\nendpoint خفيف للواجهة عشان تحدّث الشارة."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إرسال رسالة للشات بوت (Chatbot Send)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/chatbot/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "chatbot",
+                "messages"
+              ]
+            },
+            "description": "**POST /api/v1/conversations/{conversation}/chatbot/messages** — إرسال رسالة للشات بوت.\n\n**لازم:** `body` (أقصى `communication.message_max_length`).\n**اختياري:** `metadata`, `source` (أقصى 100 حرف).\n\n**مهم:** الـ endpoint **بيفرض** `message_type=chatbot` — ولو بعت `message_type` من عندك بيترفض. عشان كده ما تحطش الحقل ده في الـ body.\n\n**الصلاحية:** لازم تكون طرف في المحادثة.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"اسأل الشات بوت سؤال\",\n  \"source\": \"mobile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 404, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.id !== undefined && j.data && j.data.id !== null) {",
+                  "  pm.collectionVariables.set('message_id', j.data && j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "رسائل الشات بوت (Chatbot Messages)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/chatbot/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "chatbot",
+                "messages"
+              ]
+            },
+            "description": "**GET /api/v1/conversations/{conversation}/chatbot/messages** — رسائل الشات بوت في المحادثة.\n\nالرد فيه `meta` للترقيم."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "15 · Notifications — الإشعارات",
+      "description": "القائمة، العدّاد، القراءة، والتفضيلات. **6 endpoints.**",
+      "item": [
+        {
+          "name": "إشعاراتي (My Notifications)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications?unread_only={{unread_only}}&category={{notification_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "{{unread_only}}"
+                },
+                {
+                  "key": "category",
+                  "value": "{{notification_category}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/notifications** — إشعارات المستخدم الحالي.\n\n**فلاتر:** `category` (نص)، `unread_only` (`1`/`true`).\n\nالرد فيه `meta` وفيه `unread_count` جاهز — يعني مش محتاج نداء تاني للشارة.\n\n**الصلاحية:** أي مستخدم مسجّل ونشِط."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data[0] && j.data[0].id !== undefined && j.data && j.data[0] && j.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('notification_id', j.data && j.data[0] && j.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "عدّاد غير المقروء (Unread Count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "**GET /api/v1/notifications/unread-count** — رقم واحد بس لغير المقروء.\n\nendpoint خفيف مخصص للـ polling من الفرونت."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعليم إشعار كمقروء (Mark as Read)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notification_id}}",
+                "read"
+              ]
+            },
+            "description": "**POST /api/v1/notifications/{notification}/read** — تعليم إشعار واحد كمقروء.\n\n**مفيش body.** الإشعار لازم يكون بتاع المستخدم الحالي."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعليم الكل كمقروء (Mark All as Read)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "**POST /api/v1/notifications/read-all** — تعليم كل إشعارات المستخدم كمقروءة.\n\n**مفيش body.**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفضيلاتي (Get Preferences)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "preferences"
+              ]
+            },
+            "description": "**GET /api/v1/notifications/preferences** — تفضيلات الإشعارات.\n\n**المنطق:** النظام opt-out — غياب الصف معناه **مُفعّل**. يعني اللي مش ظاهر في القائمة يبقى شغّال."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تعديل تفضيل (Update Preference)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "preferences"
+              ]
+            },
+            "description": "**PUT /api/v1/notifications/preferences** — تشغيل/إطفاء فئة على قناة.\n\n**لازم:** `category` (نص، أقصى 100)، `channel` (`in_app` أو `email`)، `enabled` (boolean).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"{{notification_category}}\",\n  \"channel\": \"email\",\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "16 · Organization — المؤسسة",
+      "description": "ملف المؤسسة المعتمدة. **1 endpoint.**",
+      "item": [
+        {
+          "name": "ملف المؤسسة (Organization Profile)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/organization/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "organization",
+                "profile"
+              ]
+            },
+            "description": "**GET /api/v1/organization/profile** — بيانات المؤسسة الخاصة بالمستخدم الحالي.\n\n**الصلاحية:** `organization.approved` — لازم المؤسسة تكون **معتمدة**، وإلا الطلب بيترفض. (ونفس السبب ده بيمنع الـ login أصلًا للمؤسسات `pending`.)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "17 · Admin — لوحة الأدمن",
+      "description": "إدارة واعتماد المؤسسات. **5 endpoints.**",
+      "item": [
+        {
+          "name": "قائمة المؤسسات (Admin — List Organizations)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations?status={{organization_status}}&per_page={{per_page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "{{organization_status}}"
+                },
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/admin/organizations** — كل طلبات تسجيل المؤسسات.\n\n**فلاتر:** `status` — `pending` / `verified` / `rejected` (غير كده بيتجاهله)، و `per_page` (افتراضي 15).\n\n**الصلاحية:** `admin` — لازم توكن أدمن."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.data && j.data.data[0] && j.data.data[0].id !== undefined && j.data && j.data.data && j.data.data[0] && j.data.data[0].id !== null) {",
+                  "  pm.collectionVariables.set('organization_id', j.data && j.data.data && j.data.data[0] && j.data.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل مؤسسة (Admin — Show Organization)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{organization_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{organization_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/admin/organizations/{organization}** — تفاصيل مؤسسة مع رابط مستند الإثبات عشان الأدمن يراجع قبل القرار.\n\n**الصلاحية:** `admin`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تحميل مستند الإثبات (Admin — Download Proof)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{organization_id}}/proof-file",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{organization_id}}",
+                "proof-file"
+              ]
+            },
+            "description": "**GET /api/v1/admin/organizations/{organization}/proof-file** — تحميل ملف إثبات هوية المؤسسة.\n\n**الصلاحية:** `admin`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "اعتماد مؤسسة (Admin — Approve)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{organization_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{organization_id}}",
+                "approve"
+              ]
+            },
+            "description": "**POST /api/v1/admin/organizations/{organization}/approve** — اعتماد المؤسسة.\n\n**مفيش body.** بعد الاعتماد أعضاء المؤسسة يقدروا يعملوا login.\n\nلو المؤسسة اتراجعت قبل كده → `422` \"This organization has already been reviewed.\"\n\n**الصلاحية:** `admin`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "رفض مؤسسة (Admin — Reject)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{organization_id}}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{organization_id}}",
+                "reject"
+              ]
+            },
+            "description": "**POST /api/v1/admin/organizations/{organization}/reject** — رفض المؤسسة.\n\n**اختياري:** `reason` (أقصى 1000 حرف) — بيتسجّل في `audit_events`.\n\nبيحوّل المؤسسة لـ `rejected` وملف الإثبات كمان. نفس شرط \"already reviewed\" → 422.\n\n**الصلاحية:** `admin`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"المستند المرفوع غير واضح.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422, 403, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422, 403, 404]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "18 · Internal & Setup — داخلي وإعداد",
+      "description": "endpoint خدمة-لخدمة + إنشاء الأدمن والمرشد. **3 endpoints.**",
+      "item": [
+        {
+          "name": "أسئلة التقييم الأساسي — داخلي (Internal Baseline Items)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Internal-Secret",
+                "value": "{{internal_baseline_items_secret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/internal/baseline-items?version=v1.0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "internal",
+                "baseline-items"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "v1.0"
+                }
+              ]
+            },
+            "description": "**GET /api/v1/internal/baseline-items?version=v1.0** — endpoint **خدمة لخدمة** لـ FastAPI (مش للمستخدم).\n\n**المصادقة:** هيدر `X-Internal-Secret` (مش Sanctum) — لأن النداء مش بالنيابة عن مستخدم. القيمة من `INTERNAL_BASELINE_ITEMS_SECRET`.\n\n**لازم (query):** `version` — نص.\n\nبيرجّع الأسئلة **مع الإجابات الصحيحة** (`correct_answer`) — وعلشان كده المقارنة بتحصل بـ `hash_equals()` (مقارنة ثابتة الوقت) عشان ما تتسرّبش المدة.\n\n**الردود:** `401` سر غلط أو مش مضبوط، `422` نسخة ناقصة.\n\n**معدّل الطلبات:** 60/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 401, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 401, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إنشاء أدمن (Setup — Create Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/setup/create-admin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "setup",
+                "create-admin"
+              ]
+            },
+            "description": "**POST /api/v1/setup/create-admin** — إنشاء حساب أدمن.\n\n**محمي بسر:** `ADMIN_SETUP_SECRET` في `secret` جوه الـ body. لو المتغير مش مضبوط في البيئة → **403** \"Admin setup is disabled\".\n\n**لازم:** `name`, `email` (جديد), `password` (8 أحرف على الأقل).\n\n**الرد 201** وفيه `token` جاهز — احفظه فورًا، أو اعمل login عادي بعد كده.\n\n**معدّل الطلبات:** 5/دقيقة (متشدد عن قصد).",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"{{admin_setup_secret}}\",\n  \"name\": \"أدمن المنصة\",\n  \"email\": \"{{new_admin_email}}\",\n  \"password\": \"{{new_admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.token !== undefined && j.data && j.data.token !== null) {",
+                  "  pm.collectionVariables.set('admin_token', j.data && j.data.token);",
+                  "}",
+                  "if (j.data && j.data.user_id !== undefined && j.data && j.data.user_id !== null) {",
+                  "  pm.collectionVariables.set('admin_user_id', j.data && j.data.user_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تسجيل مرشد (Setup — Create Mentor)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/setup/create-mentor",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "setup",
+                "create-mentor"
+              ]
+            },
+            "description": "**POST /api/v1/setup/create-mentor** — تسجيل مرشد (مش ترقية بس).\n\n**محمي بسر:** `MENTOR_SETUP_SECRET` في `secret` جوه الـ body — **مفيش توكن Sanctum**.\n\n**✅ مضبوط وشغّال على الإنتاج** — متأكدين منه live على `back-end-zdip`: طلب بالسر الصح **من غير** `email` بيرجّع `422 \"The email field is required.\"` (يعني السر عدّى)، وبالسر الغلط بيرجّع `403 \"Invalid setup secret.\"`. لو المتغير اتشال من البيئة بيرجّع `403 \"Mentor setup is disabled…\"`. المتغيرات على Render لكل خدمة لوحدها — لازم يكون على `back-end-zdip` تحديدًا، مش على `skillspan-intelligence` ولا الفرونت.\n\n**لازم:** `email`.\n**اختياري:** `name`, `password`, `expertise`, `affiliation`, `availability`.\n\n**السلوك حسب حالة الإيميل:**\n- مش موجود → بينشئ مستخدم `active` ومفعّل على طول (`email_verified_at=now()`)\n- `pending` → بيفعّله\n- `active` → بيرقّيه مرشد\n- `suspended` / `deleted` → **422**\n\nوبعدين بيعمل/بيحدّث `ProfessionalProfile` بـ `type=mentor` و `verification_status=verified` — ودي الهوية اللي بتفتح مسارات المرشد كلها. **المستخدم الجديد مابياخدش أي role.**\n\n**مهم:** ده كمان **مسار إعادة تعيين كلمة المرور** — لو بعت `password` لإيميل موجود، الباسورد بيتبدّل (`password_reset: true` في الرد). لو سِبته فاضي، الباسورد القديم ما بيتغيّرش — لأن فلو الـ OTP بيبعت الكود على إيميل المرشد اللي ممكن ما يكونش تحت إيدك.\n\n**الرد 201** وفيه `generated_password` **مرة واحدة بس** لو المستخدم جديد. ومابيرجّعش أبدًا باسورد إنت اللي بعتّه.\n\n**معدّل الطلبات:** 10/دقيقة.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret\": \"{{mentor_setup_secret}}\",\n  \"email\": \"{{new_mentor_email}}\",\n  \"name\": \"د. محمد المرشد\",\n  \"password\": \"{{new_mentor_password}}\",\n  \"expertise\": \"هندسة البرمجيات\",\n  \"affiliation\": \"جامعة القاهرة\",\n  \"availability\": \"متاح 3 أيام أسبوعيًا\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 201, 403, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 403, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (j.data && j.data.user_id !== undefined && j.data && j.data.user_id !== null) {",
+                  "  pm.collectionVariables.set('mentor_user_id', j.data && j.data.user_id);",
+                  "}",
+                  "if (j.data && j.data.generated_password !== undefined && j.data && j.data.generated_password !== null) {",
+                  "  pm.collectionVariables.set('generated_mentor_password', j.data && j.data.generated_password);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "19 · System — النظام",
+      "description": "فحص الصحة وتوثيق Swagger. **2 endpoints.**",
+      "item": [
+        {
+          "name": "فحص الصحة (Health Check)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/up",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "up"
+              ]
+            },
+            "description": "**GET /up** — فحص صحة التطبيق (Laravel health route).\n\n**200** = التطبيق شغّال. أسرع طريقة تتأكد إن النشر نجح.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "توثيق Swagger (API Documentation)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/documentation",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "documentation"
+              ]
+            },
+            "description": "**GET /api/documentation** — واجهة Swagger UI لتوثيق الـ API.\n\nبيرجّع **HTML** (مش JSON) — افتحه في المتصفح. المواصفة نفسها على `/docs` أو حسب إعداد `config/l5-swagger.php`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Swagger OAuth2 Callback",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/oauth2-callback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "oauth2-callback"
+              ]
+            },
+            "description": "**GET /api/oauth2-callback** — مسار داخلي جاي من حزمة `l5-swagger` (مش endpoint تجاري ومش مخصص للاختبار اليدوي).\n\nموجود هنا للاكتمال بس — Swagger UI هو اللي بيستخدمه في فلو OAuth2 عشان يستقبل الـ authorization code. **متستخدمهوش في الاختبار.**",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 302, 400, 401, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 302, 400, 401, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -28,7 +28,12 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            // Same disposable-email gate as the individual flow — this is the
+            // other self-registration path. Deliberately NOT applied to
+            // 'organization_contact_email' below: that is a public contact
+            // address, not the account identity, and the account cannot log in
+            // until an administrator approves the organisation.
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email', 'indisposable'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'terms_accepted' => ['required', 'accepted'],
@@ -56,6 +61,7 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
+            'email.indisposable' => 'Disposable or temporary email addresses are not allowed.',
             'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
             'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
             'proof_file.required' => 'Please upload a document proving the organization\'s identity (company or university registration certificate).',
