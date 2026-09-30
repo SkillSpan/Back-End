@@ -778,10 +778,12 @@ class IntelligenceCalculateTest extends TestCase
         $this->assertSame(2, RoadmapAction::where('roadmap_id', $roadmaps[0]->id)->count());
         $this->assertSame(2, RoadmapAction::where('roadmap_id', $roadmaps[1]->id)->count());
 
-        // The roadmap carries its decision linkage and versions.
+        // The roadmap carries its decision linkage and versions. The
+        // algorithm/configuration versions are the ROADMAP's own (FastAPI
+        // owns them), not the skill-gap response's.
         $this->assertNotNull($roadmaps[1]->decision_snapshot_id);
-        $this->assertSame('intelligence-v1', $roadmaps[1]->algorithm_version);
-        $this->assertSame('config-v1', $roadmaps[1]->configuration_version);
+        $this->assertSame('roadmap-v1', $roadmaps[1]->algorithm_version);
+        $this->assertSame('roadmap-config-v1', $roadmaps[1]->configuration_version);
     }
 
     // ------------------------------------------------ helpers
@@ -944,7 +946,8 @@ class IntelligenceCalculateTest extends TestCase
             'student_profile_id' => (int) $profile->id,
             'career_role_id' => (int) $role->id,
             'career_role_version' => (int) $role->version,
-            'algorithm_version' => 'intelligence-v1',
+            'algorithm_version' => 'roadmap-v1',
+            'configuration_version' => 'roadmap-config-v1',
 
             // DS-generated contract value; Laravel assigns the persisted
             // version itself (max+1), so this stays 1 across both calls.
@@ -961,6 +964,7 @@ class IntelligenceCalculateTest extends TestCase
                             'target_skill_id' => (int) $roleSkills[0]->skill_id,
                             'priority_score' => 0.9,
                             'estimated_hours' => 6.0,
+                            'estimated_duration_weeks' => 1.5,
                             'completion_criteria' => 'Complete the practice set',
                             'explanation' => 'Critical skill with the largest gap',
                         ],
@@ -972,6 +976,7 @@ class IntelligenceCalculateTest extends TestCase
                             'prerequisite_skill_ids' => [(int) $roleSkills[0]->skill_id],
                             'priority_score' => 0.6,
                             'estimated_hours' => 4.0,
+                            'estimated_duration_weeks' => 1.0,
                         ],
                     ],
                 ],

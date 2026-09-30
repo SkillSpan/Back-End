@@ -4,6 +4,7 @@ namespace App\Services\Intelligence;
 
 use App\Exceptions\IntelligenceException;
 use App\Models\CareerRole;
+use App\Models\CareerRoleSkill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
@@ -89,9 +90,7 @@ class IntelligencePayloadBuilder
                 'is_critical' => (bool) $roleSkill->is_critical,
                 'confidence' => $confidence,
                 'evidence' => $evidenceSummary[$skillId] ?? [],
-                'prerequisite_skill_ids' => $roleSkill->prerequisite_skill_id !== null
-                    ? [(int) $roleSkill->prerequisite_skill_id]
-                    : [],
+                'prerequisite_skill_ids' => $this->prerequisiteSkillIds($roleSkill),
             ];
         }
 
@@ -100,6 +99,9 @@ class IntelligencePayloadBuilder
                 'student_profile_id' => (int) $studentProfile->id,
                 'user_id' => (int) $studentProfile->user_id,
                 'availability' => $studentProfile->availability,
+                'weekly_availability_hours' => $studentProfile->weekly_availability_hours !== null
+                    ? (float) $studentProfile->weekly_availability_hours
+                    : null,
             ],
             'role' => [
                 'id' => (int) $careerRole->id,
@@ -110,6 +112,35 @@ class IntelligencePayloadBuilder
             'algorithm_version' => $algorithmVersion,
             'configuration_version' => $configurationVersion,
         ];
+    }
+
+    /**
+     * All prerequisite skill IDs for one required role skill.
+     *
+     * The `career_role_skill_dependencies` relation is the source of truth
+     * and may return MANY prerequisites. The legacy single
+     * `prerequisite_skill_id` column is used only as a fallback when the
+     * relation carries no rows, so existing data that predates the
+     * dependency table is not silently dropped. IDs are de-duplicated,
+     * kept as integers, and returned as an empty array when there are none
+     * (never null).
+     *
+     * @return list<int>
+     */
+    private function prerequisiteSkillIds(CareerRoleSkill $roleSkill): array
+    {
+        $ids = $roleSkill->prerequisites
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === [] && $roleSkill->prerequisite_skill_id !== null) {
+            $ids = [(int) $roleSkill->prerequisite_skill_id];
+        }
+
+        return $ids;
     }
 
     private function assertLevelInRange(float $level, string $field): void

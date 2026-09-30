@@ -74,11 +74,12 @@ return [
             '/api/v1/skill-gap',
         ),
 
-        // UNVERIFIED: the deployed service exposes no roadmap endpoint in
-        // any form (prefixed or not), so this path cannot be confirmed
-        // against a live contract yet. It is inert while
-        // `roadmap_enabled` is false, and whoever enables roadmap
-        // generation must confirm this path against the service first.
+        // Roadmap v1 — published and available at POST /api/v1/roadmap.
+        // Requests are transformed by
+        // IntelligenceClient::toRoadmapRequest() before they are sent, so
+        // the service receives the RoadmapRequest contract (`learner` /
+        // `role` / `skills`) rather than Laravel's internal payload.
+        // Generation stays inert while `roadmap_enabled` is false.
         'roadmap_path' => env(
             'DATA_SCIENCE_ROADMAP_PATH',
             '/api/v1/roadmap',
@@ -122,8 +123,10 @@ return [
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
 
         // Which intelligence endpoints are enabled. Roadmap generation is
-        // gated because the FastAPI roadmap endpoint is still being
-        // rolled out — disabled means 503, never a fabricated result.
+        // gated behind this flag (false by default) so enabling the
+        // published Roadmap v1 flow is an explicit, per-environment
+        // decision; while disabled the flow throws 503
+        // INTELLIGENCE_NOT_CONFIGURED instead of fabricating a result.
         'roadmap_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ENABLED', false),
 
         'baseline' => [

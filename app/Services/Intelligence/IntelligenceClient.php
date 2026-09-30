@@ -173,6 +173,75 @@ class IntelligenceClient
         ];
     }
 
+    /**
+     * Map the canonical internal payload onto the FastAPI Roadmap v1
+     * request (POST /api/v1/roadmap).
+     *
+     * The published RoadmapRequest carries EXACTLY three top-level keys:
+     * `learner`, `role` and `skills`. The internal payload is a SUPERSET —
+     * it also carries Laravel-only concerns (`skill_gap_result` when the
+     * caller enriched it, the per-skill `evidence` summary, the resolved
+     * `algorithm_version` / `configuration_version`, persistence metadata,
+     * …). None of that belongs on the wire, so this method is an explicit
+     * ALLOW-LIST:
+     *
+     *   learner  : student_profile_id, user_id, availability,
+     *              weekly_availability_hours
+     *   role     : id, title, version
+     *   skills[] : skill_id, skill_name, current_level, required_level,
+     *              importance_weight, is_critical, confidence,
+     *              prerequisite_skill_ids
+     *
+     * It deliberately does NOT forward `skill_gap_result`, the per-skill
+     * `evidence` summary, `algorithm_version` / `configuration_version`,
+     * or any other Laravel-owned field (`roadmap_version`, `status`,
+     * decision-snapshot metadata). It never fabricates a value and never
+     * renames a field: the mapping is deterministic.
+     *
+     * `confidence` is forwarded unchanged (0..100) — it is not rescaled.
+     *
+     * @param  array<string, mixed>  $payload  internal intelligence payload
+     * @return array<string, mixed> the RoadmapRequest body
+     */
+    public function toRoadmapRequest(array $payload): array
+    {
+        $learner = $payload['learner'] ?? [];
+        $role = $payload['role'] ?? [];
+
+        $skills = [];
+
+        foreach ($payload['skills'] ?? [] as $skill) {
+            $skills[] = [
+                'skill_id' => (int) $skill['skill_id'],
+                'skill_name' => (string) $skill['skill_name'],
+                'current_level' => (float) $skill['current_level'],
+                'required_level' => (float) $skill['required_level'],
+                'importance_weight' => (float) $skill['importance_weight'],
+                'is_critical' => (bool) $skill['is_critical'],
+                'confidence' => (float) $skill['confidence'],
+                'prerequisite_skill_ids' => array_values(array_map(
+                    static fn ($id): int => (int) $id,
+                    $skill['prerequisite_skill_ids'] ?? [],
+                )),
+            ];
+        }
+
+        return [
+            'learner' => [
+                'student_profile_id' => (int) $learner['student_profile_id'],
+                'user_id' => (int) $learner['user_id'],
+                'availability' => $learner['availability'] ?? null,
+                'weekly_availability_hours' => $learner['weekly_availability_hours'] ?? null,
+            ],
+            'role' => [
+                'id' => (int) $role['id'],
+                'title' => (string) $role['title'],
+                'version' => (int) $role['version'],
+            ],
+            'skills' => $skills,
+        ];
+    }
+
     public function generateRoadmap(array $payload, string $requestId): array
     {
         if (! config('services.data_science.roadmap_enabled', false)) {
@@ -184,15 +253,22 @@ class IntelligenceClient
         }
 
         /*
-         * UNVERIFIED PATH. The deployed service exposes no roadmap endpoint
-         * in any form, so unlike skill-gap this cannot be confirmed against
-         * a live contract. The body is Laravel's nested internal payload,
-         * also unconfirmed. Enabling roadmap generation without first
-         * confirming both against the service will fail.
+         * The Roadmap v1 endpoint is published and available at
+         * POST /api/v1/roadmap.
+         *
+         * The internal payload is NEVER sent as-is: toRoadmapRequest()
+         * transforms it into the RoadmapRequest contract (`learner` /
+         * `role` / `skills`) before the call, so internal fields
+         * (skill_gap_result, evidence, versions, persistence metadata) do
+         * not leave Laravel.
+         *
+         * Generation stays gated behind `roadmap_enabled` (false by
+         * default): while disabled this throws 503
+         * INTELLIGENCE_NOT_CONFIGURED instead of fabricating a roadmap.
          */
         return $this->post(
             (string) config('services.data_science.roadmap_path', '/api/v1/roadmap'),
-            $payload,
+            $this->toRoadmapRequest($payload),
             $requestId,
             'roadmap',
         );
@@ -277,10 +353,10 @@ class IntelligenceClient
      * Correlation identifiers for structured logging.
      *
      * post() is shared by endpoints with different body shapes: the
-     * skill-gap call sends the deployed FLAT SkillGapRequest, while the
-     * (unverified) roadmap call still sends Laravel's nested internal
-     * payload. Reading both shapes keeps the correlation fields
-     * populated instead of silently logging nulls.
+     * skill-gap call sends the flat SkillGapRequest, while the roadmap call
+     * sends the nested RoadmapRequest produced by toRoadmapRequest().
+     * Reading both shapes keeps the correlation fields populated instead of
+     * silently logging nulls.
      *
      * @return array<string, int|string|null>
      */
