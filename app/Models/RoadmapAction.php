@@ -23,9 +23,32 @@ class RoadmapAction extends Model
         return $this->belongsTo(Skill::class, 'target_skill_id');
     }
 
+    /**
+     * Legacy single-prerequisite relation. Kept for backward compatibility;
+     * new code reads the full set through prerequisites().
+     */
     public function prerequisiteSkill()
     {
         return $this->belongsTo(Skill::class, 'prerequisite_skill_id');
+    }
+
+    /**
+     * The full prerequisite set, via roadmap_action_prerequisites.
+     * Source of truth for multiple prerequisites per action.
+     */
+    public function prerequisiteEntries()
+    {
+        return $this->hasMany(RoadmapActionPrerequisite::class);
+    }
+
+    public function prerequisites()
+    {
+        return $this->belongsToMany(
+            Skill::class,
+            'roadmap_action_prerequisites',
+            'roadmap_action_id',
+            'skill_id'
+        );
     }
 
     public function learningActivities()

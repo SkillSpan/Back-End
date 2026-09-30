@@ -337,39 +337,50 @@ class IntelligenceResponseValidator
     }
 
     /**
-     * Roadmap contract: version/status echo, phases with actions, known
-     * target skills, priority in 0..1, positive effort/duration, and a
-     * valid next best action pointing at a returned action.
+     * Roadmap contract: phases with actions, known target skills, priority
+     * in 0..1, positive effort/duration, and a valid next best action
+     * pointing at a returned action.
+     *
+     * Version ownership (Roadmap v1): FastAPI owns `algorithm_version` and
+     * `configuration_version` and MUST send them. `roadmap_version` and
+     * `status` are Laravel-owned (see IntelligencePersistenceService — the
+     * persisted version is derived from the learner's roadmap history, the
+     * status from Laravel's lifecycle), so FastAPI is NOT required to send
+     * them; when it does, they are still validated.
      */
     public function validateRoadmap(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);
         $this->validateAlgorithmVersion($result);
+        $this->validateConfigurationVersion($result);
 
-        foreach (['roadmap_version', 'status', 'phases'] as $key) {
-            if (! array_key_exists($key, $result)) {
+        // Laravel-owned, validated only when the service chooses to echo them.
+        if (array_key_exists('roadmap_version', $result)) {
+            if (! is_int($result['roadmap_version']) || $result['roadmap_version'] < 1) {
                 throw new IntelligenceException(
-                    'The intelligence service response is missing mandatory roadmap metadata.',
+                    'The intelligence service response contains an invalid roadmap version.',
                     502,
                     'INTELLIGENCE_INVALID_RESPONSE',
-                    ['missing_field' => $key],
                 );
             }
         }
 
-        if (! is_int($result['roadmap_version']) || $result['roadmap_version'] < 1) {
-            throw new IntelligenceException(
-                'The intelligence service response contains an invalid roadmap version.',
-                502,
-                'INTELLIGENCE_INVALID_RESPONSE',
-            );
+        if (array_key_exists('status', $result)) {
+            if (! is_string($result['status']) || $result['status'] === '') {
+                throw new IntelligenceException(
+                    'The intelligence service response contains an invalid roadmap status.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                );
+            }
         }
 
-        if (! is_string($result['status']) || $result['status'] === '') {
+        if (! array_key_exists('phases', $result)) {
             throw new IntelligenceException(
-                'The intelligence service response contains an invalid roadmap status.',
+                'The intelligence service response is missing mandatory roadmap metadata.',
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'phases'],
             );
         }
 
@@ -530,6 +541,25 @@ class IntelligenceResponseValidator
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
                 ['missing_field' => 'algorithm_version'],
+            );
+        }
+    }
+
+    /**
+     * FastAPI owns the roadmap configuration version and must echo it.
+     */
+    private function validateConfigurationVersion(array $result): void
+    {
+        if (
+            ! array_key_exists('configuration_version', $result)
+            || ! is_string($result['configuration_version'])
+            || trim($result['configuration_version']) === ''
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response is missing valid configuration version metadata.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'configuration_version'],
             );
         }
     }

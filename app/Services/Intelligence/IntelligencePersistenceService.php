@@ -6,6 +6,7 @@ use App\Models\DecisionSnapshot;
 use App\Models\ReadinessResult;
 use App\Models\Roadmap;
 use App\Models\RoadmapAction;
+use App\Models\RoadmapActionPrerequisite;
 use App\Models\SkillGapResult;
 use Illuminate\Support\Facades\DB;
 
@@ -178,14 +179,14 @@ class IntelligencePersistenceService
                 ->update(['status' => Roadmap::STATUS_SUPERSEDED]);
 
             /*
-             * Roadmap version semantics (US-INT-01): Laravel owns the
-             * persisted roadmap version — it is always the highest
-             * existing version for this (learner, role) plus one, so
-             * historical roadmaps can never collapse onto the same
-             * version. The `roadmap_version` returned by FastAPI stays
-             * part of the contract and is validated by the response
-             * validator, but it is NOT used as the persisted version:
-             * a stateless service cannot know the learner's history.
+             * Roadmap version semantics (US-INT-01 / Roadmap v1): Laravel
+             * owns the persisted roadmap version AND status — the version is
+             * always the highest existing version for this (learner, role)
+             * plus one, so historical roadmaps can never collapse onto the
+             * same version, and the previous active roadmap is superseded
+             * above. FastAPI is NOT required to send `roadmap_version` /
+             * `status`: a stateless service cannot know the learner's
+             * history, so those values are never taken from the response.
              */
             $nextVersion = ((int) Roadmap::query()
                 ->where('student_profile_id', $snapshot->student_profile_id)
@@ -200,37 +201,64 @@ class IntelligencePersistenceService
                 'version' => $nextVersion,
                 'status' => Roadmap::STATUS_ACTIVE,
                 'generated_at' => now(),
-                'algorithm_version' => $algorithmVersion,
-                'configuration_version' => $configurationVersion,
+                /*
+                 * Ownership: FastAPI owns the roadmap algorithm/configuration
+                 * versions and echoes them on its OWN roadmap response — they
+                 * are NOT taken from the skill-gap response, which describes a
+                 * different calculation and may legitimately report different
+                 * values. The skill-gap-derived values remain a defensive
+                 * fallback only.
+                 */
+                'algorithm_version' => $roadmap['algorithm_version'] ?? $algorithmVersion,
+                'configuration_version' => $roadmap['configuration_version'] ?? $configurationVersion,
                 'request_id' => $requestId,
                 'explanation' => $roadmap['explanation'] ?? null,
             ]);
 
-            $this->persistRoadmapActions($model, $roadmap, $skillNameById);
+            $actionIdMap = $this->persistRoadmapActions($model, $roadmap, $skillNameById);
 
-            return $model->fresh(['actions']);
+            $nextBestActionId = $this->resolveNextBestActionId($roadmap, $actionIdMap);
+
+            if ($nextBestActionId !== null) {
+                $model->forceFill(['next_best_action_id' => $nextBestActionId])->save();
+            }
+
+            return $model->fresh(['actions.prerequisites']);
         });
     }
 
     /**
+     * Persist every roadmap action together with its FULL prerequisite set.
+     *
+     * Multiple prerequisites are stored in `roadmap_action_prerequisites`;
+     * the legacy single column keeps the first prerequisite so existing
+     * readers that only know about it do not regress.
+     *
      * @param  array<string, string>  $skillNameById
+     * @return array<string, RoadmapAction> FastAPI action_id => persisted action
      */
-    private function persistRoadmapActions(Roadmap $roadmap, array $result, array $skillNameById): void
+    private function persistRoadmapActions(Roadmap $roadmap, array $result, array $skillNameById): array
     {
         $orderIndex = 0;
+        $actionIdMap = [];
 
         foreach ($result['phases'] as $phase) {
             foreach ($phase['actions'] as $action) {
                 $targetSkillId = $action['target_skill_id'] ?? null;
 
-                RoadmapAction::create([
+                $prerequisiteSkillIds = $this->normalizePrerequisiteIds(
+                    $action['prerequisite_skill_ids'] ?? [],
+                );
+
+                $model = RoadmapAction::create([
                     'roadmap_id' => $roadmap->id,
                     'phase' => $this->mapPhase($phase['phase']),
                     'type' => $this->mapType($action['action_type']),
                     'target_skill_id' => $targetSkillId !== null ? (int) $targetSkillId : null,
-                    'prerequisite_skill_id' => isset($action['prerequisite_skill_ids'][0])
-                        ? (int) $action['prerequisite_skill_ids'][0]
-                        : null,
+                    // Legacy single-prerequisite column: first id only, for
+                    // backward compatibility. The relation below is the source
+                    // of truth for the complete set.
+                    'prerequisite_skill_id' => $prerequisiteSkillIds[0] ?? null,
                     'title' => (string) $action['title'],
                     'objective' => $action['objective'] ?? null,
                     'description' => $action['description'] ?? null,
@@ -251,8 +279,66 @@ class IntelligencePersistenceService
                     'completion_criteria' => $action['completion_criteria'] ?? null,
                     'explanation' => $action['explanation'] ?? null,
                 ]);
+
+                foreach ($prerequisiteSkillIds as $prerequisiteSkillId) {
+                    RoadmapActionPrerequisite::create([
+                        'roadmap_action_id' => $model->id,
+                        'skill_id' => $prerequisiteSkillId,
+                    ]);
+                }
+
+                if (isset($action['action_id'])) {
+                    $actionIdMap[(string) $action['action_id']] = $model;
+                }
             }
         }
+
+        return $actionIdMap;
+    }
+
+    /**
+     * Resolve FastAPI's next_best_action_id to the persisted action of the
+     * SAME roadmap. The map is built only from this roadmap's actions, so a
+     * cross-roadmap reference can never be stored; an id that does not map
+     * to a returned action is left unset (the response validator already
+     * rejects such a response before persistence).
+     *
+     * @param  array<string, mixed>  $roadmap
+     * @param  array<string, RoadmapAction>  $actionIdMap
+     */
+    private function resolveNextBestActionId(array $roadmap, array $actionIdMap): ?int
+    {
+        $nextBestActionId = $roadmap['next_best_action_id'] ?? null;
+
+        if ($nextBestActionId === null) {
+            return null;
+        }
+
+        $action = $actionIdMap[(string) $nextBestActionId] ?? null;
+
+        return $action instanceof RoadmapAction ? (int) $action->id : null;
+    }
+
+    /**
+     * De-duplicated list of integer prerequisite skill ids.
+     *
+     * @return list<int>
+     */
+    private function normalizePrerequisiteIds(mixed $ids): array
+    {
+        if (! is_array($ids)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($ids as $id) {
+            if (is_numeric($id)) {
+                $normalized[] = (int) $id;
+            }
+        }
+
+        return array_values(array_unique($normalized));
     }
 
     private function mapPhase(string $phase): string

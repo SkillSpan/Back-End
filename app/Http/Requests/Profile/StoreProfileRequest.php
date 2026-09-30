@@ -37,6 +37,7 @@ class StoreProfileRequest extends FormRequest
             'interests' => ['nullable', 'array'],
             'interests.*' => ['string', 'max:100'],
             'availability' => ['nullable', 'string', 'max:100'],
+            'weekly_availability_hours' => ['nullable', 'numeric', 'between:0,168'],
             'preferred_work_type' => ['nullable', 'string', 'max:100'],
             'visibility' => ['sometimes', 'in:public,organization_only,private'],
         ];
