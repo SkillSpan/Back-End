@@ -691,6 +691,22 @@ class ProjectLifecycleService
             return $this->resolveCompanySponsoredOwnership($actor, $requestedOrganizationId, $requestedOwnerId);
         }
 
+        // Anything that is not a known type is REFUSED rather than treated as a
+        // simulation. Falling through to the simulation branch would hand an
+        // unrecognised (or mistyped) type the weakest ownership rules —
+        // no company, creator as owner — which is precisely the wrong default
+        // for the one function that decides ownership. The FormRequest already
+        // restricts the type, so this is the second line of defence for any
+        // future caller of the service.
+        if ($type !== self::TYPE_SIMULATION) {
+            throw new ProjectException(
+                'Unsupported project type.',
+                422,
+                'PROJECT_TYPE_INVALID',
+                ['type' => $type],
+            );
+        }
+
         return $this->resolveSimulationOwnership($actor, $requestedOrganizationId, $currentOwnerId);
     }
 

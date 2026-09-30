@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Projects;
 
+use App\Exceptions\ProjectException;
 use App\Models\AuditEvent;
 use App\Models\Organization;
 use App\Models\Project;
@@ -10,6 +11,7 @@ use App\Models\Skill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
+use App\Services\Projects\ProjectLifecycleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -1057,5 +1059,145 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_REVIEW_SELF_FORBIDDEN');
 
         $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
+    }
+
+    // -----------------------------------------------------------------
+    // M. Ownership re-validation on a TYPE CHANGE (update path)
+    //
+    // Creation and update are separate code paths, and ownership is
+    // re-resolved on update, so the same guarantees have to be proven there
+    // too — a gap here would let a simulation be converted into a company
+    // project with an owner the company never agreed to.
+    // -----------------------------------------------------------------
+
+    public function test_a_type_change_cannot_assign_a_representative_of_another_company(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $otherCompany = $this->organization('Other Company');
+        $foreignRepresentative = $this->user('rep@other.com', 'company_admin', $otherCompany);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $admin);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", [
+            'type' => 'company_sponsored',
+            'organization_id' => $company->id,
+            'owner_id' => $foreignRepresentative->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_NOT_ORGANIZATION_REPRESENTATIVE');
+
+        $fresh = $simulation->fresh();
+        $this->assertSame('simulation', $fresh->type);
+        $this->assertNull($fresh->organization_id);
+    }
+
+    public function test_a_type_change_cannot_assign_the_administrator_as_the_owner(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $admin);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", [
+            'type' => 'company_sponsored',
+            'organization_id' => $company->id,
+            'owner_id' => $admin->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_MUST_BE_COMPANY_REPRESENTATIVE');
+
+        $this->assertSame('simulation', $simulation->fresh()->type);
+    }
+
+    public function test_a_type_change_cannot_target_an_unapproved_company(): void
+    {
+        $pending = $this->pendingCompany();
+        $representative = $this->user('rep@pending.com', 'company_admin', $pending);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $admin);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", [
+            'type' => 'company_sponsored',
+            'organization_id' => $pending->id,
+            'owner_id' => $representative->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_NOT_VERIFIED');
+
+        $this->assertSame('simulation', $simulation->fresh()->type);
+    }
+
+    /**
+     * A representative's own organization always wins over a supplied one, on
+     * the update path exactly as on create.
+     */
+    public function test_a_representative_cannot_link_a_type_change_to_another_company(): void
+    {
+        $own = $this->organization('Own Company');
+        $other = $this->organization('Other Company');
+        $actor = $this->user('company@test.com', 'company_admin', $own);
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $actor);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($actor);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", [
+            'type' => 'company_sponsored',
+            'organization_id' => $other->id,
+        ])->assertOk();
+
+        $fresh = $simulation->fresh();
+        $this->assertSame($own->id, $fresh->organization_id);
+        $this->assertSame($actor->id, $fresh->owner_id);
+    }
+
+    /**
+     * The reverse conversion preserves the existing owner — an administrator
+     * editing someone else's project must not inherit it by flipping the type.
+     */
+    public function test_converting_to_simulation_preserves_the_existing_owner(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $representative = $this->user('rep@company.com', 'company_admin', $company);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $project = $this->completeProject(Project::STATUS_DRAFT, $representative);
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$project->id}", ['type' => 'simulation'])
+            ->assertOk()
+            ->assertJsonPath('data.type', 'simulation');
+
+        $this->assertSame($representative->id, $project->fresh()->owner_id);
+    }
+
+    /**
+     * Defence in depth at the single ownership decision point: an unrecognised
+     * type must be REFUSED, never quietly given simulation ownership (no
+     * company, creator as owner). The FormRequest already restricts the type,
+     * so this asserts against the service directly — the path a future caller
+     * would take.
+     */
+    public function test_an_unknown_project_type_is_refused_by_the_ownership_resolver(): void
+    {
+        $actor = $this->user('company@test.com', 'company_admin', $this->organization());
+
+        $this->expectException(ProjectException::class);
+        $this->expectExceptionMessage('Unsupported project type.');
+
+        (new ProjectLifecycleService)->create($actor, $this->payload(['type' => 'volunteering']));
     }
 }
