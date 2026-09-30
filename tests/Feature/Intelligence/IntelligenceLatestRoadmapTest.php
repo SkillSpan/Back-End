@@ -25,11 +25,12 @@ use Tests\TestCase;
  * US-INT-01 §22/§28 — the roadmap half of the intelligence decision and
  * the `GET /api/v1/intelligence/latest` read model.
  *
- * The roadmap endpoint is NOT deployed by the Data Science service, so
- * generation is feature-flagged off. These tests pin the two things that
- * matter: (1) a disabled flag must never fabricate a roadmap, and must not
- * disturb skill gaps / readiness; (2) when a roadmap IS persisted, the
- * latest endpoint must actually return it.
+ * The Roadmap v1 endpoint is published at POST /api/v1/roadmap, but
+ * generation is feature-flagged off (DATA_SCIENCE_ROADMAP_ENABLED=false)
+ * so enabling it is an explicit decision. These tests pin the two things
+ * that matter: (1) a disabled flag must never fabricate a roadmap, and
+ * must not disturb skill gaps / readiness; (2) when a roadmap IS
+ * persisted, the latest endpoint must actually return it.
  */
 class IntelligenceLatestRoadmapTest extends TestCase
 {
@@ -58,8 +59,8 @@ class IntelligenceLatestRoadmapTest extends TestCase
 
     public function test_roadmap_is_not_generated_while_the_flag_is_disabled(): void
     {
-        // Default configuration: DATA_SCIENCE_ROADMAP_ENABLED is false
-        // because the service exposes no roadmap endpoint.
+        // Default configuration: DATA_SCIENCE_ROADMAP_ENABLED is false, so
+        // roadmap generation is opt-in and never runs implicitly.
         $this->assertFalse((bool) config('services.data_science.roadmap_enabled'));
 
         [$user, $profile, $role, $roleSkills] = $this->createScenario();

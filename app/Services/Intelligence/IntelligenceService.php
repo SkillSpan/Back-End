@@ -21,7 +21,7 @@ use Throwable;
  *  3. resolve algorithm/configuration versions
  *  4. build payload + persist the PENDING decision snapshot (pre-call)
  *  5. FastAPI skill-gap → validate (per-skill gaps AND the readiness block)
- *  6. FastAPI roadmap    → validate (when enabled; contract unverified)
+ *  6. FastAPI roadmap    → transform via toRoadmapRequest() → validate (when enabled)
  *  7. persist the COMPLETE decision atomically
  *
  * Laravel stays authoritative: no result is trusted before validation,
@@ -182,12 +182,16 @@ class IntelligenceService
 
             if (config('services.data_science.roadmap_enabled', false)) {
                 /*
-                 * NOTE: the roadmap contract is UNVERIFIED. No roadmap
-                 * endpoint is deployed, so unlike skill-gap there is no
-                 * live schema to map onto — the internal payload is sent
-                 * as-is and this call is expected to fail until Data
-                 * Science publishes the endpoint. Enabling it without
-                 * confirming the contract first will produce a 502.
+                 * Roadmap v1 is published at POST /api/v1/roadmap.
+                 *
+                 * The internal payload is NOT sent directly: IntelligenceClient
+                 * transforms it through toRoadmapRequest(), so FastAPI
+                 * receives the RoadmapRequest contract (`learner` / `role` /
+                 * `skills`) and internal fields such as `skill_gap_result`
+                 * never leave Laravel. The enriched local payload below is
+                 * only the INPUT to that transformation.
+                 *
+                 * Generation remains gated behind `roadmap_enabled`.
                  */
                 $roadmapPayload = array_merge($payload, ['skill_gap_result' => $skillGap]);
                 $roadmap = $this->client->generateRoadmap($roadmapPayload, $requestId);
