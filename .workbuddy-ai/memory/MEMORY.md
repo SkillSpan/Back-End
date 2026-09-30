@@ -46,6 +46,14 @@ US-MATCH-02 = Ahmed's task, our code.
 ## Conventions that bite
 
 - Migrations **additive + idempotent** (`Schema::hasColumn` guards) — SQLite cannot validate MySQL DDL.
+- **A deploy dies on `migrate` when the `migrations` table is emptied.** CMD is
+  `migrate --force && config:cache && (seed &) && serve`, so one failed migration fails the deploy
+  (`1050 Table 'password_reset_tokens' already exists`, from `0001_01_01_000000_create_users_table.php`
+  — that file creates only `password_reset_tokens` + `sessions`; `users` comes from
+  `2026_01_01_000000_create_users_table.php`). **32/100 migrations have a no-op `down()`** (every
+  ALTER), so `migrate:reset` deletes rows without dropping tables. Diagnose + repair:
+  `storage/app/_diag_applied.php`, `storage/app/_fix_migrations_table.php`. Post-mortem:
+  `MIGRATIONS_TABLE_INCIDENT.md`.
 - **Never send two edits to the same file in one message** — the second silently reverts the first.
   `Write` overwrites wholesale, so it is safe.
 - **Columns kept out of `$fillable` must be written explicitly** — via `create()`/`updateOrCreate()`
