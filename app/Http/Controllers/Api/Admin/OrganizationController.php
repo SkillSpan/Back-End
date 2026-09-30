@@ -69,13 +69,7 @@ class OrganizationController extends Controller
     public function approve(Request $request, Organization $organization): JsonResponse
     {
         if ($organization->verification_status !== 'pending') {
-            return response()->json([
-                'success' => false,
-                'message' => 'This organization has already been reviewed.',
-                'data' => [
-                    'verification_status' => $organization->verification_status,
-                ],
-            ], 422);
+            return $this->alreadyReviewedResponse($organization);
         }
 
         // ADM: never approve an organization that has no submitted proof
@@ -93,11 +87,11 @@ class OrganizationController extends Controller
 
             $before = $organization->only(['verification_status', 'verified_at', 'verified_by']);
 
-            $organization->forceFill([
-                'verification_status' => 'verified',
-                'verified_at' => now(),
-                'verified_by' => $request->user()->id,
-            ])->save();
+            if (! $this->claimPendingOrganization($organization, $request->user()->id, 'verified')) {
+                DB::rollBack();
+
+                return $this->alreadyReviewedResponse($organization->refresh());
+            }
 
             $proofFile = $organization->proofFile();
             $proofFile?->forceFill(['status' => 'approved'])->save();
@@ -135,13 +129,7 @@ class OrganizationController extends Controller
     public function reject(Request $request, Organization $organization): JsonResponse
     {
         if ($organization->verification_status !== 'pending') {
-            return response()->json([
-                'success' => false,
-                'message' => 'This organization has already been reviewed.',
-                'data' => [
-                    'verification_status' => $organization->verification_status,
-                ],
-            ], 422);
+            return $this->alreadyReviewedResponse($organization);
         }
 
         $validator = Validator::make($request->all(), [
@@ -163,11 +151,11 @@ class OrganizationController extends Controller
 
             $before = $organization->only(['verification_status', 'verified_at', 'verified_by']);
 
-            $organization->forceFill([
-                'verification_status' => 'rejected',
-                'verified_at' => null,
-                'verified_by' => $request->user()->id,
-            ])->save();
+            if (! $this->claimPendingOrganization($organization, $request->user()->id, 'rejected')) {
+                DB::rollBack();
+
+                return $this->alreadyReviewedResponse($organization->refresh());
+            }
 
             $proofFile = $organization->proofFile();
             $proofFile?->forceFill(['status' => 'rejected'])->save();
@@ -199,6 +187,57 @@ class OrganizationController extends Controller
             'message' => 'The organization has been rejected.',
             'data' => $this->transform($organization->fresh(['verifier'])),
         ]);
+    }
+
+    /**
+     * Move the organization out of `pending` and return whether THIS call was
+     * the one that did it.
+     *
+     * Both review actions check `verification_status !== 'pending'` before
+     * they start, but that is a read followed by a write: two requests that
+     * arrive together — a double-click on the panel, or a client retry after a
+     * timeout — both read `pending` and both carry on to send the email.
+     * Restating the condition inside the UPDATE makes the transition atomic,
+     * so exactly one request can ever claim the row and exactly one email is
+     * sent. The loser is answered the same way as a sequential repeat.
+     */
+    private function claimPendingOrganization(Organization $organization, int $actorId, string $status): bool
+    {
+        $claimed = Organization::whereKey($organization->getKey())
+            ->where('verification_status', 'pending')
+            ->update([
+                'verification_status' => $status,
+                // Only an approval carries a verification timestamp.
+                'verified_at' => $status === 'verified' ? now() : null,
+                'verified_by' => $actorId,
+            ]);
+
+        if ($claimed === 0) {
+            return false;
+        }
+
+        // The UPDATE above went straight to the database, so the in-memory
+        // model still holds the old attributes; the audit snapshot and the
+        // response both read from it.
+        $organization->refresh();
+
+        return true;
+    }
+
+    /**
+     * The one response for "this organization is not pending any more".
+     * Shared by the pre-check and the atomic guard so that a repeat and a
+     * race are indistinguishable to the caller.
+     */
+    private function alreadyReviewedResponse(Organization $organization): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'This organization has already been reviewed.',
+            'data' => [
+                'verification_status' => $organization->verification_status,
+            ],
+        ], 422);
     }
 
     private function transform(Organization $organization): array
@@ -279,10 +318,21 @@ class OrganizationController extends Controller
         return 'admin.organizations.proof-file';
     }
 
+    /**
+     * Deliver the review outcome to the organization's own administrators.
+     *
+     * Recipients are the user ACCOUNTS that administer the organization, so
+     * the mail goes to the address that owns the membership — not to
+     * `contact_email`, which is a public contact address the organization may
+     * not control. Memberships marked 'removed' are skipped, matching the
+     * pivot-status filter used everywhere else the organization admin is
+     * resolved (AuthController, the organization's own profile endpoint).
+     */
     private function notifyOrganizationAdmins(Organization $organization, $notification): void
     {
         $admins = $organization->members()
             ->wherePivot('role_in_org', 'admin')
+            ->wherePivot('status', 'active')
             ->get();
 
         foreach ($admins as $admin) {
