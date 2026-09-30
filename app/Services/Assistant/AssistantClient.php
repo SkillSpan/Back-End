@@ -107,6 +107,7 @@ class AssistantClient
         string $message,
         array $contextSnapshot,
         string $requestId,
+        string $intent,
     ): array {
         // §12.5 first — never reach the network without approval. The service
         // asserts this too, so the transport cannot be reached without approval
@@ -117,9 +118,21 @@ class AssistantClient
         $baseUrl = $this->resolvedBaseUrl();
         $token = $this->resolvedServiceToken();
 
+        /*
+         * The four fields the service's ChatRequest declares, and nothing else.
+         *
+         * `intent` is passed through rather than folded into `message`: Laravel
+         * has already validated it against the six-value §12.5 whitelist in
+         * AskAssistantRequest, so by the time it reaches here it is a value the
+         * service can key prompt selection off directly. Sending it as a
+         * separate field keeps the user's own words (`message`) intact in the
+         * audit trail and lets the service add intents without Laravel parsing
+         * prose to guess one.
+         */
         $payload = [
             'user_id' => $userId,
             'message' => $message,
+            'intent' => $intent,
             'context' => $this->serialiseContext($contextSnapshot),
         ];
 

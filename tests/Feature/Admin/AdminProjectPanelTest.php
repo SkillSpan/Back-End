@@ -4,6 +4,7 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Project;
 use App\Models\Role;
+use App\Models\Skill;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -133,5 +134,28 @@ class AdminProjectPanelTest extends TestCase
         $this->actingAs($learner->fresh())
             ->getJson('/admin/api/projects')
             ->assertStatus(403);
+    }
+
+    public function test_the_panel_skill_picker_has_a_session_backed_endpoint(): void
+    {
+        // The canonical /api/v1/skills/taxonomy sits behind auth:sanctum and
+        // needs a bearer token. The panel has a session cookie, so calling it
+        // returned 401 and the skill picker came up empty - this route is the
+        // fix, and it must serve the same payload shape.
+        Skill::create(['name' => 'PHP', 'slug' => 'php-panel', 'category' => 'backend', 'status' => 'active']);
+
+        $this->actingAs($this->admin())
+            ->getJson('/admin/api/skills/taxonomy')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['success', 'message', 'data'])
+            ->assertJsonFragment(['name' => 'PHP']);
+    }
+
+    public function test_the_skill_picker_endpoint_is_not_public(): void
+    {
+        // It is the admin panel's own reference endpoint, so it stays inside
+        // the authenticated admin group.
+        $this->getJson('/admin/api/skills/taxonomy')->assertStatus(401);
     }
 }
