@@ -1,74 +1,312 @@
 # SkillSpan Backend
 
-Backend for **SkillSpan**, a skills-readiness platform. Learners
-register, verify their email, build a student profile, evaluate their
-skills, receive intelligence results for a target career role, and
-discover and match with projects. Organizations register with a proof
-document and gain access after admin approval.
+> **Developer Onboarding & Technical Reference**
+>
+> This document is the starting point for any developer joining the
+> SkillSpan backend. It explains what the backend does, how the main
+> components interact, how data moves through the system, where each
+> responsibility lives, and how to work with the API and FastAPI
+> intelligence service.
 
 ------------------------------------------------------------------------
 
 ## Table of Contents
 
--   [Overview](#overview)
--   [Stack](#stack)
--   [Setup](#setup)
--   [Authentication](#authentication)
--   [Learner Profile](#learner-profile)
--   [Intelligence & Roadmap](#intelligence--roadmap)
--   [Dynamic Baseline Assessment](#dynamic-baseline-assessment)
--   [Readiness](#readiness)
--   [Project Discovery & Matching](#project-discovery--matching)
--   [Organizations & Admin](#organizations--admin)
--   [API Route Summary](#api-route-summary)
--   [Roadmap Data Model](#roadmap-data-model)
--   [Version Ownership](#version-ownership)
--   [Security & Ownership Principles](#security--ownership-principles)
--   [Testing](#testing)
--   [Integration Notes](#integration-notes)
--   [Admin Bootstrap](#admin-bootstrap)
+1.  [What is SkillSpan?](#what-is-skillspan)
+2.  [Architecture Overview](#architecture-overview)
+3.  [Main User Journey](#main-user-journey)
+4.  [Backend Responsibilities](#backend-responsibilities)
+5.  [Tech Stack](#tech-stack)
+6.  [Project Structure](#project-structure)
+7.  [Getting Started](#getting-started)
+8.  [Environment Configuration](#environment-configuration)
+9.  [Authentication](#authentication)
+10. [Learner Profile](#learner-profile)
+11. [Assessment & Intelligence Flow](#assessment--intelligence-flow)
+12. [FastAPI Integration](#fastapi-integration)
+13. [Roadmap System](#roadmap-system)
+14. [Project Discovery & Matching](#project-discovery--matching)
+15. [Organizations & Admin](#organizations--admin)
+16. [API Reference](#api-reference)
+17. [Database & Core Relationships](#database--core-relationships)
+18. [Version Ownership](#version-ownership)
+19. [Security Principles](#security-principles)
+20. [Testing](#testing)
+21. [Development Workflow](#development-workflow)
+22. [Integration / E2E Notes](#integration--e2e-notes)
+23. [Admin Bootstrap](#admin-bootstrap)
 
 ------------------------------------------------------------------------
 
-## Overview
+# What is SkillSpan?
 
-SkillSpan uses Laravel as the main application backend and integrates
-with a FastAPI intelligence service for data-science calculations.
+**SkillSpan** is a skills-readiness platform that connects a learner's
+profile, skills, assessments, career goals, practical opportunities, and
+intelligence-driven recommendations.
 
-The current backend covers:
+The Laravel backend is the application's main system of record. It
+handles authentication, authorization, profile data, database
+persistence, business rules, validation, and API responses.
 
--   Learner and organization authentication.
--   Email OTP verification and password recovery.
--   Learner profile management.
--   Skill evidence and skill evaluation data.
--   Intelligence calculation for target career roles.
--   Dynamic baseline assessment generation and submission.
--   Roadmap generation and persistence.
--   Roadmap versioning and lifecycle management.
--   Multiple skill prerequisites per roadmap action.
--   Next Best Action handling.
--   Project discovery, eligibility, matching, and recommendations.
--   Organization registration and administration.
--   Admin approval/rejection workflows.
+A FastAPI intelligence service is used for data-science calculations
+such as skill-gap analysis, roadmap generation, and project matching.
 
-Laravel remains responsible for application state, authorization,
-validation, persistence, and lifecycle management. FastAPI provides
-intelligence calculations and roadmap recommendations.
+Organizations can register, upload proof documents, and access
+organization functionality after administrator approval.
 
 ------------------------------------------------------------------------
 
-# Stack
+# Architecture Overview
 
--   **Laravel 12** (PHP \^8.2)
+At a high level:
+
+``` text
+                         ┌─────────────────────┐
+                         │      Frontend       │
+                         │  Web / API Client   │
+                         └──────────┬──────────┘
+                                    │
+                                    │ HTTP / JSON
+                                    ▼
+                    ┌──────────────────────────────┐
+                    │       Laravel Backend        │
+                    │                              │
+                    │ Auth / Profiles / API        │
+                    │ Validation / Authorization   │
+                    │ Business Rules / Persistence │
+                    └──────────────┬───────────────┘
+                                   │
+                    ┌──────────────┴──────────────┐
+                    │                             │
+                    ▼                             ▼
+             ┌──────────────┐              ┌──────────────┐
+             │    MySQL     │              │   FastAPI    │
+             │              │              │ Intelligence │
+             │ Users        │              │              │
+             │ Profiles     │              │ Skill Gap    │
+             │ Skills       │              │ Roadmap      │
+             │ Roadmaps     │              │ Matching     │
+             │ Projects     │              │              │
+             └──────────────┘              └──────────────┘
+```
+
+### The important rule
+
+**Laravel owns application state. FastAPI owns intelligence
+calculations.**
+
+Laravel does not blindly expose FastAPI responses. It validates the
+response, applies Laravel-owned rules, persists the accepted result, and
+returns the application API response.
+
+------------------------------------------------------------------------
+
+# Main User Journey
+
+The main learner journey can be understood as:
+
+``` text
+Register
+   │
+   ▼
+Email Verification
+   │
+   ▼
+Login
+   │
+   ▼
+Complete Learner Profile
+   │
+   ▼
+Baseline / Skill Evidence
+   │
+   ▼
+Select Career Role
+   │
+   ▼
+Intelligence Calculation
+   │
+   ├──────────────► Skill Gap
+   │
+   ├──────────────► Readiness
+   │
+   └──────────────► Roadmap
+                         │
+                         ▼
+                  Persist Roadmap
+                         │
+                         ▼
+                Next Best Action
+                         │
+                         ▼
+                   Frontend
+```
+
+Project discovery is a parallel practical-opportunity flow:
+
+``` text
+Learner
+   │
+   ▼
+Discover Projects
+   │
+   ▼
+Check Access / Availability
+   │
+   ▼
+Project Matching
+   │
+   ▼
+FastAPI Intelligence
+   │
+   ▼
+Persist Recommendation
+   │
+   ▼
+Frontend
+```
+
+------------------------------------------------------------------------
+
+# Backend Responsibilities
+
+  -----------------------------------------------------------------------
+  Area                    Laravel                 FastAPI
+  ----------------------- ----------------------- -----------------------
+  Authentication          ✅                      ---
+
+  Authorization           ✅                      ---
+
+  User/Profile            ✅                      ---
+  persistence                                     
+
+  Database state          ✅                      ---
+
+  Decision snapshots      ✅                      ---
+
+  Skill-gap calculation   Orchestrates            ✅
+
+  Readiness calculation   Owns application flow   Calculation integration
+
+  Roadmap calculation     Orchestrates            ✅
+
+  Roadmap persistence     ✅                      ---
+
+  Roadmap                 ✅                      ---
+  lifecycle/status                                
+
+  Roadmap persisted       ✅                      ---
+  version                                         
+
+  Roadmap algorithm       Stores FastAPI result   ✅
+  version                                         
+
+  Roadmap configuration   Stores FastAPI result   ✅
+  version                                         
+
+  Project discovery       ✅                      ---
+
+  Project                 ✅                      ---
+  access/eligibility                              
+  rules                                           
+
+  Project matching        Orchestrates            ✅
+  calculation                                     
+
+  Recommendation          ✅                      ---
+  persistence                                     
+  -----------------------------------------------------------------------
+
+This separation is important when changing code. If a change affects
+persisted application state, authorization, or lifecycle state, it
+normally belongs in Laravel.
+
+------------------------------------------------------------------------
+
+# Tech Stack
+
+-   **Laravel 12**
+-   **PHP \^8.2**
 -   **MySQL**
--   **Laravel Sanctum** token authentication
--   **FastAPI microservice integration** for intelligence calculations
--   **Gemini integration stub** for future AI features
+-   **Laravel Sanctum**
+-   **FastAPI** intelligence microservice
+-   **Gemini integration stub** for future AI functionality
 -   **REST API** under `/api/v1`
 
 ------------------------------------------------------------------------
 
-# Setup
+# Project Structure
+
+The main areas to know when entering the codebase are:
+
+``` text
+app/
+├── Http/
+│   ├── Controllers/       # API request handling
+│   ├── Requests/          # Input validation
+│   └── Resources/         # API response formatting
+│
+├── Models/                # Eloquent database models
+│
+└── Services/
+    └── Intelligence/
+        ├── IntelligenceClient.php
+        ├── IntelligencePayloadBuilder.php
+        ├── IntelligencePersistenceService.php
+        ├── IntelligenceResponseValidator.php
+        └── DecisionSnapshotService.php
+
+database/
+├── migrations/            # Database schema
+├── seeders/               # Initial/reference data
+└── factories/             # Test data
+
+routes/
+└── api.php                # API routes
+
+tests/
+├── Feature/               # API/workflow tests
+└── Unit/                  # Unit-level tests
+```
+
+### Where to start when changing Intelligence
+
+A useful reading order is:
+
+``` text
+Controller
+   ↓
+Intelligence Service
+   ↓
+IntelligencePayloadBuilder
+   ↓
+IntelligenceClient
+   ↓
+FastAPI
+   ↓
+IntelligenceResponseValidator
+   ↓
+IntelligencePersistenceService
+   ↓
+Resource
+```
+
+------------------------------------------------------------------------
+
+# Getting Started
+
+## Requirements
+
+Install:
+
+-   PHP 8.2+
+-   Composer
+-   MySQL
+-   Node.js only if frontend tooling is needed separately
+-   Access to the FastAPI intelligence service for live integration
+    testing
+
+## Installation
 
 ``` bash
 composer install
@@ -78,15 +316,23 @@ php artisan migrate --seed
 php artisan serve
 ```
 
-The local API is served at:
+Local API:
 
 ``` text
 http://localhost:8000/api/v1
 ```
 
-## Data Science Service Configuration
+Health check:
 
-The backend uses environment variables for the FastAPI service:
+``` text
+GET /up
+```
+
+------------------------------------------------------------------------
+
+# Environment Configuration
+
+The FastAPI integration uses environment variables similar to:
 
 ``` env
 DATA_SCIENCE_SERVICE_URL=http://127.0.0.1:8001
@@ -102,33 +348,38 @@ DATA_SCIENCE_ROADMAP_ENABLED=false
 DATA_SCIENCE_PROJECT_MATCHING_ENABLED=false
 ```
 
-The roadmap flow is feature-gated. When roadmap generation is disabled,
-Laravel does not fabricate a roadmap result.
+Do not commit real service tokens or production credentials.
+
+The Roadmap and project-matching flows are feature-gated.
 
 ------------------------------------------------------------------------
 
 # Authentication
 
-## Learner Authentication Flow
+## Learner Flow
 
-1.  `POST /api/v1/auth/register` --- register a learner and send email
-    OTP.
-2.  `POST /api/v1/auth/verify` --- verify the account using the OTP.
-3.  `POST /api/v1/auth/login` --- receive a Sanctum Bearer token.
-4.  Use the token through:
+``` text
+POST /api/v1/auth/register
+        ↓
+POST /api/v1/auth/verify
+        ↓
+POST /api/v1/auth/login
+        ↓
+Bearer token
+```
+
+The token is sent as:
 
 ``` http
 Authorization: Bearer <token>
 ```
 
-Tokens are valid for 14 days.
+Token lifetime is 14 days.
 
-## Organization Authentication
+## Organization Flow
 
-Organization registration requires a proof document and admin approval
-before the organization can log in.
-
-Relevant endpoints:
+Organizations register with a proof document and require administrator
+approval before accessing protected organization functionality.
 
 ``` text
 POST /api/v1/auth/register/organization
@@ -154,7 +405,7 @@ POST /api/v1/auth/login/google
 
 # Learner Profile
 
-Authenticated learners can manage their profile through:
+Authenticated learners can use:
 
 ``` text
 POST /api/v1/profile
@@ -162,38 +413,14 @@ GET  /api/v1/profile
 PUT  /api/v1/profile
 ```
 
-The student profile includes, among other fields:
-
--   University information
--   Specialization
--   Academic level
--   Expected graduation
--   Bio
--   Career status
--   Interests
--   `availability`
--   `weekly_availability_hours`
--   Preferred work type
--   Primary career role
--   Consent information
-
-## Availability
-
-The backend keeps the existing textual:
+Relevant intelligence-related profile fields include:
 
 ``` text
 availability
-```
-
-and also supports:
-
-``` text
 weekly_availability_hours
+preferred_work_type
+primary career role
 ```
-
-as a nullable numeric value.
-
-Both fields are retained because they represent different information.
 
 Example:
 
@@ -204,107 +431,197 @@ Example:
 }
 ```
 
-`weekly_availability_hours` is used as learner availability information
-for intelligence and roadmap calculations.
+`availability` remains the existing textual availability field.
+
+`weekly_availability_hours` is a nullable numeric value used as
+quantitative learner availability information.
 
 ------------------------------------------------------------------------
 
-# Intelligence & Roadmap
+# Assessment & Intelligence Flow
 
-## Intelligence Endpoints
+## Dynamic Baseline Assessment
+
+The baseline assessment is role-specific.
+
+``` text
+POST /api/v1/baseline-assessments
+GET /api/v1/baseline-assessments/{assessment}
+PATCH /api/v1/baseline-assessments/{assessment}
+POST /api/v1/baseline-assessments/{assessment}/submit
+```
+
+Starting an assessment requires:
+
+``` json
+{
+  "career_role_id": 1
+}
+```
+
+Internal service access:
+
+``` text
+GET /api/v1/internal/baseline-items?version=v1.0
+```
+
+## Intelligence Calculation
+
+Main endpoints:
 
 ``` text
 POST /api/v1/intelligence/calculate
 GET  /api/v1/intelligence/latest
 ```
 
-The intelligence workflow coordinates:
+Conceptually:
 
-1.  Decision snapshot creation.
-2.  Skill-gap calculation through FastAPI.
-3.  Readiness information.
-4.  Roadmap generation when enabled.
-5.  Response validation.
-6.  Persistence of the validated result.
+``` text
+Intelligence Calculate Request
+          │
+          ▼
+Build Decision Snapshot
+          │
+          ▼
+Validate Learner + Career Role + Skills
+          │
+          ▼
+Call FastAPI Skill Gap
+          │
+          ▼
+Validate Skill Gap Result
+          │
+          ▼
+Generate Roadmap if enabled
+          │
+          ▼
+Validate Roadmap
+          │
+          ▼
+Persist Decision / Roadmap
+          │
+          ▼
+Return Laravel API Response
+```
 
-------------------------------------------------------------------------
-
-## Intelligence Snapshot
-
-The internal intelligence snapshot can contain:
+The internal snapshot can contain:
 
 ### Learner
 
--   `student_profile_id`
--   `user_id`
--   `availability`
--   `weekly_availability_hours`
+``` text
+student_profile_id
+user_id
+availability
+weekly_availability_hours
+```
 
-### Career Role
+### Role
 
--   `career_role_id`
--   role title
--   role version
+``` text
+career_role_id
+title
+version
+```
 
 ### Skills
 
--   `skill_id`
--   `skill_name`
--   `current_level`
--   `required_level`
--   `importance_weight`
--   `is_critical`
--   `confidence`
--   `evidence`
--   `prerequisite_skill_ids`
+``` text
+skill_id
+skill_name
+current_level
+required_level
+importance_weight
+is_critical
+confidence
+evidence
+prerequisite_skill_ids
+```
 
-`confidence` follows the backend/FastAPI contract using a **0--100
-scale**.
-
-The internal snapshot is not exposed directly to the frontend.
+`confidence` uses the **0--100** scale.
 
 ------------------------------------------------------------------------
 
-# Roadmap
+# FastAPI Integration
 
-Roadmap generation is integrated through the FastAPI intelligence
-service.
+The FastAPI service is accessed through Laravel's intelligence client.
 
-The Roadmap endpoint is:
+The important concept is that the internal Laravel Intelligence payload
+and the external FastAPI Roadmap contract are not necessarily identical.
 
-``` text
-/api/v1/roadmap
-```
+## Roadmap Request Transformation
 
-Laravel sends a Roadmap-specific request rather than sending the
-complete internal intelligence payload.
-
-The request is prepared through:
+The flow is:
 
 ``` text
+Internal Intelligence Payload
+            │
+            ▼
 IntelligenceClient::toRoadmapRequest()
+            │
+            ▼
+Roadmap-specific request
+            │
+            ▼
+POST /api/v1/roadmap
+            │
+            ▼
+FastAPI Roadmap v1
 ```
 
-This keeps internal fields separate from the public FastAPI Roadmap
-contract.
+`toRoadmapRequest()` prevents internal-only fields from being forwarded
+blindly.
 
-For example, internal data such as:
+For example:
 
 ``` text
 skill_gap_result
 ```
 
-is not sent to the Roadmap endpoint unless it is explicitly part of the
-Roadmap contract.
+is internal intelligence data and is not automatically included in the
+Roadmap request unless explicitly required by the agreed Roadmap
+contract.
 
-Laravel still retains internal intelligence and skill-gap data for its
-own workflow and persistence.
+Laravel-owned persistence metadata such as:
+
+``` text
+roadmap_version
+status
+```
+
+is also not treated as FastAPI-owned calculation output.
+
+## Response Validation
+
+Laravel validates FastAPI responses before persistence.
+
+Validation covers the Roadmap contract, including:
+
+-   identity/context
+-   algorithm version
+-   configuration version
+-   action types
+-   target skills
+-   prerequisites
+-   action IDs
+-   Next Best Action
+-   effort/duration fields
+-   Roadmap structure
+
+Invalid data must fail explicitly.
+
+There should be no silent conversion of malformed data into a different
+valid value.
 
 ------------------------------------------------------------------------
 
-## Roadmap Action Types
+# Roadmap System
 
-The current Roadmap contract supports only:
+The Roadmap is the learner's generated sequence of actions for
+progressing toward a target career role.
+
+## Supported Action Types
+
+Only these action types are currently supported:
 
 ``` text
 assessment
@@ -314,35 +631,22 @@ simulated_project
 real_project
 ```
 
-Unknown action types are treated as contract violations and are
-rejected.
-
-Laravel does not silently convert an unknown action type into another
-type.
+An unknown action type is a contract violation.
 
 ------------------------------------------------------------------------
 
-## Roadmap Action Effort & Duration
+## Effort vs Calendar Duration
 
-The Roadmap contract distinguishes between **effort** and **calendar
-duration**.
+The Roadmap distinguishes between effort and calendar duration.
 
 ### `estimated_hours`
 
-Represents the total effort required to complete the action.
-
-Example:
-
-``` json
-{
-  "estimated_hours": 12
-}
-```
+Total effort required to complete the action.
 
 ### `estimated_duration_weeks`
 
-Represents the expected calendar duration in weeks, taking the learner's
-weekly availability into account.
+Expected calendar duration in weeks, taking the learner's weekly
+availability into account.
 
 Example:
 
@@ -353,27 +657,21 @@ Example:
 }
 ```
 
-These fields have different meanings:
+Meaning:
 
 ``` text
-estimated_hours
-    = total effort
-
-estimated_duration_weeks
-    = calendar duration
+12 hours = total effort
+3 weeks  = expected calendar duration
 ```
-
-Laravel validates, persists, and exposes these values using the same
-contract names.
 
 `estimated_duration_hours` is not part of the current Roadmap v1
 contract.
 
 ------------------------------------------------------------------------
 
-## Roadmap Actions
+## Roadmap Action
 
-A persisted Roadmap Action can contain:
+A persisted action can contain:
 
 ``` text
 id
@@ -398,9 +696,7 @@ status
 
 ## Multiple Prerequisites
 
-A Roadmap Action can depend on multiple skills.
-
-Example:
+An action can require multiple skills:
 
 ``` json
 {
@@ -408,193 +704,79 @@ Example:
 }
 ```
 
-The complete dependency graph is persisted through:
+Laravel persists the complete dependency graph through:
 
 ``` text
 roadmap_action_prerequisites
 ```
 
-The legacy single:
+The legacy:
 
 ``` text
 prerequisite_skill_id
 ```
 
-is retained for backward compatibility where required.
+is retained where backward compatibility requires it.
 
-The multiple-prerequisite relation is the source of truth for the new
-Roadmap dependency graph.
-
-Invalid prerequisite structures are rejected rather than silently
-discarded.
+New multiple-prerequisite logic uses the relation containing all
+prerequisite skills.
 
 ------------------------------------------------------------------------
 
 ## Next Best Action
 
-FastAPI can nominate:
+FastAPI can return:
 
 ``` text
 next_best_action_id
 ```
 
-Laravel validates that the referenced action belongs to the same Roadmap
-and resolves it to the persisted Laravel `RoadmapAction`.
+Laravel validates that the action belongs to the same generated Roadmap,
+maps it to the persisted `RoadmapAction`, and exposes the persisted
+reference to the frontend.
 
-The frontend can receive:
+Conceptually:
 
 ``` text
+FastAPI next_best_action_id
+            ↓
+Laravel validation
+            ↓
+Persisted RoadmapAction
+            ↓
 roadmap.next_best_action_id
 ```
 
-This allows the frontend to identify the recommended next action without
-recalculating the Roadmap.
-
 ------------------------------------------------------------------------
 
-# Roadmap Version Ownership
+## Roadmap Lifecycle
 
-Roadmap versioning separates algorithm/configuration versions from
-Laravel persistence versions.
-
-## FastAPI owns
+Laravel owns the persisted Roadmap lifecycle.
 
 ``` text
-algorithm_version
-configuration_version
-```
-
-Example:
-
-``` text
-algorithm_version = roadmap-v1
-configuration_version = roadmap-config-v1
-```
-
-These values are returned by FastAPI and persisted on the Laravel
-`roadmaps` record.
-
-## Laravel owns
-
-``` text
-roadmap_version
-status
-```
-
-Example:
-
-``` text
-First roadmap:
-version = 1
+FastAPI generates roadmap
+          ↓
+Laravel validates
+          ↓
+Create roadmap
+          ↓
 status = active
-
-Second roadmap:
-old roadmap  -> superseded
-new roadmap  -> active
-version      -> 2
+          ↓
+New roadmap generated
+          ↓
+Previous roadmap = superseded
+          ↓
+New roadmap = active
 ```
 
-`roadmap_version` is therefore not taken from FastAPI.
-
-------------------------------------------------------------------------
-
-# Roadmap Persistence
-
-Laravel persists:
-
--   Roadmap identity and role context.
--   Decision snapshot reference.
--   FastAPI `algorithm_version`.
--   FastAPI `configuration_version`.
--   Laravel `roadmap_version`.
--   Laravel roadmap lifecycle `status`.
--   Roadmap actions.
--   Multiple action prerequisites.
--   Next Best Action.
--   Estimated effort and duration.
--   Generated timestamp.
--   Explanations and action metadata.
-
-Persistence occurs only after the FastAPI response passes the relevant
-validation.
-
-Malformed or inconsistent Roadmap responses must not create a partial
-persisted Roadmap.
-
-------------------------------------------------------------------------
-
-# Dynamic Baseline Assessment
-
-Baseline assessments are learner-specific and role-specific.
-
-## Endpoints
-
-``` text
-POST  /api/v1/baseline-assessments
-GET   /api/v1/baseline-assessments/{assessment}
-PATCH /api/v1/baseline-assessments/{assessment}
-POST  /api/v1/baseline-assessments/{assessment}/submit
-```
-
-Starting an assessment requires a target career role.
-
-Example:
-
-``` json
-{
-  "career_role_id": 1
-}
-```
-
-## Internal Baseline Items
-
-``` text
-GET /api/v1/internal/baseline-items?version=v1.0
-```
-
-This endpoint is protected by the configured internal service secret and
-is intended for service-to-service access.
-
-## Baseline Configuration
-
-``` env
-BASELINE_MIN_QUESTIONS_PER_SKILL=1
-BASELINE_MAX_QUESTIONS_PER_SKILL=3
-BASELINE_MAX_TOTAL_QUESTIONS=30
-BASELINE_DETERMINISTIC_SELECTION=false
-```
-
-The selection service enforces skill coverage and can report
-insufficient question coverage rather than generating an incomplete
-assessment.
-
-------------------------------------------------------------------------
-
-# Readiness
-
-The legacy readiness endpoints remain Laravel API functionality:
-
-``` text
-POST /api/v1/readiness/calculate
-GET  /api/v1/readiness/latest
-```
-
-Composite Readiness remains Laravel-owned.
-
-Roadmap algorithm/configuration versions must not be confused with
-Composite Readiness versions.
+Roadmap history is retained rather than overwritten.
 
 ------------------------------------------------------------------------
 
 # Project Discovery & Matching
 
-All learner project endpoints require:
-
-``` text
-auth:sanctum
-active account
-learner role
-```
+Learner project endpoints require an authenticated active learner
+account.
 
 ## Discovery
 
@@ -603,7 +785,7 @@ GET /api/v1/projects
 GET /api/v1/projects/{project}
 ```
 
-`GET /api/v1/projects` supports:
+Supported filters include:
 
 ``` text
 search
@@ -623,40 +805,27 @@ page
 per_page
 ```
 
-`per_page` is limited to 50.
+Maximum `per_page` is 50.
 
-Projects are ordered by:
+Ordering:
 
 ``` text
 created_at DESC, id DESC
 ```
 
-The `id` tie-breaker keeps pagination deterministic.
+The ID tie-breaker keeps pagination deterministic.
 
-------------------------------------------------------------------------
-
-## Project Matching
+## Matching
 
 ``` text
 POST /api/v1/projects/{project}/match
 ```
 
-Project matching is gated by:
+Matching uses the FastAPI intelligence service when enabled:
 
 ``` env
 DATA_SCIENCE_PROJECT_MATCHING_ENABLED=false
 ```
-
-When disabled, Laravel returns the appropriate unavailable response
-instead of fabricating a matching result.
-
-The configured FastAPI path is:
-
-``` text
-/api/v1/project-matching
-```
-
-------------------------------------------------------------------------
 
 ## Stored Recommendations
 
@@ -666,161 +835,37 @@ GET /api/v1/projects/{project}/recommendation
 POST /api/v1/recommendations/{recommendation}/feedback
 ```
 
-Recommendations can contain:
+Recommendation data can include:
 
--   score
--   reasons
--   limiting factors
--   factors
--   weighted contributions
--   skill results
--   algorithm version
--   configuration version
--   project version
+``` text
+score
+reasons
+limiting_factors
+factors
+weighted_contributions
+skill_results
+algorithm_version
+configuration_version
+project_version
+```
 
-Read-only recommendation endpoints use persisted data and do not
-recalculate the recommendation.
+Read endpoints use persisted recommendation data rather than
+recalculating it.
 
 ------------------------------------------------------------------------
 
 ## Discovery vs Eligibility
 
-Project discovery and project eligibility are intentionally separate.
+Project discovery and hard eligibility are separate concerns.
 
-`GET /api/v1/projects` checks project availability and access but does
-not apply all hard eligibility rules.
+Discovery applies project availability and access rules.
 
-Hard eligibility is enforced during the matching flow.
+Hard eligibility is enforced during matching.
 
-The current comparable learner fields include:
+Restricted projects are visible only to learners with an active
+membership in the owning organization.
 
--   `availability`
--   `preferred_work_type`
-
-Project location and language are stored but are not used for the
-corresponding eligibility comparison when no comparable student-profile
-field exists.
-
-------------------------------------------------------------------------
-
-## Restricted Projects
-
-Restricted projects are visible to learners with an active membership in
-the owning organization.
-
-Membership states such as `invited` or `removed` do not grant access.
-
-------------------------------------------------------------------------
-
-## Recommendation Access Redaction
-
-Historical recommendation rows are not deleted when project access
-changes.
-
-If the learner can no longer access the project, result-derived fields
-are redacted while the row remains identifiable.
-
-The response keeps fields such as:
-
-``` text
-id
-type
-project_id
-generated_at
-access_revoked
-```
-
-while protected result fields can become `null`.
-
-This prevents stale recommendation data from being exposed after access
-changes.
-
-------------------------------------------------------------------------
-
-# API Route Summary
-
-## Public
-
-  ---------------------------------------------------------------------------------------
-  Method                  Endpoint                                Description
-  ----------------------- --------------------------------------- -----------------------
-  POST                    `/api/v1/auth/register`                 Learner registration
-
-  POST                    `/api/v1/auth/register/organization`    Organization
-                                                                  registration
-
-  POST                    `/api/v1/auth/verify`                   Email OTP verification
-
-  POST                    `/api/v1/auth/resend-otp`               Resend verification OTP
-
-  POST                    `/api/v1/auth/login`                    Learner login
-
-  POST                    `/api/v1/auth/login/google`             Google ID-token login
-
-  POST                    `/api/v1/auth/login/organization`       Organization login
-
-  POST                    `/api/v1/auth/forgot-password`          Password-reset OTP
-
-  POST                    `/api/v1/auth/forgot-password/resend`   Resend reset OTP
-
-  POST                    `/api/v1/auth/forgot-password/verify`   Verify reset OTP
-
-  POST                    `/api/v1/auth/reset-password`           Set new password
-
-  GET                     `/up`                                   Health check
-  ---------------------------------------------------------------------------------------
-
-## Authenticated Learner
-
-  -----------------------------------------------------------------------------------------------------
-  Method                  Endpoint                                              Description
-  ----------------------- ----------------------------------------------------- -----------------------
-  POST                    `/api/v1/auth/logout`                                 Revoke current token
-
-  POST                    `/api/v1/auth/logout-all`                             Revoke all tokens
-
-  POST                    `/api/v1/profile`                                     Create learner profile
-
-  GET                     `/api/v1/profile`                                     Get learner profile
-
-  PUT                     `/api/v1/profile`                                     Update learner profile
-
-  POST                    `/api/v1/readiness/calculate`                         Calculate legacy
-                                                                                readiness
-
-  GET                     `/api/v1/readiness/latest`                            Latest readiness
-
-  POST                    `/api/v1/intelligence/calculate`                      Run intelligence
-                                                                                workflow
-
-  GET                     `/api/v1/intelligence/latest`                         Get latest intelligence
-                                                                                result
-
-  POST                    `/api/v1/baseline-assessments`                        Start baseline
-                                                                                assessment
-
-  GET                     `/api/v1/baseline-assessments/{assessment}`           Get assessment
-
-  PATCH                   `/api/v1/baseline-assessments/{assessment}`           Update assessment
-
-  POST                    `/api/v1/baseline-assessments/{assessment}/submit`    Submit assessment
-
-  GET                     `/api/v1/projects`                                    Discover projects
-
-  GET                     `/api/v1/projects/{project}`                          Project details
-
-  POST                    `/api/v1/projects/{project}/match`                    Match learner with
-                                                                                project
-
-  GET                     `/api/v1/projects/{project}/recommendation`           Get stored
-                                                                                recommendation
-
-  GET                     `/api/v1/recommendations`                             List stored
-                                                                                recommendations
-
-  POST                    `/api/v1/recommendations/{recommendation}/feedback`   Submit recommendation
-                                                                                feedback
-  -----------------------------------------------------------------------------------------------------
+`invited` and `removed` memberships do not grant access.
 
 ------------------------------------------------------------------------
 
@@ -832,12 +877,12 @@ changes.
 GET /api/v1/organization/profile
 ```
 
-Only approved organization accounts can access protected organization
+Only approved organizations can access protected organization
 functionality.
 
-## Admin Organization Management
+## Admin
 
-Admin endpoints require `auth:sanctum` and the admin role.
+Admin endpoints require `auth:sanctum` and the admin role:
 
 ``` text
 GET  /api/v1/admin/organizations
@@ -849,75 +894,208 @@ POST /api/v1/admin/organizations/{id}/reject
 
 ------------------------------------------------------------------------
 
-# Roadmap Data Model
+# API Reference
 
-The current Roadmap model is centered around:
+## Public
 
-``` text
-Roadmap
- ├── RoadmapAction
- │    ├── targetSkill
- │    └── prerequisites
- │          └── roadmap_action_prerequisites
- │                └── Skill
- │
- └── nextBestAction
-```
+  ---------------------------------------------------------------------------------------
+  Method                  Endpoint                                Purpose
+  ----------------------- --------------------------------------- -----------------------
+  POST                    `/api/v1/auth/register`                 Learner registration
 
-A Roadmap also belongs to:
+  POST                    `/api/v1/auth/register/organization`    Organization
+                                                                  registration
 
-``` text
-StudentProfile
-CareerRole
-DecisionSnapshot
-```
+  POST                    `/api/v1/auth/verify`                   Email verification
 
-This structure preserves:
+  POST                    `/api/v1/auth/resend-otp`               Resend verification OTP
 
--   Roadmap history
--   action dependencies
--   Next Best Action
--   algorithm/configuration metadata
--   Laravel lifecycle state
+  POST                    `/api/v1/auth/login`                    Learner login
+
+  POST                    `/api/v1/auth/login/google`             Google login
+
+  POST                    `/api/v1/auth/login/organization`       Organization login
+
+  POST                    `/api/v1/auth/forgot-password`          Start password recovery
+
+  POST                    `/api/v1/auth/forgot-password/resend`   Resend recovery OTP
+
+  POST                    `/api/v1/auth/forgot-password/verify`   Verify recovery OTP
+
+  POST                    `/api/v1/auth/reset-password`           Reset password
+
+  GET                     `/up`                                   Health check
+  ---------------------------------------------------------------------------------------
+
+## Authenticated Learner
+
+  -----------------------------------------------------------------------------------------------------
+  Method                  Endpoint                                              Purpose
+  ----------------------- ----------------------------------------------------- -----------------------
+  POST                    `/api/v1/auth/logout`                                 Logout current token
+
+  POST                    `/api/v1/auth/logout-all`                             Revoke all tokens
+
+  POST                    `/api/v1/profile`                                     Create profile
+
+  GET                     `/api/v1/profile`                                     Get profile
+
+  PUT                     `/api/v1/profile`                                     Update profile
+
+  POST                    `/api/v1/readiness/calculate`                         Calculate readiness
+
+  GET                     `/api/v1/readiness/latest`                            Get latest readiness
+
+  POST                    `/api/v1/intelligence/calculate`                      Run intelligence
+                                                                                workflow
+
+  GET                     `/api/v1/intelligence/latest`                         Get latest intelligence
+                                                                                result
+
+  POST                    `/api/v1/baseline-assessments`                        Start assessment
+
+  GET                     `/api/v1/baseline-assessments/{assessment}`           Get assessment
+
+  PATCH                   `/api/v1/baseline-assessments/{assessment}`           Update assessment
+
+  POST                    `/api/v1/baseline-assessments/{assessment}/submit`    Submit assessment
+
+  GET                     `/api/v1/projects`                                    Discover projects
+
+  GET                     `/api/v1/projects/{project}`                          Project details
+
+  POST                    `/api/v1/projects/{project}/match`                    Match with project
+
+  GET                     `/api/v1/projects/{project}/recommendation`           Get stored
+                                                                                recommendation
+
+  GET                     `/api/v1/recommendations`                             List recommendations
+
+  POST                    `/api/v1/recommendations/{recommendation}/feedback`   Recommendation feedback
+  -----------------------------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
-# Security & Ownership Principles
+# Database & Core Relationships
 
--   Sanctum tokens are used for learner authentication.
--   FastAPI uses a service-to-service token rather than learner Sanctum
-    tokens.
+The core Intelligence/Roadmap relationships can be understood as:
+
+``` text
+User
+ │
+ └── StudentProfile
+       │
+       ├── Career Role
+       │      │
+       │      └── Career Role Skills
+       │             │
+       │             └── Skill Dependencies
+       │
+       └── DecisionSnapshot
+              │
+              └── Roadmap
+                    │
+                    ├── RoadmapAction
+                    │      │
+                    │      ├── Target Skill
+                    │      │
+                    │      └── Multiple Prerequisites
+                    │             │
+                    │             └── Skill
+                    │
+                    └── Next Best Action
+```
+
+Important Roadmap persistence tables/models include:
+
+``` text
+roadmaps
+roadmap_actions
+roadmap_action_prerequisites
+```
+
+The separate prerequisite relation prevents the dependency graph from
+being reduced to a single prerequisite.
+
+------------------------------------------------------------------------
+
+# Version Ownership
+
+There are two different kinds of versions.
+
+## FastAPI-owned
+
+``` text
+algorithm_version
+configuration_version
+```
+
+Example:
+
+``` text
+roadmap-v1
+roadmap-config-v1
+```
+
+These describe the intelligence calculation used to produce the Roadmap.
+
+## Laravel-owned
+
+``` text
+roadmap_version
+status
+```
+
+Example:
+
+``` text
+Roadmap 1 → active
+
+Roadmap 2 generated:
+Roadmap 1 → superseded
+Roadmap 2 → active
+```
+
+Do not use the FastAPI algorithm version as the persisted Roadmap
+version.
+
+------------------------------------------------------------------------
+
+# Security Principles
+
+-   Sanctum protects authenticated application endpoints.
+-   FastAPI service authentication uses a service token.
 -   Service credentials must never be exposed to the frontend.
--   Laravel owns authorization and persistence.
--   FastAPI owns intelligence calculation outputs.
--   Composite Readiness remains Laravel-owned.
--   FastAPI Roadmap owns `algorithm_version` and
-    `configuration_version`.
--   Laravel owns `roadmap_version` and `status`.
--   Invalid intelligence responses are rejected rather than silently
-    corrected.
--   Unknown Roadmap action types are contract violations.
--   Invalid prerequisite structures are not silently discarded.
--   Internal Intelligence payload fields are not automatically forwarded
-    to FastAPI Roadmap endpoints.
+-   Laravel owns authorization and application state.
+-   FastAPI does not decide Laravel persistence lifecycle.
+-   Roadmap `status` is Laravel-owned.
+-   Roadmap `roadmap_version` is Laravel-owned.
+-   FastAPI `algorithm_version` and `configuration_version` are stored
+    as calculation metadata.
+-   Invalid intelligence responses are rejected.
+-   Unknown action types are rejected.
+-   Invalid prerequisite structures are rejected.
+-   Internal intelligence fields are not blindly forwarded to external
+    service endpoints.
+-   Production credentials must not be committed.
 
 ------------------------------------------------------------------------
 
 # Testing
 
-Run:
+## Run the test suite
 
 ``` bash
 php artisan test
 ```
 
-Code style:
+## Code style
 
 ``` bash
 vendor/bin/pint --test
 ```
 
-Diff validation:
+## Diff validation
 
 ``` bash
 git diff --check
@@ -925,89 +1103,153 @@ git diff --check
 
 Tests use an in-memory SQLite database where configured.
 
-The intelligence tests mock the FastAPI service with `Http::fake` and
-verify Laravel-side behavior such as:
+The intelligence tests can mock FastAPI using `Http::fake`.
+
+These tests verify Laravel-side behavior such as:
 
 -   payload construction
 -   Roadmap request transformation
--   snapshot creation
 -   response validation
--   Roadmap persistence
+-   decision snapshots
+-   persistence
 -   Roadmap versioning
--   multiple prerequisite persistence
--   Next Best Action handling
--   effort/duration contract
+-   multiple prerequisites
+-   Next Best Action
+-   effort/duration fields
 -   error handling
 
-These mocked tests do **not** prove that the deployed Laravel and
-FastAPI services can communicate successfully in production. A real E2E
-integration test requires the deployed intelligence service and the
-correct service token.
+### Important
+
+Mocked Laravel tests do **not** prove a live Laravel ↔ FastAPI
+deployment works.
+
+A real E2E test requires:
+
+-   reachable FastAPI service
+-   correct service URL
+-   valid service token
+-   matching request/response contract
 
 ------------------------------------------------------------------------
 
-# Integration Notes
+# Development Workflow
 
-The FastAPI integration is intentionally defensive.
+Before changing code:
 
-Laravel validates:
-
--   request/decision identity
--   algorithm versions
--   configuration versions
--   skill IDs
--   skill-level consistency
--   skill-gap consistency
--   Roadmap action types
--   target skill references
--   prerequisite skill references
--   action IDs
--   Next Best Action references
--   Roadmap structure
--   `estimated_hours`
--   `estimated_duration_weeks`
-
-## Roadmap Request Transformation
-
-The internal intelligence payload is not sent directly to the Roadmap
-endpoint.
-
-The flow is:
-
-``` text
-Internal Intelligence Payload
-            ↓
-IntelligenceClient::toRoadmapRequest()
-            ↓
-Roadmap-specific request contract
-            ↓
-POST /api/v1/roadmap
-            ↓
-FastAPI Roadmap v1
+``` bash
+git status --short
+git branch --show-current
+git diff --stat
 ```
 
-This prevents internal-only fields such as `skill_gap_result` and
-Laravel persistence metadata from leaking into the Roadmap request.
+After changes:
 
-The Roadmap request transformation must remain deterministic and contain
-only fields supported by the agreed FastAPI Roadmap contract.
+``` bash
+php artisan test
+vendor/bin/pint --test
+git diff --check
+git status --short
+```
 
-A malformed or inconsistent FastAPI response should fail explicitly
-instead of being converted into a fabricated result.
+Before committing:
+
+1.  Review the full diff.
+2.  Confirm no unrelated files changed.
+3.  Confirm no secrets were added.
+4.  Confirm migrations are safe.
+5.  Confirm API contracts are intentional.
+6.  Confirm FastAPI request/response changes match the agreed contract.
+
+### Git safety
+
+Do not use destructive commands to discard existing developer work:
+
+``` text
+git reset --hard
+git clean
+git restore .
+git checkout -- .
+```
+
+Do not commit or push changes that have not been reviewed.
+
+------------------------------------------------------------------------
+
+# Integration / E2E Notes
+
+The Laravel intelligence layer is designed as a defensive integration
+boundary:
+
+``` text
+Frontend
+   ↓
+Laravel Controller
+   ↓
+Intelligence Service
+   ↓
+Payload Builder
+   ↓
+Intelligence Client
+   ↓
+toRoadmapRequest()
+   ↓
+FastAPI
+   ↓
+Response Validator
+   ↓
+Persistence Service
+   ↓
+Laravel Database
+   ↓
+API Resource
+   ↓
+Frontend
+```
+
+The most important integration rule is:
+
+> **Build a dedicated request for every external contract. Do not send
+> the complete internal application payload just because it is
+> available.**
+
+For Roadmap:
+
+``` text
+Internal payload
+      ↓
+toRoadmapRequest()
+      ↓
+Roadmap contract
+      ↓
+FastAPI /api/v1/roadmap
+```
+
+For the Roadmap response:
+
+``` text
+FastAPI result
+      ↓
+Validate
+      ↓
+Persist
+      ↓
+Expose through Laravel Resource
+```
+
+This keeps the FastAPI contract stable while allowing Laravel's internal
+snapshot and persistence structures to evolve independently.
 
 ------------------------------------------------------------------------
 
 # Admin Bootstrap
 
-The endpoint:
+Initial admin creation:
 
 ``` text
 POST /api/v1/setup/create-admin
 ```
 
-creates an initial administrator account.
-
-It is protected by:
+The endpoint requires:
 
 ``` env
 ADMIN_SETUP_SECRET
@@ -1017,33 +1259,149 @@ The request must provide the matching secret and is rate-limited.
 
 ------------------------------------------------------------------------
 
-## Development Checklist
+# Quick Reference for New Developers
 
-Before committing backend changes:
+If you are new to the backend, use this order:
 
-``` bash
-git status
-git diff --check
-php artisan test
-vendor/bin/pint --test
-```
+### 1. Understand the API
 
-Before pushing:
-
--   Verify the correct branch.
--   Review the complete diff.
--   Confirm no secrets or tokens are included.
--   Confirm migrations are safe.
--   Confirm Roadmap contract matches the FastAPI version being
-    integrated.
--   Run the relevant E2E contract test when the FastAPI service is
-    available.
-
-### Roadmap Contract Summary
+Start with:
 
 ``` text
-FastAPI → Laravel
+routes/api.php
+```
 
+### 2. Understand authentication
+
+Read:
+
+``` text
+Auth Controllers
+Auth Requests
+Sanctum configuration
+```
+
+### 3. Understand learner data
+
+Read:
+
+``` text
+StudentProfile
+CareerRole
+CareerRoleSkill
+Skill
+```
+
+### 4. Understand intelligence
+
+Read:
+
+``` text
+IntelligencePayloadBuilder
+IntelligenceClient
+IntelligenceResponseValidator
+DecisionSnapshotService
+IntelligencePersistenceService
+```
+
+### 5. Understand Roadmap persistence
+
+Read:
+
+``` text
+Roadmap
+RoadmapAction
+roadmap_action_prerequisites
+```
+
+### 6. Understand API output
+
+Read the relevant:
+
+``` text
+Http/Resources
+```
+
+### 7. Run tests
+
+``` bash
+php artisan test
+```
+
+------------------------------------------------------------------------
+
+# Troubleshooting
+
+## FastAPI calls fail
+
+Check:
+
+``` env
+DATA_SCIENCE_SERVICE_URL
+DATA_SCIENCE_SERVICE_TOKEN
+DATA_SCIENCE_SERVICE_TIMEOUT
+```
+
+Then verify the corresponding path:
+
+``` env
+DATA_SCIENCE_SKILL_GAP_PATH
+DATA_SCIENCE_ROADMAP_PATH
+DATA_SCIENCE_PROJECT_MATCHING_PATH
+```
+
+## Roadmap is not generated
+
+Check:
+
+``` env
+DATA_SCIENCE_ROADMAP_ENABLED
+```
+
+The Roadmap flow is intentionally feature-gated.
+
+## Project matching is unavailable
+
+Check:
+
+``` env
+DATA_SCIENCE_PROJECT_MATCHING_ENABLED
+```
+
+## Tests fail after a database change
+
+Run:
+
+``` bash
+php artisan migrate:fresh --seed
+php artisan test
+```
+
+Only use `migrate:fresh` in an appropriate local/test environment. Never
+use destructive database commands against production data.
+
+------------------------------------------------------------------------
+
+# Admin Bootstrap
+
+`POST /api/v1/setup/create-admin` creates an initial administrator
+account.
+
+It requires:
+
+``` env
+ADMIN_SETUP_SECRET
+```
+
+and is rate-limited.
+
+------------------------------------------------------------------------
+
+## Roadmap Contract Summary
+
+### FastAPI → Laravel
+
+``` text
 algorithm_version
 configuration_version
 estimated_hours
@@ -1051,17 +1409,42 @@ estimated_duration_weeks
 next_best_action_id
 actions
 prerequisite_skill_ids
+```
 
-Laravel-owned:
+### Laravel-owned
 
+``` text
 roadmap_version
 status
 ```
 
-------------------------------------------------------------------------
-
-## Commit Message for this README update
+### Action types
 
 ``` text
-docs: update roadmap and intelligence integration
+assessment
+resource
+practice
+simulated_project
+real_project
+```
+
+### Availability
+
+``` text
+availability
+weekly_availability_hours
+```
+
+### Confidence
+
+``` text
+0–100
+```
+
+------------------------------------------------------------------------
+
+## Documentation Commit
+
+``` text
+docs: improve developer onboarding documentation
 ```
