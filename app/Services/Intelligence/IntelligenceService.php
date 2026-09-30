@@ -57,7 +57,7 @@ class IntelligenceService
         $careerRole = CareerRole::query()
             ->whereKey($careerRoleId)
             ->where('status', 'approved')
-            ->with('roleSkills.skill')
+            ->with(['roleSkills.skill', 'roleSkills.prerequisites'])
             ->first();
 
         if (! $careerRole) {

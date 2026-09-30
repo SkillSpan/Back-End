@@ -9,9 +9,9 @@ class StudentProfile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['university_name', 'student_university_number', 'specialization', 'academic_level', 'expected_graduation', 'bio', 'career_status', 'interests', 'availability', 'preferred_work_type', 'primary_career_role_id', 'consent_given'];
+    protected $fillable = ['university_name', 'student_university_number', 'specialization', 'academic_level', 'expected_graduation', 'bio', 'career_status', 'interests', 'availability', 'weekly_availability_hours', 'preferred_work_type', 'primary_career_role_id', 'consent_given'];
 
-    protected $casts = ['interests' => 'array', 'graduation_status' => 'boolean', 'graduation_date' => 'date', 'expected_graduation' => 'integer', 'consent_given' => 'boolean'];
+    protected $casts = ['interests' => 'array', 'graduation_status' => 'boolean', 'graduation_date' => 'date', 'expected_graduation' => 'integer', 'consent_given' => 'boolean', 'weekly_availability_hours' => 'float'];
 
     public function user()
     {

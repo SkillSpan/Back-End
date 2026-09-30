@@ -127,7 +127,7 @@ class IntelligenceController extends Controller
             'snapshot' => $snapshot,
             'readiness' => $snapshot->readinessResults()->latest('id')->first(),
             'skill_gaps' => $snapshot->skillGapResults()->with('skill')->get()->all(),
-            'roadmap' => $snapshot->roadmaps()->latest('id')->first(),
+            'roadmap' => $snapshot->roadmaps()->with('actions.prerequisites')->latest('id')->first(),
         ];
 
         return (new IntelligenceResultResource($result))

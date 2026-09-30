@@ -1,0 +1,486 @@
+{
+  "info": {
+    "_postman_id": "7d2c41ab-6f38-4e59-9a10-skillspanfix01",
+    "name": "SkillSpan — Intelligence & Roadmap Fix (التحقق من الإصلاح)",
+    "description": "# التحقق من إصلاح Career Roles + Intelligence + Roadmap\n\nمجموعة مركّزة (مش المجموعة الكاملة) هدفها إثبات إصلاح واحد بالتحديد:\n\n> **`GET /api/v1/intelligence/latest` كان يرجّع `roadmap: null` رغم وجود Roadmap في قاعدة البيانات،\n> لأن تدفّق `readiness` الأحدث كان يحجب قرار الـ intelligence.**\n\n## طريقة الاستخدام\n\n1. استورد هذا الملف **وملف البيئة** `SkillSpan — Local.postman_environment.json`.\n2. اختر البيئة من القائمة أعلى اليمين.\n3. شغّل `00 · Auth → Login (learner)` أولًا — بيحفظ `learner_token` و `career_role_id` تلقائيًا.\n4. شغّل باقي الطلبات، أو شغّل المجموعة كلها بـ **Run collection**.\n\n## ملاحظة عن `base_url`\n\nالافتراضي في ملف البيئة هو `http://127.0.0.1:8123` (سيرفر محلي).\nللإنتاج غيّرها إلى `https://back-end-zdip.onrender.com` — بس خد بالك:\n**الإصلاح ده لسه مش متـdeploy**، فالـ roadmap test هيفشل على الإنتاج لحد ما يتنشر.\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{learner_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// كل الطلبات بتبعت Accept: application/json عشان الأخطاء ترجع JSON",
+          "// مش redirect لصفحة الـ login."
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "career_role_id",
+      "value": "4",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Auth",
+      "item": [
+        {
+          "name": "Login (learner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope has success + message + data', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.be.true;",
+                  "  pm.expect(b).to.have.property('message');",
+                  "  pm.expect(b).to.have.property('data');",
+                  "});",
+                  "",
+                  "// التوكن يتحفظ تلقائيًا لكل الطلبات اللي بعده",
+                  "const token = pm.response.json().data.token;",
+                  "pm.test('login returned a bearer token', () => pm.expect(token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('learner_token', token);",
+                  "",
+                  "// الدور لازم يكون learner — الـ endpoints دي learner-only",
+                  "const roles = (pm.response.json().data.user.roles || []).map(r => r.slug);",
+                  "pm.test('account holds the learner role', () => pm.expect(roles).to.include('learner'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\",\n  \"password\": \"{{learner_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "تسجيل دخول الطالب. بيحفظ `learner_token` أوتوماتيك في متغيرات الـ Collection.\n\n**الحساب:** `readiness.demo@skillspan.local` / `password123` (من `ReadinessDemoSeeder`)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · Authorization",
+      "item": [
+        {
+          "name": "List without token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthenticated request is rejected with 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles"
+              ]
+            },
+            "description": "بدون توكن لازم يرجّع 401. أي حاجة تانية = ثغرة في الـ auth."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Career Roles",
+      "item": [
+        {
+          "name": "List approved roles (paginated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const b = pm.response.json();",
+                  "pm.test('envelope keeps success + message + data', () => {",
+                  "  pm.expect(b.success).to.be.true;",
+                  "  pm.expect(b).to.have.property('message');",
+                  "  pm.expect(b.data).to.be.an('object');",
+                  "});",
+                  "",
+                  "// الـ paginator جوّه data — الفرونت معتمد على الشكل ده، ممنوع يتغيّر",
+                  "pm.test('paginator is nested inside data', () => {",
+                  "  pm.expect(b.data).to.have.property('current_page');",
+                  "  pm.expect(b.data).to.have.property('data').and.to.be.an('array');",
+                  "  pm.expect(b.data).to.have.property('per_page');",
+                  "});",
+                  "",
+                  "pm.test('per_page is the documented 15', () => pm.expect(b.data.per_page).to.eql(15));",
+                  "",
+                  "pm.test('only approved roles are exposed', () => {",
+                  "  b.data.data.forEach(r => pm.expect(r.status).to.eql('approved'));",
+                  "});",
+                  "",
+                  "pm.test('every row carries skills_count', () => {",
+                  "  b.data.data.forEach(r => pm.expect(r).to.have.property('skills_count'));",
+                  "});",
+                  "",
+                  "// نحفظ أول id عشان باقي الطلبات",
+                  "if (b.data.data.length > 0) {",
+                  "  pm.collectionVariables.set('career_role_id', b.data.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles"
+              ]
+            },
+            "description": "قائمة المسارات المهنية **المعتمدة فقط**، مع عدد المهارات لكل مسار.\n\nالترتيب `version desc, id desc` — الـ `id` كـ tie-breaker عشان الترتيب يبقى حتمي\nوالصفحات ما تتكرّرش."
+          }
+        },
+        {
+          "name": "Show one role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('single role exposes id/title/version/status', () => {",
+                  "  ['id', 'title', 'version', 'status'].forEach(k => pm.expect(d).to.have.property(k));",
+                  "});",
+                  "pm.test('role is approved', () => pm.expect(d.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles/{{career_role_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles",
+                "{{career_role_id}}"
+              ]
+            },
+            "description": "مسار واحد معتمد. مسار غير معتمد يرجّع **422 `CAREER_ROLE_NOT_APPROVED`**،\nومسار غير موجود يرجّع **404 `CAREER_ROLE_NOT_FOUND`** — التمييز مقصود."
+          }
+        },
+        {
+          "name": "Role skills (decision snapshot)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "",
+                  "pm.test('payload carries career_role + skills + statistics + snapshot', () => {",
+                  "  ['career_role', 'skills', 'statistics', 'snapshot'].forEach(k => pm.expect(d).to.have.property(k));",
+                  "});",
+                  "",
+                  "pm.test('skills is a non-empty array', () => {",
+                  "  pm.expect(d.skills).to.be.an('array').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('every skill carries level, weight, critical flag and prerequisites', () => {",
+                  "  d.skills.forEach(s => {",
+                  "    pm.expect(s).to.have.property('skill_id');",
+                  "    pm.expect(s).to.have.property('required_level');",
+                  "    pm.expect(s).to.have.property('importance_weight');",
+                  "    pm.expect(s).to.have.property('is_critical');",
+                  "    pm.expect(s).to.have.property('prerequisites');",
+                  "  });",
+                  "});",
+                  "",
+                  "pm.test('statistics.total_skills matches the skills array', () => {",
+                  "  pm.expect(d.statistics.total_skills).to.eql(d.skills.length);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles/{{career_role_id}}/skills",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles",
+                "{{career_role_id}}",
+                "skills"
+              ]
+            },
+            "description": "المهارات المطلوبة للمسار: المستوى المطلوب، الوزن، هل المهارة حرجة، والمتطلبات السابقة.\n\nمسار بدون مهارات يرجّع **422 `CAREER_ROLE_NO_SKILLS`**."
+          }
+        },
+        {
+          "name": "Unknown role → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code is CAREER_ROLE_NOT_FOUND', () => {",
+                  "  pm.expect(pm.response.json().code).to.eql('CAREER_ROLE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/career-roles/999999",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "career-roles",
+                "999999"
+              ]
+            },
+            "description": "مسار غير موجود → **404** مع كود واضح. استخدم الـ `code` في الواجهة، مش نص الرسالة."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · Intelligence (الإصلاح)",
+      "item": [
+        {
+          "name": "Latest decision — ROADMAP MUST BE RETURNED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const b = pm.response.json();",
+                  "const d = b.data || b;",
+                  "",
+                  "pm.test('decision exposes its identity + versions', () => {",
+                  "  pm.expect(d).to.have.property('decision_id');",
+                  "  pm.expect(d).to.have.property('role_id');",
+                  "  pm.expect(d).to.have.property('role_version');",
+                  "});",
+                  "",
+                  "// ===== الاختبار الحاسم: ده اللي كان بيفشل قبل الإصلاح ===== ",
+                  "pm.test('roadmap is NOT null — the readiness flow no longer shadows it', () => {",
+                  "  pm.expect(",
+                  "    d.roadmap,",
+                  "    'roadmap كان null رغم وجوده في قاعدة البيانات. لو الاختبار ده فشل، ' +",
+                  "    'تأكد إن migration الـ flow اتشغّل وإن GET /intelligence/latest بيستخدم ' +",
+                  "    'scopeIntelligenceFlow().'",
+                  "  ).to.not.be.null;",
+                  "});",
+                  "",
+                  "pm.test('roadmap carries its actions, not just its header row', () => {",
+                  "  pm.expect(d.roadmap.actions).to.be.an('array').and.not.empty;",
+                  "  d.roadmap.actions.forEach(a => {",
+                  "    pm.expect(a).to.have.property('phase');",
+                  "    pm.expect(a).to.have.property('title');",
+                  "    pm.expect(a).to.have.property('order_index');",
+                  "  });",
+                  "});",
+                  "",
+                  "pm.test('roadmap status is a known value', () => {",
+                  "  pm.expect(['active', 'superseded']).to.include(d.roadmap.status);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/intelligence/latest?career_role_id={{career_role_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "intelligence",
+                "latest"
+              ],
+              "query": [
+                {
+                  "key": "career_role_id",
+                  "value": "{{career_role_id}}"
+                }
+              ]
+            },
+            "description": "## ده الاختبار الحاسم\n\nقبل الإصلاح: تدفّقان بيكتبوا decision snapshots بحالة `succeeded` — الـ intelligence\n(فيه roadmap) والـ readiness القديم (مفيهوش). الـ endpoint كان بياخد **أحدث صف**\nبغض النظر عن التدفّق، فحساب readiness كان بيحجب الـ roadmap ويرجّع `roadmap: null`.\n\nبعد الإصلاح: القراءة مقيّدة بـ `scopeIntelligenceFlow()` — يعني `flow = 'intelligence'`\nأو `flow IS NULL` (الصفوف اللي قبل ما العمود يتضاف).\n\n**لو الاختبار ده فشل، رتّب الأسباب كده:**\n1. migration `2026_09_30_000002_add_flow_to_decision_snapshots_table` لسه ما اتشغّلش.\n2. الكود الجديد لسه ما اتنشرش على السيرفر اللي في `base_url`.\n3. مفيش roadmap متخزّن أصلًا للمتعلّم + المسار ده."
+          }
+        },
+        {
+          "name": "Latest decision — no career_role_id filter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200 or 404 when nothing was calculated yet', () => {",
+                  "  pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 404) {",
+                  "  pm.test('404 uses the DECISION_NOT_FOUND code', () => {",
+                  "    pm.expect(pm.response.json().code).to.eql('DECISION_NOT_FOUND');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/intelligence/latest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "intelligence",
+                "latest"
+              ]
+            },
+            "description": "بدون فلتر المسار. لو مفيش قرار ناجح خالص → **404 `DECISION_NOT_FOUND`**."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Readiness (لازم يفضل شغّال)",
+      "item": [
+        {
+          "name": "Latest readiness result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// الإصلاح في intelligence/latest ما يجوزش يكسر readiness",
+                  "pm.test('readiness/latest still responds (200, or 404 when no result exists)', () => {",
+                  "  pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/readiness/latest?career_role_id={{career_role_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "readiness",
+                "latest"
+              ],
+              "query": [
+                {
+                  "key": "career_role_id",
+                  "value": "{{career_role_id}}"
+                }
+              ]
+            },
+            "description": "تأكيد إن تدفّق الـ readiness ما اتكسرش. ده التدفّق اللي كان بيعمل الـ shadowing،\nفمهم نتأكد إنه نفسه لسه شغّال صح."
+          }
+        }
+      ]
+    }
+  ]
+}

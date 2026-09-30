@@ -77,6 +77,7 @@ class ProfileController extends Controller
             'career_status' => $data['career_status'] ?? null,
             'interests' => $data['interests'] ?? null,
             'availability' => $data['availability'] ?? null,
+            'weekly_availability_hours' => $data['weekly_availability_hours'] ?? null,
             'preferred_work_type' => $data['preferred_work_type'] ?? null,
             'visibility' => $data['visibility'] ?? 'private',
             'consent_given' => true,
@@ -201,6 +202,9 @@ class ProfileController extends Controller
             'career_status' => $profile->career_status,
             'interests' => $profile->interests,
             'availability' => $profile->availability,
+            'weekly_availability_hours' => $profile->weekly_availability_hours !== null
+                ? (float) $profile->weekly_availability_hours
+                : null,
             'preferred_work_type' => $profile->preferred_work_type,
             'visibility' => $profile->visibility,
             'completeness_percent' => $profile->completeness_percent,

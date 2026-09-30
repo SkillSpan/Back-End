@@ -454,7 +454,8 @@ class IntelligenceLatestRoadmapTest extends TestCase
             'student_profile_id' => (int) $profile->id,
             'career_role_id' => (int) $role->id,
             'career_role_version' => (int) $role->version,
-            'algorithm_version' => 'intelligence-v1',
+            'algorithm_version' => 'roadmap-v1',
+            'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
             'phases' => [

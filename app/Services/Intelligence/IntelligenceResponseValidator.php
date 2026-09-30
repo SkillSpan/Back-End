@@ -3,6 +3,7 @@
 namespace App\Services\Intelligence;
 
 use App\Exceptions\IntelligenceException;
+use App\Models\RoadmapAction;
 
 /**
  * US-INT-01 §16 — never trust FastAPI JSON. Every response is checked
@@ -337,39 +338,50 @@ class IntelligenceResponseValidator
     }
 
     /**
-     * Roadmap contract: version/status echo, phases with actions, known
-     * target skills, priority in 0..1, positive effort/duration, and a
-     * valid next best action pointing at a returned action.
+     * Roadmap contract: phases with actions, known target skills, priority
+     * in 0..1, positive effort/duration, and a valid next best action
+     * pointing at a returned action.
+     *
+     * Version ownership (Roadmap v1): FastAPI owns `algorithm_version` and
+     * `configuration_version` and MUST send them. `roadmap_version` and
+     * `status` are Laravel-owned (see IntelligencePersistenceService — the
+     * persisted version is derived from the learner's roadmap history, the
+     * status from Laravel's lifecycle), so FastAPI is NOT required to send
+     * them; when it does, they are still validated.
      */
     public function validateRoadmap(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);
         $this->validateAlgorithmVersion($result);
+        $this->validateConfigurationVersion($result);
 
-        foreach (['roadmap_version', 'status', 'phases'] as $key) {
-            if (! array_key_exists($key, $result)) {
+        // Laravel-owned, validated only when the service chooses to echo them.
+        if (array_key_exists('roadmap_version', $result)) {
+            if (! is_int($result['roadmap_version']) || $result['roadmap_version'] < 1) {
                 throw new IntelligenceException(
-                    'The intelligence service response is missing mandatory roadmap metadata.',
+                    'The intelligence service response contains an invalid roadmap version.',
                     502,
                     'INTELLIGENCE_INVALID_RESPONSE',
-                    ['missing_field' => $key],
                 );
             }
         }
 
-        if (! is_int($result['roadmap_version']) || $result['roadmap_version'] < 1) {
-            throw new IntelligenceException(
-                'The intelligence service response contains an invalid roadmap version.',
-                502,
-                'INTELLIGENCE_INVALID_RESPONSE',
-            );
+        if (array_key_exists('status', $result)) {
+            if (! is_string($result['status']) || $result['status'] === '') {
+                throw new IntelligenceException(
+                    'The intelligence service response contains an invalid roadmap status.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                );
+            }
         }
 
-        if (! is_string($result['status']) || $result['status'] === '') {
+        if (! array_key_exists('phases', $result)) {
             throw new IntelligenceException(
-                'The intelligence service response contains an invalid roadmap status.',
+                'The intelligence service response is missing mandatory roadmap metadata.',
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'phases'],
             );
         }
 
@@ -471,6 +483,23 @@ class IntelligenceResponseValidator
 
         $actionIds[] = $actionId;
 
+        /*
+         * action_type is a CLOSED enum. An unknown value (e.g.
+         * "learning_resource", or a typo like "practcie") is a FastAPI
+         * contract violation and must fail loudly — never be coerced to a
+         * default such as "practice", which would silently hide the bug.
+         */
+        if (! is_string($action['action_type'])
+            || ! in_array($action['action_type'], RoadmapAction::TYPES, true)
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response contains an unknown roadmap action type.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['action_type' => $action['action_type'], 'phase' => $phaseName],
+            );
+        }
+
         if (array_key_exists('target_skill_id', $action) && $action['target_skill_id'] !== null) {
             $targetSkillId = (int) $action['target_skill_id'];
 
@@ -485,14 +514,53 @@ class IntelligenceResponseValidator
             }
         }
 
-        if (array_key_exists('prerequisite_skill_ids', $action) && is_array($action['prerequisite_skill_ids'])) {
+        /*
+         * prerequisite_skill_ids contract:
+         *   - absent or null  → no prerequisites (accepted, explicit);
+         *   - a list of unique integers, each a known skill → accepted;
+         *   - anything else (a string, a scalar, a non-integer element, or
+         *     a duplicate) → rejected. The type is NEVER silently ignored
+         *     and duplicates are NEVER silently collapsed.
+         */
+        if (array_key_exists('prerequisite_skill_ids', $action) && $action['prerequisite_skill_ids'] !== null) {
+            if (! is_array($action['prerequisite_skill_ids'])) {
+                throw new IntelligenceException(
+                    'The intelligence service response contains prerequisite_skill_ids in an invalid format.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'prerequisite_skill_ids', 'phase' => $phaseName],
+                );
+            }
+
+            $seenPrerequisiteSkillIds = [];
+
             foreach ($action['prerequisite_skill_ids'] as $prerequisiteSkillId) {
-                if (! in_array((int) $prerequisiteSkillId, $knownSkillIds, true)) {
+                if (! is_int($prerequisiteSkillId)) {
+                    throw new IntelligenceException(
+                        'The intelligence service response contains a non-integer prerequisite skill id.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['skill_id' => $prerequisiteSkillId, 'phase' => $phaseName],
+                    );
+                }
+
+                if (in_array($prerequisiteSkillId, $seenPrerequisiteSkillIds, true)) {
+                    throw new IntelligenceException(
+                        'The intelligence service response contains duplicate prerequisite skill ids.',
+                        502,
+                        'INTELLIGENCE_INVALID_RESPONSE',
+                        ['skill_id' => $prerequisiteSkillId, 'phase' => $phaseName],
+                    );
+                }
+
+                $seenPrerequisiteSkillIds[] = $prerequisiteSkillId;
+
+                if (! in_array($prerequisiteSkillId, $knownSkillIds, true)) {
                     throw new IntelligenceException(
                         'The intelligence service response contains an unknown prerequisite skill.',
                         502,
                         'INTELLIGENCE_INVALID_RESPONSE',
-                        ['skill_id' => (int) $prerequisiteSkillId, 'phase' => $phaseName],
+                        ['skill_id' => $prerequisiteSkillId, 'phase' => $phaseName],
                     );
                 }
             }
@@ -530,6 +598,25 @@ class IntelligenceResponseValidator
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
                 ['missing_field' => 'algorithm_version'],
+            );
+        }
+    }
+
+    /**
+     * FastAPI owns the roadmap configuration version and must echo it.
+     */
+    private function validateConfigurationVersion(array $result): void
+    {
+        if (
+            ! array_key_exists('configuration_version', $result)
+            || ! is_string($result['configuration_version'])
+            || trim($result['configuration_version']) === ''
+        ) {
+            throw new IntelligenceException(
+                'The intelligence service response is missing valid configuration version metadata.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['missing_field' => 'configuration_version'],
             );
         }
     }
