@@ -88,7 +88,7 @@ class AdminPanelAuthTest extends TestCase
     {
         $this->get('/admin/login')
             ->assertOk()
-            ->assertSee('تسجيل الدخول');
+            ->assertSee('Sign in');
     }
 
     public function test_a_signed_in_admin_can_open_the_panel(): void

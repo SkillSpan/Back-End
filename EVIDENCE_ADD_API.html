@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Add Evidence — `POST /api/v1/evidence`</title>
+<style>
+@page { size: A4; margin: 16mm 13mm 18mm 13mm; }
+
+* { box-sizing: border-box; }
+
+body {
+  direction: rtl;
+  text-align: right;
+  font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.85;
+  color: #1c1c1c;
+  margin: 0;
+}
+
+h1 {
+  font-size: 20pt; font-weight: 600; color: #0b3d5c;
+  margin: 0 0 6px; padding-bottom: 10px;
+  border-bottom: 2.5px solid #0b3d5c;
+}
+h2 {
+  font-size: 14pt; font-weight: 600; color: #0b3d5c;
+  margin: 26px 0 10px; padding: 6px 10px 6px 0;
+  border-right: 4px solid #2f7fa8; background: #eef6fa;
+  page-break-after: avoid;
+}
+h3 {
+  font-size: 11.5pt; font-weight: 600; color: #14506e;
+  margin: 18px 0 8px; page-break-after: avoid;
+}
+
+p { margin: 8px 0; }
+
+blockquote {
+  margin: 10px 0; padding: 9px 14px;
+  background: #f4f7f9; border-right: 4px solid #9db8c7;
+  color: #3a4a54; font-size: 9.5pt;
+}
+blockquote p { margin: 3px 0; }
+
+ul, ol { margin: 8px 0; padding-right: 22px; }
+li { margin: 5px 0; }
+
+code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 9pt; direction: ltr; unicode-bidi: embed;
+  background: #f0f2f4; color: #a4232b;
+  padding: 1px 4px; border-radius: 3px;
+}
+
+pre {
+  direction: ltr; text-align: left;
+  background: #f6f8fa; border: 1px solid #d8dee4;
+  border-radius: 6px; padding: 10px 12px; margin: 10px 0;
+  page-break-inside: avoid; overflow-wrap: break-word;
+}
+pre code {
+  background: none; color: #1c1c1c; padding: 0;
+  font-size: 8.5pt; line-height: 1.6; white-space: pre-wrap;
+}
+
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 12px 0; font-size: 9pt;
+  page-break-inside: auto;
+}
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th {
+  background: #0b3d5c; color: #fff; font-weight: 600;
+  padding: 7px 9px; text-align: right; border: 1px solid #0b3d5c;
+}
+td {
+  padding: 6px 9px; border: 1px solid #cdd7de;
+  vertical-align: top; text-align: right;
+}
+tbody tr:nth-child(even) td { background: #f7fafc; }
+
+strong { font-weight: 600; color: #10334a; }
+
+hr { border: none; border-top: 1px solid #d8dee4; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>Add Evidence — <code dir="ltr">POST /api/v1/evidence</code></h1>
+<blockquote>
+<p>موجّه للفرونت. مكتوب بنفس أسلوب <code dir="ltr">API_ENDPOINTS_REFERENCE.md</code> §11.
+<strong>الـ endpoint ده شغّال على الإنتاج ومتأكد منه.</strong></p>
+</blockquote>
+<hr />
+<h2>الملخص</h2>
+<table>
+<thead>
+<tr>
+<th>البند</th>
+<th>القيمة</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Method</td>
+<td><code dir="ltr">POST</code></td>
+</tr>
+<tr>
+<td>URL</td>
+<td><code dir="ltr">https://back-end-zdip.onrender.com/api/v1/evidence</code></td>
+</tr>
+<tr>
+<td>Auth</td>
+<td><code dir="ltr">Authorization: Bearer &lt;token&gt;</code> (Sanctum)</td>
+</tr>
+<tr>
+<td>الدور المطلوب</td>
+<td><code dir="ltr">learner</code> + الحساب <code dir="ltr">active</code></td>
+</tr>
+<tr>
+<td>شرط إضافي</td>
+<td>المستخدم لازم يكون عنده <strong>StudentProfile</strong>، وإلا <code dir="ltr">422</code></td>
+</tr>
+<tr>
+<td>Content-Type</td>
+<td><code dir="ltr">application/json</code> لو بتبعت <code dir="ltr">evidence_url</code> — أو <code dir="ltr">multipart/form-data</code> لو بترفع <code dir="ltr">evidence_file</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>الـ Body</h2>
+<table>
+<thead>
+<tr>
+<th>الحقل</th>
+<th>إلزامي</th>
+<th>النوع</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">skill_id</code></td>
+<td>✅</td>
+<td>integer</td>
+<td>لازم يكون موجود في جدول <code dir="ltr">skills</code> و <code dir="ltr">status = active</code>. هاته من <code dir="ltr">GET /api/v1/skills/taxonomy</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">evidence_url</code></td>
+<td>⚠️</td>
+<td>string (url)</td>
+<td><strong>واحد من الاتنين إلزامي</strong>: <code dir="ltr">evidence_url</code> أو <code dir="ltr">evidence_file</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">evidence_file</code></td>
+<td>⚠️</td>
+<td>file</td>
+<td>أقصى حجم <strong>10MB</strong> (10,000 كيلوبايت). مفيش قيد على نوع الملف</td>
+</tr>
+<tr>
+<td><code dir="ltr">description</code></td>
+<td>❌</td>
+<td>string (max 500)</td>
+<td><strong>⚠️ بيتقبل بس مش بيتخزّن — اقرا الملاحظات تحت</strong></td>
+</tr>
+<tr>
+<td><code dir="ltr">evidence_date</code></td>
+<td>❌</td>
+<td>date</td>
+<td>افتراضيًا تاريخ النهاردة</td>
+</tr>
+</tbody>
+</table>
+<p>لو بعتّ الاتنين (<code dir="ltr">evidence_url</code> و <code dir="ltr">evidence_file</code>) → الـ <code dir="ltr">evidence_url</code> هو اللي بيكسب، والملف بيتجاهل.</p>
+<hr />
+<h2>الرد عند النجاح — <code dir="ltr">201</code></h2>
+<pre><code class="language-json">{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Evidence submitted successfully, pending review.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;student_profile_id&quot;: 3,
+    &quot;skill_id&quot;: 12,
+    &quot;source&quot;: &quot;certificate&quot;,
+    &quot;value&quot;: &quot;0.00&quot;,
+    &quot;normalized_value&quot;: &quot;0.00&quot;,
+    &quot;reference&quot;: &quot;https://example.com/cert.pdf&quot;,
+    &quot;evidence_date&quot;: &quot;2026-09-01T00:00:00.000000Z&quot;,
+    &quot;verification_status&quot;: &quot;pending&quot;,
+    &quot;reviewer_id&quot;: null,
+    &quot;reviewer_notes&quot;: null,
+    &quot;recency_factor&quot;: &quot;1.00&quot;,
+    &quot;source_record_type&quot;: null,
+    &quot;source_record_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-09-30T09:15:00.000000Z&quot;,
+    &quot;updated_at&quot;: &quot;2026-09-30T09:15:00.000000Z&quot;
+  }
+}
+</code></pre>
+<p>الرد <strong>مش</strong> ملفوف في Resource، فبيرجّع كل أعمدة الجدول زي ما هي.</p>
+<hr />
+<h2>الأخطاء</h2>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>الشكل</th>
+<th>السبب</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">401</code></td>
+<td><code dir="ltr">{"message":"Unauthenticated."}</code></td>
+<td>مفيش توكن أو توكن غلط — <strong>لاحظ: مفيش <code dir="ltr">success</code> هنا</strong></td>
+</tr>
+<tr>
+<td><code dir="ltr">403</code></td>
+<td><code dir="ltr">{"success":false,"message":"..."}</code></td>
+<td>المستخدم مش بدور <code dir="ltr">learner</code></td>
+</tr>
+<tr>
+<td><code dir="ltr">422</code></td>
+<td><code dir="ltr">{"success":false,"message":"You must complete your student profile before submitting evidence."}</code></td>
+<td>مفيش StudentProfile</td>
+</tr>
+<tr>
+<td><code dir="ltr">422</code></td>
+<td><code dir="ltr">{"message":"The skill id field is required.","errors":{...}}</code></td>
+<td>فاليديشن (شكل Laravel الافتراضي)</td>
+</tr>
+<tr>
+<td><code dir="ltr">409</code></td>
+<td><code dir="ltr">{"success":false,"message":"Duplicate evidence already exists for this skill."}</code></td>
+<td>نفس الطالب + نفس المهارة + نفس المصدر + نفس المرجع</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>⚠️ ملاحظات مهمة — لازم الفرونت ياخد باله</h2>
+<ol>
+<li>
+<p><strong><code dir="ltr">description</code> بيتقبل في الفاليديشن بس مش بيتخزّن أبدًا.</strong>
+   الحقل موجود في <code dir="ltr">validate()</code> لكن مش موجود في <code dir="ltr">SkillEvidence::create()</code> ولا في أعمدة الجدول.
+   يعني لو الفرونت بعت وصف، بيروح في الهوا بدون أي إيرور. <strong>لو محتاجينه، ده باگ من ناحيتنا —
+   قولوا ونصلّحه.</strong></p>
+</li>
+<li>
+<p><strong>القيم العشرية بترجع كـ strings على الإنتاج، مش numbers.</strong>
+   <code dir="ltr">"value": "0.00"</code> و <code dir="ltr">"normalized_value": "0.00"</code> و <code dir="ltr">"recency_factor": "1.00"</code>.
+   السبب إن PDO بيرجّع أعمدة <code dir="ltr">DECIMAL</code> من MySQL كـ string، والـ model مفيش فيه <code dir="ltr">$casts</code> للحقول دي.
+   <strong>اتأكدنا منها عمليًا على قاعدة الإنتاج.</strong> لو الفرونت بيعمل <code dir="ltr">Number(x)</code> أو مقارنات، لازم يحوّل الأول.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">GET /api/v1/evidence</code> بيرجّع الأدلة المعتمدة بس (<code dir="ltr">verification_status = verified</code>).</strong>
+   يعني بعد ما الطالب يرفع دليل بنجاح، <strong>مش هيظهر في القايمة</strong> لحد ما أدمن يعتمده من
+   <code dir="ltr">PUT /api/v1/evidence/{id}/review</code>. لو محتاجين نعرض الـ pending/rejected كمان، ده endpoint تاني
+   ومحتاجين نضيفه.</p>
+</li>
+<li>
+<p><strong><code dir="ltr">reference</code> للملفات المرفوعة مش رابط عام.</strong>
+   لو رفع <code dir="ltr">evidence_file</code>، القيمة اللي بترجع في <code dir="ltr">reference</code> بتبقى مسار داخلي على السيرفر
+   (زي <code dir="ltr">evidence/AbC123.jpg</code>) — <strong>مش متاح من المتصفح</strong>، ومفيش endpoint لتحميله حاليًا.
+   فمينفعش الفرونت يعرض الملف بعد الرفع. لو محتاجين ده، قولوا.</p>
+</li>
+<li>
+<p><strong>مفيش endpoint يجيب كل الأدلة للطالب</strong> (pending + verified + rejected). <code dir="ltr">GET /api/v1/evidence</code>
+   مفلتر على <code dir="ltr">verified</code> بس.</p>
+</li>
+</ol>
+<hr />
+<h2>أمثلة</h2>
+<h3>برابط (JSON)</h3>
+<pre><code class="language-bash">curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Accept: application/json&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{
+        &quot;skill_id&quot;: 12,
+        &quot;evidence_url&quot;: &quot;https://example.com/cert.pdf&quot;,
+        &quot;evidence_date&quot;: &quot;2026-09-01&quot;
+      }'
+</code></pre>
+<h3>بملف (multipart)</h3>
+<pre><code class="language-bash">curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Accept: application/json&quot; \
+  -F &quot;skill_id=12&quot; \
+  -F &quot;evidence_file=@cert.pdf&quot;
+</code></pre>
+<blockquote>
+<p>مع <code dir="ltr">multipart/form-data</code> <strong>ما تحددش <code dir="ltr">Content-Type</code> يدويًا</strong> — curl (أو الـ FormData في المتصفح)
+بيحدد الـ boundary بنفسه.</p>
+</blockquote>
+<h3>إزاي تجيب <code dir="ltr">skill_id</code> صالح</h3>
+<pre><code class="language-bash">curl -s https://back-end-zdip.onrender.com/api/v1/skills/taxonomy \
+  -H &quot;Authorization: Bearer $TOKEN&quot; -H &quot;Accept: application/json&quot;
+# → { &quot;success&quot;: true, &quot;data&quot;: [ { &quot;id&quot;: 12, &quot;name&quot;: &quot;...&quot;, ... } ] }
+</code></pre>
+<p>بيرجّع المهارات اللي <code dir="ltr">status = active</code> بس — ودي بالظبط اللي <code dir="ltr">skill_id</code> بيقبلها.</p>
+<hr />
+<h2>Endpoints الأدلة الأربعة (للسياق)</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">POST</code></td>
+<td><code dir="ltr">/api/v1/evidence</code></td>
+<td><code dir="ltr">learner</code> — <strong>رفع دليل (الـ endpoint المطلوب)</strong></td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/evidence</code></td>
+<td><code dir="ltr">learner</code> — المعتمدة بس</td>
+</tr>
+<tr>
+<td><code dir="ltr">GET</code></td>
+<td><code dir="ltr">/api/v1/evidence/{id}</code></td>
+<td>أي مستخدم نشِط — المالك أو أدمن</td>
+</tr>
+<tr>
+<td><code dir="ltr">PUT</code></td>
+<td><code dir="ltr">/api/v1/evidence/{id}/review</code></td>
+<td><code dir="ltr">admin</code> — اعتماد/رفض</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
