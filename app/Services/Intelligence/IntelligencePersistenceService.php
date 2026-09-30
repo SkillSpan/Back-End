@@ -269,9 +269,16 @@ class IntelligencePersistenceService
                     'estimated_hours' => isset($action['estimated_hours']) && is_numeric($action['estimated_hours'])
                         ? (float) $action['estimated_hours']
                         : null,
-                    'estimated_duration_hours' => isset($action['estimated_duration_hours'])
-                        && is_numeric($action['estimated_duration_hours'])
-                        ? (float) $action['estimated_duration_hours']
+                    /*
+                     * Stored exactly as FastAPI returned it — the calendar
+                     * duration in weeks is FastAPI's calculation (it depends
+                     * on the learner's weekly availability) and is NEVER
+                     * re-derived from hours here. The legacy
+                     * `estimated_duration_hours` column is not written.
+                     */
+                    'estimated_duration_weeks' => isset($action['estimated_duration_weeks'])
+                        && is_numeric($action['estimated_duration_weeks'])
+                        ? (float) $action['estimated_duration_weeks']
                         : null,
                     'order_index' => $orderIndex++,
                     'fastapi_order' => isset($action['order_index']) && is_numeric($action['order_index'])
