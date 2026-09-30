@@ -5,6 +5,7 @@ namespace App\Services\Intelligence;
 use App\Exceptions\IntelligenceException;
 use App\Exceptions\ReadinessException;
 use App\Models\CareerRole;
+use App\Models\DecisionSnapshot;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
@@ -152,11 +153,13 @@ class IntelligenceService
         $decisionUuid = (string) Str::uuid();
 
         // The snapshot is persisted BEFORE the FastAPI calls, capturing
-        // the validated input state (US-INT-01 §6).
+        // the validated input state (US-INT-01 §6). The flow is recorded
+        // explicitly so `GET /intelligence/latest` can select on it.
         $snapshot = $this->snapshotService->createPendingSnapshot(
             $payload,
             $decisionUuid,
             $requestId,
+            DecisionSnapshot::FLOW_INTELLIGENCE,
         );
 
         try {
