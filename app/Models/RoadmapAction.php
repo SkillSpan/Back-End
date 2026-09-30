@@ -30,12 +30,12 @@ class RoadmapAction extends Model
      *                              the learner's weekly availability.
      *
      * `estimated_duration_hours` is a LEGACY column that predates the v1
-     * contract. It is kept for backward compatibility (the column and its
-     * data are preserved) but it is NOT part of the Roadmap v1 contract
-     * and is no longer validated, persisted or serialized. It is never
-     * converted into weeks.
+     * contract. Its column and historical data are preserved in the
+     * database (no destructive drop), but it is NOT part of the Roadmap v1
+     * contract: it is not mass-assignable, not validated, not persisted and
+     * not serialized, and it is never converted into weeks.
      */
-    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_weeks', 'estimated_duration_hours', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
+    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_weeks', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
 
     protected $casts = [
         'completed_at' => 'datetime',
