@@ -1,0 +1,189 @@
+diff --git a/src/utils/__tests__/payloadMapping.test.js b/src/utils/__tests__/payloadMapping.test.js
+index 607a992..01567a6 100644
+--- a/src/utils/__tests__/payloadMapping.test.js
++++ b/src/utils/__tests__/payloadMapping.test.js
+@@ -73,8 +73,8 @@ describe('buildOrganizationFormData', () => {
+ 
+   it('uses the real submitted email, never a hardcoded placeholder', () => {
+     const fd = buildOrganizationFormData(baseCompanyData);
+-    expect(fd.get('organization_contact_email')).toBe('sam@acme.test');
+-    expect(fd.get('organization_contact_email')).not.toBe('info@company.com');
++    expect(fd.get('email')).toBe('sam@acme.test');
++    expect(fd.get('email')).not.toBe('info@company.com');
+   });
+ 
+   it('sends the actual File object for the required proof document, not its name', () => {
+@@ -86,15 +86,63 @@ describe('buildOrganizationFormData', () => {
+     expect(sent.name).toBe('registration.pdf');
+   });
+ 
+-  it('omits the optional document when none was provided', () => {
++  it('maps administrator name and account fields to the validated names', () => {
+     const fd = buildOrganizationFormData(baseCompanyData);
+-    expect(fd.get('additional_document')).toBeNull();
++    expect(fd.get('name')).toBe('Sam Admin');
++    expect(fd.get('password_confirmation')).toBe('orgpass123');
+   });
+ 
+-  it('maps administrator name and account fields', () => {
++  it('sends an admin name alias only under `name`, never `administrator_name`', () => {
+     const fd = buildOrganizationFormData(baseCompanyData);
+-    expect(fd.get('administrator_name')).toBe('Sam Admin');
+-    expect(fd.get('password_confirmation')).toBe('orgpass123');
++    expect(fd.get('administrator_name')).toBeNull();
++  });
++
++  it('sends the account email under `email` and the public contact email under `organization_contact_email`', () => {
++    const fd = buildOrganizationFormData(baseCompanyData);
++    // `email` is the login identity; `organization_contact_email` is a
++    // REQUIRED rule that is stored on the organization record. Both must be
++    // present - the wizard reuses the same address for each.
++    expect(fd.get('email')).toBe('sam@acme.test');
++    expect(fd.get('organization_contact_email')).toBe('sam@acme.test');
++    expect(fd.get('organization_contact_email')).not.toBe('info@company.com');
++  });
++
++  // Regression guard: these seven values used to be appended WITHOUT the
++  // `organization_` prefix. The backend has no rule for the unprefixed
++  // names, so they validated as absent and were stored as null - which is
++  // why the admin review panel showed "No description was provided for
++  // this organization." even though the user typed one.
++  it('prefixes every organization detail column with `organization_`', () => {
++    const fd = buildOrganizationFormData(baseCompanyData);
++
++    expect(fd.get('organization_company_size')).toBe('11 - 50 employees');
++    expect(fd.get('organization_website')).toBe('https://acme.test');
++    expect(fd.get('organization_description')).toBe('We build things.');
++    expect(fd.get('organization_country')).toBe('Jordan');
++    expect(fd.get('organization_city')).toBe('Amman');
++    expect(fd.get('organization_address')).toBe('123 Main St');
++    expect(fd.get('organization_postal_code')).toBe('11183');
++  });
++
++  it('never sends the unprefixed organization detail names', () => {
++    const fd = buildOrganizationFormData(baseCompanyData);
++
++    for (const wrong of [
++      'organization_size',
++      'website',
++      'description',
++      'country',
++      'city',
++      'address',
++      'postal_code',
++    ]) {
++      expect(fd.get(wrong)).toBeNull();
++    }
++  });
++
++  it('sends no optional second document - the backend validates proof_file only', () => {
++    const fd = buildOrganizationFormData(baseCompanyData);
++    expect(fd.get('additional_document')).toBeNull();
+   });
+ });
+ 
+diff --git a/src/utils/payloadMapping.js b/src/utils/payloadMapping.js
+index 7ad4558..9e7e117 100644
+--- a/src/utils/payloadMapping.js
++++ b/src/utils/payloadMapping.js
+@@ -43,11 +43,17 @@ export function buildRegisterPayload(registerData) {
+  * (CompanyStep1..CompanyStep4) to a multipart/form-data FormData instance
+  * for POST /api/auth/register/organization.
+  *
+- * NOTE ON ASSUMPTIONS (flag to backend if any of these field names are
+- * wrong - see README "Open backend-contract questions"):
+- *   - administrator_name         <- CompanyStep1 "Administrator Name"
+- *   - organization_contact_email <- CompanyStep1 email (the account's own
+- *                                    email, never a hardcoded placeholder)
++ * Field names below are CONFIRMED against
++ * app/Http/Requests/Auth/RegisterOrganizationRequest.php on the backend
++ * (branch feature/authentication). Do not rename without checking there:
++ *   - name                       <- CompanyStep1 "Administrator Name"
++ *   - email                      <- CompanyStep1 email (the account's own
++ *                                    email - this is the LOGIN identity)
++ *   - organization_contact_email <- the organization's PUBLIC contact
++ *                                    address. Also validated as `required`
++ *                                    and stored on the organization record,
++ *                                    so it must be sent as well. The wizard
++ *                                    reuses the account email for it.
+  *   - phone
+  *   - password / password_confirmation
+  *   - organization_name          <- CompanyStep2 "Company Name"
+@@ -55,12 +61,17 @@ export function buildRegisterPayload(registerData) {
+  *                                    company | university | training_partner
+  *   - organization_industry      <- CompanyStep2 "Industry" (kept distinct
+  *                                    from organization_type)
+- *   - organization_size, website, description
+- *   - country, city, address, postal_code
++ *   - organization_company_size, organization_website,
++ *     organization_description
++ *   - organization_country, organization_city, organization_address,
++ *     organization_postal_code
+  *   - proof_file                 <- CompanyStep3 required document (actual
+  *                                    File object, not just its name)
+- *   - additional_document        <- CompanyStep3 optional document
+  *   - terms_accepted / privacy_accepted <- CompanyStep4
++ *
++ * NOTE: an optional second document has no backend rule and is therefore
++ * not sent - see RegisterOrganizationRequest, which validates proof_file
++ * only.
+  */
+ export function buildOrganizationFormData(companyData) {
+   const {
+@@ -80,14 +91,20 @@ export function buildOrganizationFormData(companyData) {
+     address,
+     postalCode,
+     proofFile,
+-    additionalFile,
+     agreedTerms,
+     agreedPrivacy,
+   } = companyData || {};
+ 
+   const formData = new FormData();
+ 
+-  formData.append('administrator_name', administratorName || '');
++  // Account fields. The backend validates the top-level `name` and `email`
++  // rules (see RegisterOrganizationRequest) - the organization_* prefixed
++  // names belong to the organization record, not the user account.
++  formData.append('name', administratorName || '');
++  formData.append('email', email || '');
++  // Required by the backend and stored as organizations.contact_email. The
++  // wizard collects a single email, so it doubles as the public contact
++  // address just as it did before this contract was corrected.
+   formData.append('organization_contact_email', email || '');
+   formData.append('phone', phone || '');
+   formData.append('password', password || '');
+@@ -95,13 +112,16 @@ export function buildOrganizationFormData(companyData) {
+   formData.append('organization_name', companyName || '');
+   formData.append('organization_type', organizationType || '');
+   formData.append('organization_industry', industry || '');
+-  formData.append('organization_size', companySize || '');
+-  formData.append('website', website || '');
+-  formData.append('description', companyDescription || '');
+-  formData.append('country', country || '');
+-  formData.append('city', city || '');
+-  formData.append('address', address || '');
+-  formData.append('postal_code', postalCode || '');
++  // Every organization detail column is prefixed `organization_` in the
++  // backend contract. Without the prefix the value is not covered by any
++  // validation rule, so it silently arrives as null and is never stored.
++  formData.append('organization_company_size', companySize || '');
++  formData.append('organization_website', website || '');
++  formData.append('organization_description', companyDescription || '');
++  formData.append('organization_country', country || '');
++  formData.append('organization_city', city || '');
++  formData.append('organization_address', address || '');
++  formData.append('organization_postal_code', postalCode || '');
+   formData.append('terms_accepted', agreedTerms ? '1' : '0');
+   formData.append('privacy_accepted', agreedPrivacy ? '1' : '0');
+ 
+@@ -109,9 +129,6 @@ export function buildOrganizationFormData(companyData) {
+   if (proofFile instanceof File) {
+     formData.append('proof_file', proofFile);
+   }
+-  if (additionalFile instanceof File) {
+-    formData.append('additional_document', additionalFile);
+-  }
+ 
+   return formData;
+ }

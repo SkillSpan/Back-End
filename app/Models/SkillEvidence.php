@@ -18,6 +18,7 @@ class SkillEvidence extends Model
         'value',
         'normalized_value',
         'reference',
+        'description',
         'evidence_date',
         'verification_status',
         'reviewer_id',

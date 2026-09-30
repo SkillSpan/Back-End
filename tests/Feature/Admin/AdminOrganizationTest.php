@@ -197,6 +197,168 @@ class AdminOrganizationTest extends TestCase
     }
 
     /**
+     * The test above proves the read side against a hand-seeded row. It does
+     * NOT prove that a description submitted through the real registration
+     * endpoint ever reaches the database — and that gap is exactly where the
+     * bug could come back: `AuthService::createOrganization` builds the row
+     * with `Organization::forceCreate([...])` and maps the request's
+     * `organization_description` onto the `description` column by hand. If
+     * that mapping is dropped, or the key is renamed on one side only, the
+     * read-side test still passes (it writes the column directly) while every
+     * real organization silently loses its description.
+     *
+     * Registration uses `multipart/form-data` because of the required
+     * `proof_file`, so this walks the whole chain: register -> stored ->
+     * returned by the admin detail endpoint.
+     */
+    public function test_a_description_submitted_at_registration_reaches_the_admin_panel(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/api/v1/auth/register/organization', [
+            'name' => 'Org Owner',
+            'email' => 'owner@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => 1,
+            'privacy_accepted' => 1,
+            'organization_name' => 'Taqat LLC',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'contact@taqat.example.com',
+            'organization_description' => 'We build developer tools for Arabic-speaking teams.',
+            'organization_industry' => 'Software & IT Services',
+            'proof_file' => \Illuminate\Http\UploadedFile::fake()
+                ->create('proof.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        // 1) The value actually landed in the column...
+        $org = Organization::where('name', 'Taqat LLC')->firstOrFail();
+        $this->assertSame(
+            'We build developer tools for Arabic-speaking teams.',
+            $org->description
+        );
+
+        // 2) ...and comes back out through the panel's own endpoint.
+        Sanctum::actingAs($admin);
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath(
+                'data.description',
+                'We build developer tools for Arabic-speaking teams.'
+            );
+    }
+
+    /**
+     * Every organization detail the registration form collects must survive
+     * the round trip. The frontend previously sent these seven values under
+     * unprefixed names (`description`, `website`, `country`, ...) which match
+     * no validation rule, so they arrived as null and were silently dropped -
+     * the root cause of the admin panel reporting "No description was
+     * provided" for an organization whose owner had typed one.
+     */
+    public function test_every_registration_detail_is_stored_and_returned_to_the_admin_panel(): void
+    {
+        $admin = $this->admin();
+
+        $this->post('/api/v1/auth/register/organization', [
+            'name' => 'Detail Owner',
+            'email' => 'details@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => 1,
+            'privacy_accepted' => 1,
+            'organization_name' => 'Northwind Traders',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'hello@northwind.example.com',
+            'organization_contact_phone' => '+962791234567',
+            'organization_website' => 'https://northwind.example.com',
+            'organization_description' => 'We build developer tooling for the region.',
+            'organization_industry' => 'Software & IT Services',
+            'organization_company_size' => '11 - 50 employees',
+            'organization_country' => 'Jordan',
+            'organization_city' => 'Amman',
+            'organization_address' => '123 Main St',
+            'organization_postal_code' => '11183',
+            'proof_file' => \Illuminate\Http\UploadedFile::fake()
+                ->create('proof.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        $org = Organization::where('name', 'Northwind Traders')->firstOrFail();
+
+        // The database rows, not just the response body.
+        $this->assertSame('hello@northwind.example.com', $org->contact_email);
+        $this->assertSame('+962791234567', $org->contact_phone);
+        $this->assertSame('https://northwind.example.com', $org->website);
+        $this->assertSame('We build developer tooling for the region.', $org->description);
+        $this->assertSame('Software & IT Services', $org->industry);
+        $this->assertSame('11 - 50 employees', $org->company_size);
+        $this->assertSame('Jordan', $org->country);
+        $this->assertSame('Amman', $org->city);
+        $this->assertSame('123 Main St', $org->address);
+        $this->assertSame('11183', $org->postal_code);
+
+        // ...and the same values reach the panel's endpoint.
+        Sanctum::actingAs($admin);
+
+        $this->getJson("/api/v1/admin/organizations/{$org->id}")
+            ->assertOk()
+            ->assertJsonPath('data.contact_email', 'hello@northwind.example.com')
+            ->assertJsonPath('data.contact_phone', '+962791234567')
+            ->assertJsonPath('data.website', 'https://northwind.example.com')
+            ->assertJsonPath('data.description', 'We build developer tooling for the region.')
+            ->assertJsonPath('data.industry', 'Software & IT Services')
+            ->assertJsonPath('data.company_size', '11 - 50 employees')
+            ->assertJsonPath('data.country', 'Jordan')
+            ->assertJsonPath('data.city', 'Amman')
+            ->assertJsonPath('data.address', '123 Main St')
+            ->assertJsonPath('data.postal_code', '11183');
+    }
+
+    /**
+     * The same round trip reaches the list endpoint the panel loads first, so
+     * a card is never rendered from a half-populated record.
+     */
+    public function test_the_organization_list_carries_every_registration_detail(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        Organization::forceCreate([
+            'name' => 'Listed Co',
+            'type' => 'company',
+            'verification_status' => 'pending',
+            'contact_email' => 'listed@example.com',
+            'website' => 'https://listed.example.com',
+            'description' => 'Listed description.',
+            'industry' => 'Education',
+            'company_size' => '51 - 200 employees',
+            'country' => 'Jordan',
+            'city' => 'Irbid',
+            'address' => '9 University St',
+            'postal_code' => '21110',
+        ]);
+
+        $listedId = Organization::where('name', 'Listed Co')->firstOrFail()->id;
+
+        $response = $this->getJson('/api/v1/admin/organizations')->assertOk();
+
+        // The list is `latest()` first and paginated (the rows live under
+        // data.data), so locate this record by id instead of assuming index 0.
+        $row = collect($response->json('data.data'))
+            ->firstWhere('id', $listedId);
+
+        $this->assertNotNull($row, 'The newly created organization was not in the list.');
+        $this->assertSame('https://listed.example.com', $row['website']);
+        $this->assertSame('Listed description.', $row['description']);
+        $this->assertSame('Education', $row['industry']);
+        $this->assertSame('51 - 200 employees', $row['company_size']);
+        $this->assertSame('Jordan', $row['country']);
+        $this->assertSame('Irbid', $row['city']);
+        $this->assertSame('9 University St', $row['address']);
+        $this->assertSame('21110', $row['postal_code']);
+    }
+
+    /**
      * An organization that genuinely submitted no description must still come
      * back with the key present and null, so the panel can tell the two cases
      * apart instead of relying on an absent key.
@@ -210,6 +372,53 @@ class AdminOrganizationTest extends TestCase
 
         $response->assertJsonPath('data.description', null);
         $this->assertArrayHasKey('description', $response->json('data'));
+    }
+
+    /**
+     * The expanded review card must offer every detail the registration form
+     * collects, not just the four it used to show.
+     *
+     * This is a regression guard on the panel's own template: it used to render
+     * email / phone / website / company size and silently discard industry,
+     * country, city, address and postal code — all of which the API had been
+     * returning the whole time. A reviewer could not see an organization's
+     * address before deciding to approve it.
+     *
+     * The template is inline JavaScript in the Blade view, so asserting on the
+     * served page is the honest way to check it: a label that is missing from
+     * the response cannot be rendered by the browser either.
+     */
+    public function test_the_review_panel_renders_every_organization_detail(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
+            ->get('/admin/organizations')
+            ->assertOk()
+            ->assertSee('Postal code', false)
+            ->assertSee('Address', false)
+            ->assertSee('Industry', false)
+            ->assertSee('Country', false)
+            ->assertSee('City', false)
+            ->assertSee('Company size', false)
+            ->assertSee('Website', false)
+            ->assertSee('Email', false)
+            ->assertSee('Phone', false);
+    }
+
+    /**
+     * The empty-description copy must survive: it is the exact string the panel
+     * shows when the column really is null, and the whole point of the bug
+     * report was that it was appearing for organizations that HAD a
+     * description. Keeping it in the template (rather than deleting it) means
+     * the two cases stay distinguishable.
+     */
+    public function test_the_review_panel_keeps_the_empty_description_copy(): void
+    {
+        $this->actingAs($this->admin())
+            ->get('/admin/organizations')
+            ->assertOk()
+            ->assertSee('No description was provided for this organization.', false);
     }
 
     /**
