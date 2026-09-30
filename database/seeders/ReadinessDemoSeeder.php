@@ -27,10 +27,20 @@ class ReadinessDemoSeeder extends Seeder
             ['name' => 'Learner', 'description' => 'Student or Graduate']
         );
 
+        /*
+         * `users.password` is NOT NULL, so the create-array must carry it:
+         * firstOrCreate() INSERTS before the forceFill() below ever runs, so
+         * a missing password aborted the whole seeder on a fresh database
+         * with "NOT NULL constraint failed: users.password". The forceFill()
+         * is still kept — it re-asserts these values on an existing user.
+         */
         $user = User::firstOrCreate(
             ['email' => 'readiness.demo@skillspan.local'],
             [
                 'name' => 'Readiness Demo User',
+                'password' => Hash::make('password123'),
+                'status' => 'active',
+                'email_verified_at' => now(),
             ]
         );
 
@@ -42,8 +52,16 @@ class ReadinessDemoSeeder extends Seeder
 
         $user->roles()->syncWithoutDetaching([$learnerRole->id]);
 
+        // `career_roles.title` is NOT NULL — same firstOrCreate() trap as
+        // above: the INSERT happens before the forceFill() below.
         $role = CareerRole::firstOrCreate(
-            ['slug' => 'data-analyst-demo', 'version' => 1]
+            ['slug' => 'data-analyst-demo', 'version' => 1],
+            [
+                'title' => 'Data Analyst',
+                'status' => 'approved',
+                'effective_date' => now()->toDateString(),
+                'description' => 'Demo role for readiness integration testing.',
+            ]
         );
 
         $role->forceFill([
@@ -89,11 +107,19 @@ class ReadinessDemoSeeder extends Seeder
                 ]
             );
 
+            // `level`, `confidence` and `calculated_at` are NOT NULL — the
+            // create-array must carry them for the same reason as above.
             $evaluation = SkillEvaluation::firstOrCreate(
                 [
                     'student_profile_id' => $profile->id,
                     'skill_id' => $skill->id,
                     'algorithm_version' => 'demo-v1',
+                ],
+                [
+                    'level' => $item['current_level'],
+                    'confidence' => 90,
+                    'calculated_at' => now(),
+                    'snapshot' => ['source' => 'ReadinessDemoSeeder'],
                 ]
             );
 
