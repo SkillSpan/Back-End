@@ -416,6 +416,7 @@ class RoadmapV1IntegrationTest extends TestCase
                             'target_skill_id' => (int) $roleSkills[0]->skill_id,
                             'priority_score' => 0.9,
                             'estimated_hours' => 6.0,
+                            'estimated_duration_weeks' => 1.5,
                         ],
                         [
                             'action_id' => 'A2',
@@ -425,6 +426,7 @@ class RoadmapV1IntegrationTest extends TestCase
                             'prerequisite_skill_ids' => $pythonPrerequisites,
                             'priority_score' => 0.6,
                             'estimated_hours' => 4.0,
+                            'estimated_duration_weeks' => 1.0,
                         ],
                     ],
                 ],

@@ -23,9 +23,25 @@ class RoadmapAction extends Model
         'real_project',
     ];
 
-    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_hours', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
+    /**
+     * Roadmap v1 contract fields:
+     *   estimated_hours          — effort required to complete the action;
+     *   estimated_duration_weeks — calendar duration in weeks, derived from
+     *                              the learner's weekly availability.
+     *
+     * `estimated_duration_hours` is a LEGACY column that predates the v1
+     * contract. It is kept for backward compatibility (the column and its
+     * data are preserved) but it is NOT part of the Roadmap v1 contract
+     * and is no longer validated, persisted or serialized. It is never
+     * converted into weeks.
+     */
+    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_weeks', 'estimated_duration_hours', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
 
-    protected $casts = ['completed_at' => 'datetime'];
+    protected $casts = [
+        'completed_at' => 'datetime',
+        'estimated_hours' => 'float',
+        'estimated_duration_weeks' => 'float',
+    ];
 
     public function roadmap()
     {

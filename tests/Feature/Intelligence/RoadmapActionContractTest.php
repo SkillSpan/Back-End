@@ -330,6 +330,9 @@ class RoadmapActionContractTest extends TestCase
             'action_type' => $type,
             'title' => $title,
             'target_skill_id' => $targetSkillId,
+            // Roadmap v1 effort/duration contract — required on every action.
+            'estimated_hours' => 12.0,
+            'estimated_duration_weeks' => 3.0,
         ];
 
         if ($prerequisites !== null) {
