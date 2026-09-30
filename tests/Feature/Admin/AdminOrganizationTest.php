@@ -266,6 +266,53 @@ class AdminOrganizationTest extends TestCase
     }
 
     /**
+     * The expanded review card must offer every detail the registration form
+     * collects, not just the four it used to show.
+     *
+     * This is a regression guard on the panel's own template: it used to render
+     * email / phone / website / company size and silently discard industry,
+     * country, city, address and postal code — all of which the API had been
+     * returning the whole time. A reviewer could not see an organization's
+     * address before deciding to approve it.
+     *
+     * The template is inline JavaScript in the Blade view, so asserting on the
+     * served page is the honest way to check it: a label that is missing from
+     * the response cannot be rendered by the browser either.
+     */
+    public function test_the_review_panel_renders_every_organization_detail(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
+            ->get('/admin/organizations')
+            ->assertOk()
+            ->assertSee('Postal code', false)
+            ->assertSee('Address', false)
+            ->assertSee('Industry', false)
+            ->assertSee('Country', false)
+            ->assertSee('City', false)
+            ->assertSee('Company size', false)
+            ->assertSee('Website', false)
+            ->assertSee('Email', false)
+            ->assertSee('Phone', false);
+    }
+
+    /**
+     * The empty-description copy must survive: it is the exact string the panel
+     * shows when the column really is null, and the whole point of the bug
+     * report was that it was appearing for organizations that HAD a
+     * description. Keeping it in the template (rather than deleting it) means
+     * the two cases stay distinguishable.
+     */
+    public function test_the_review_panel_keeps_the_empty_description_copy(): void
+    {
+        $this->actingAs($this->admin())
+            ->get('/admin/organizations')
+            ->assertOk()
+            ->assertSee('No description was provided for this organization.', false);
+    }
+
+    /**
      * The happy path: the row and the file agree, so the panel shows a link.
      */
     public function test_show_reports_a_proof_file_as_available_when_it_is_on_disk(): void

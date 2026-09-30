@@ -714,8 +714,18 @@ async function toggleDetail(id){
 }
 
 function detailTemplate(org){
-  const desc = org.description
-    ? `<p class="desc">${escapeHtml(org.description)}</p>`
+  // A description that is null, undefined, or only whitespace all mean the
+  // same thing to a reviewer: nothing was written. Testing `org.description`
+  // for truthiness alone let a whitespace-only value through and rendered an
+  // empty paragraph — neither the description nor the "not provided" fallback,
+  // which reads like a rendering glitch. Trimming first keeps the two real
+  // cases (has a description / has none) distinguishable and exhaustive.
+  const description = (org.description === null || org.description === undefined)
+    ? ''
+    : String(org.description).trim();
+
+  const desc = description
+    ? `<p class="desc">${escapeHtml(description)}</p>`
     : `<p class="desc empty">No description was provided for this organization.</p>`;
 
   // Three distinct cases, each of which must look different:
@@ -739,12 +749,31 @@ function detailTemplate(org){
              </a>
            </div>`);
 
+  // Every organization detail the API returns is rendered here. The list
+  // used to show only email / phone / website / company size, so industry,
+  // country, city, address and postal code were fetched on every request and
+  // then thrown away — an organization could submit a full address and the
+  // reviewer had no way to see it before approving.
+  //
+  // Each row is omitted when its value is empty, so an organization that
+  // genuinely left a field blank does not render an empty label. `fact()`
+  // treats null, undefined and a whitespace-only string as "not provided".
+  const fact = (label, value) => {
+    const v = (value === null || value === undefined) ? '' : String(value).trim();
+    return v ? `<div><span>${label}: </span><span>${escapeHtml(v)}</span></div>` : '';
+  };
+
   const facts = `
     <div class="facts">
-      ${org.contact_email ? `<div><span>Email: </span><span>${escapeHtml(org.contact_email)}</span></div>` : ''}
-      ${org.contact_phone ? `<div><span>Phone: </span><span>${escapeHtml(org.contact_phone)}</span></div>` : ''}
-      ${org.website ? `<div><span>Website: </span><span>${escapeHtml(org.website)}</span></div>` : ''}
-      ${org.company_size ? `<div><span>Company size: </span><span>${escapeHtml(String(org.company_size))}</span></div>` : ''}
+      ${fact('Email', org.contact_email)}
+      ${fact('Phone', org.contact_phone)}
+      ${fact('Website', org.website)}
+      ${fact('Industry', org.industry)}
+      ${fact('Company size', org.company_size)}
+      ${fact('Country', org.country)}
+      ${fact('City', org.city)}
+      ${fact('Address', org.address)}
+      ${fact('Postal code', org.postal_code)}
     </div>`;
 
   const actions = org.verification_status === 'pending'
