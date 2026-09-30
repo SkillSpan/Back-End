@@ -78,12 +78,15 @@ class AdminOrganizationTest extends TestCase
     /**
      * Attach a member as the organization's own admin (pivot role_in_org)
      * so approval/rejection notifications have a recipient.
+     *
+     * The email is overridable so a test can pin the exact address the review
+     * email is expected to reach.
      */
-    private function attachOrgAdmin(Organization $organization): User
+    private function attachOrgAdmin(Organization $organization, ?string $email = null): User
     {
         $member = User::forceCreate([
             'name' => 'Company Admin',
-            'email' => uniqid().'@company.com',
+            'email' => $email ?? uniqid().'@company.com',
             'password' => 'password123',
             'status' => 'active',
             'email_verified_at' => now(),
@@ -426,5 +429,156 @@ class AdminOrganizationTest extends TestCase
         $this->getJson("/api/v1/admin/organizations/{$ghost->fileable_id}/proof-file")
             ->assertStatus(404)
             ->assertJsonPath('message', 'Proof file not found.');
+    }
+
+    /**
+     * A repeated approval must not produce a second email.
+     *
+     * The panel disables the button after the first click, but a double-click
+     * or a client retry after a timeout still reaches the endpoint twice, and
+     * the organization's admins must not be congratulated twice for one
+     * decision.
+     */
+    public function test_repeated_approval_does_not_send_a_second_email(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization();
+        $orgAdmin = $this->attachOrgAdmin($org, 'owner@company.com');
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.verification_status', 'verified');
+
+        // The second call is answered exactly like any other repeat.
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This organization has already been reviewed.')
+            ->assertJsonPath('data.verification_status', 'verified');
+
+        Notification::assertSentToTimes($orgAdmin, OrganizationApprovedNotification::class, 1);
+
+        // And only one audit record was written for the one decision.
+        $this->assertSame(
+            1,
+            AuditEvent::where('action', 'organization.approved')->where('entity_id', $org->id)->count()
+        );
+    }
+
+    /**
+     * Same guarantee on the rejection side, so fixing approval cannot have
+     * introduced a difference between the two paths.
+     */
+    public function test_repeated_rejection_does_not_send_a_second_email(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization();
+        $orgAdmin = $this->attachOrgAdmin($org, 'owner@company.com');
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/reject", ['reason' => 'Unreadable.'])
+            ->assertOk()
+            ->assertJsonPath('data.verification_status', 'rejected');
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/reject", ['reason' => 'Unreadable.'])
+            ->assertStatus(422)
+            ->assertJsonPath('data.verification_status', 'rejected');
+
+        Notification::assertSentToTimes($orgAdmin, OrganizationRejectedNotification::class, 1);
+    }
+
+    /**
+     * The review email goes to the ACCOUNT that administers the organization
+     * — the address the user logs in with — not to `contact_email`, which is a
+     * public contact address the organization may not control.
+     */
+    public function test_approval_email_is_addressed_to_the_organization_account_email(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization(); // contact_email: hr@company.com
+        $orgAdmin = $this->attachOrgAdmin($org, 'owner@company.com');
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")->assertOk();
+
+        Notification::assertSentTo(
+            $orgAdmin,
+            OrganizationApprovedNotification::class,
+            function ($notification, $channels) use ($orgAdmin) {
+                $this->assertContains('mail', $channels);
+
+                // Notifiable routes mail to the account's own address.
+                return $orgAdmin->routeNotificationFor('mail') === 'owner@company.com';
+            }
+        );
+
+        $this->assertNotSame($org->contact_email, $orgAdmin->routeNotificationFor('mail'));
+    }
+
+    /**
+     * A membership marked 'removed' is not the organization any more, so it
+     * must not receive the review outcome.
+     */
+    public function test_a_removed_org_admin_is_not_notified(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization();
+        $formerAdmin = $this->attachOrgAdmin($org, 'former@company.com');
+        $org->members()->updateExistingPivot($formerAdmin->id, ['status' => 'removed']);
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")->assertOk();
+
+        Notification::assertNotSentTo($formerAdmin, OrganizationApprovedNotification::class);
+    }
+
+    /**
+     * A refused approval changes nothing and emails nobody — the "no email"
+     * half of the approval guarantee.
+     */
+    public function test_approval_is_refused_without_a_proof_file_and_notifies_nobody(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $org = $this->organization(); // deliberately no proof file
+        $orgAdmin = $this->attachOrgAdmin($org, 'owner@company.com');
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This organization has no proof document to review. It cannot be approved.');
+
+        $this->assertSame('pending', $org->fresh()->verification_status);
+        Notification::assertNothingSentTo($orgAdmin);
+    }
+
+    /**
+     * `Notification::fake()` intercepts the channel, so a broken mail template
+     * would leave this whole suite green while production silently fails to
+     * deliver the mail — which is exactly what "the approval email never
+     * arrives" looks like from the outside. Rendering both messages with real
+     * data is what actually covers the delivery path.
+     */
+    public function test_organization_review_emails_render_with_real_data(): void
+    {
+        $org = $this->organization();
+        $orgAdmin = $this->attachOrgAdmin($org, 'owner@company.com');
+
+        $approved = (new OrganizationApprovedNotification($org))->toMail($orgAdmin)->render();
+        $this->assertStringContainsString($org->name, $approved);
+        $this->assertStringContainsString($orgAdmin->name, $approved);
+
+        $rejected = (new OrganizationRejectedNotification($org, 'The certificate is unreadable.'))
+            ->toMail($orgAdmin)
+            ->render();
+        $this->assertStringContainsString($org->name, $rejected);
+        $this->assertStringContainsString('The certificate is unreadable.', $rejected);
+
+        // The reason is optional, so the no-reason variant has to render too.
+        $withoutReason = (new OrganizationRejectedNotification($org))->toMail($orgAdmin)->render();
+        $this->assertStringContainsString($org->name, $withoutReason);
     }
 }
