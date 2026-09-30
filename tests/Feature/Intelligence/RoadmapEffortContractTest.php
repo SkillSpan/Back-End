@@ -28,7 +28,8 @@ use Tests\TestCase;
  * The two are distinct and are never substituted for one another; the
  * legacy `estimated_duration_hours` is not part of the contract. The
  * FastAPI Roadmap request is produced by IntelligenceClient::toRoadmapRequest()
- * and must not carry internal-only fields (skill_gap_result, evidence, …).
+ * and carries EXACTLY `learner` / `role` / `skills` — no internal-only
+ * fields (skill_gap_result, evidence, versions, persistence metadata).
  */
 class RoadmapEffortContractTest extends TestCase
 {
@@ -179,14 +180,13 @@ class RoadmapEffortContractTest extends TestCase
 
         $request = app(IntelligenceClient::class)->toRoadmapRequest($payload);
 
-        // Exact top-level contract.
-        $this->assertSame(
-            ['learner', 'role', 'skills', 'algorithm_version', 'configuration_version'],
-            array_keys($request),
-        );
+        // The RoadmapRequest carries EXACTLY learner / role / skills.
+        $this->assertSame(['learner', 'role', 'skills'], array_keys($request));
 
         // Internal-only / Laravel-owned fields never reach the wire.
         $this->assertArrayNotHasKey('skill_gap_result', $request);
+        $this->assertArrayNotHasKey('algorithm_version', $request);
+        $this->assertArrayNotHasKey('configuration_version', $request);
         $this->assertArrayNotHasKey('roadmap_version', $request);
         $this->assertArrayNotHasKey('status', $request);
         $this->assertArrayNotHasKey('decision_uuid', $request);
@@ -208,8 +208,7 @@ class RoadmapEffortContractTest extends TestCase
         // Values are preserved (no invented fields, no rescaling).
         $this->assertSame((int) $profile->id, $request['learner']['student_profile_id']);
         $this->assertSame((int) $role->id, $request['role']['id']);
-        $this->assertSame('skill-gap-v1', $request['algorithm_version']);
-        $this->assertSame('config-v1', $request['configuration_version']);
+        $this->assertEqualsWithDelta(12.0, (float) $request['learner']['weekly_availability_hours'], 0.0001);
     }
 
     // ------------------------------------------------ Test 6
@@ -238,13 +237,13 @@ class RoadmapEffortContractTest extends TestCase
 
         $this->assertIsArray($sent, 'the roadmap endpoint must have been called');
 
-        // It is NOT the internal payload.
+        // It is NOT the internal payload: the RoadmapRequest carries only
+        // learner / role / skills.
         $this->assertArrayNotHasKey('skill_gap_result', $sent);
         $this->assertArrayNotHasKey('evidence', $sent['skills'][0]);
-        $this->assertSame(
-            ['learner', 'role', 'skills', 'algorithm_version', 'configuration_version'],
-            array_keys($sent),
-        );
+        $this->assertArrayNotHasKey('algorithm_version', $sent);
+        $this->assertArrayNotHasKey('configuration_version', $sent);
+        $this->assertSame(['learner', 'role', 'skills'], array_keys($sent));
 
         // The roadmap input the algorithm needs is present.
         $this->assertSame((int) $profile->id, $sent['learner']['student_profile_id']);
