@@ -82,6 +82,15 @@ class IntelligenceResultResource extends JsonResource
                 'id' => $roadmap->id,
                 'roadmap_version' => $roadmap->version,
                 'status' => $roadmap->status,
+                /*
+                 * The ROADMAP's own algorithm/configuration versions (owned
+                 * by FastAPI and echoed on the roadmap response). These are
+                 * deliberately NOT the top-level readiness/skill-gap
+                 * versions above — the two calculations may report
+                 * different versions, so they must never be mixed.
+                 */
+                'algorithm_version' => $roadmap->algorithm_version,
+                'configuration_version' => $roadmap->configuration_version,
                 'next_best_action_id' => $roadmap->next_best_action_id,
                 'generated_at' => optional($roadmap->generated_at)->toIso8601String(),
                 'explanation' => $roadmap->explanation,

@@ -2,6 +2,7 @@
 
 namespace App\Services\Intelligence;
 
+use App\Exceptions\IntelligenceException;
 use App\Models\DecisionSnapshot;
 use App\Models\ReadinessResult;
 use App\Models\Roadmap;
@@ -247,7 +248,7 @@ class IntelligencePersistenceService
                 $targetSkillId = $action['target_skill_id'] ?? null;
 
                 $prerequisiteSkillIds = $this->normalizePrerequisiteIds(
-                    $action['prerequisite_skill_ids'] ?? [],
+                    $action['prerequisite_skill_ids'] ?? null,
                 );
 
                 $model = RoadmapAction::create([
@@ -320,25 +321,50 @@ class IntelligencePersistenceService
     }
 
     /**
-     * De-duplicated list of integer prerequisite skill ids.
+     * Explicit, non-silent prerequisite id list.
+     *
+     * null / absent means "no prerequisites". Anything else must already be
+     * a list of integer ids: a non-array (e.g. "2,5,8") or a non-integer
+     * element is a contract violation and fails loudly rather than being
+     * silently discarded — the response validator enforces the same rule
+     * before persistence, so this is a defensive guard, not a normalizer.
+     * Duplicates are NOT collapsed here; the response validator rejects
+     * them, and the unique index on roadmap_action_prerequisites would
+     * reject them at the database level too.
      *
      * @return list<int>
      */
     private function normalizePrerequisiteIds(mixed $ids): array
     {
-        if (! is_array($ids)) {
+        if ($ids === null) {
             return [];
+        }
+
+        if (! is_array($ids)) {
+            throw new IntelligenceException(
+                'A roadmap action carries prerequisite_skill_ids in an invalid format.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['field' => 'prerequisite_skill_ids'],
+            );
         }
 
         $normalized = [];
 
         foreach ($ids as $id) {
-            if (is_numeric($id)) {
-                $normalized[] = (int) $id;
+            if (! is_int($id)) {
+                throw new IntelligenceException(
+                    'A roadmap action carries a non-integer prerequisite skill id.',
+                    502,
+                    'INTELLIGENCE_INVALID_RESPONSE',
+                    ['field' => 'prerequisite_skill_ids'],
+                );
             }
+
+            $normalized[] = $id;
         }
 
-        return array_values(array_unique($normalized));
+        return $normalized;
     }
 
     private function mapPhase(string $phase): string
@@ -349,11 +375,22 @@ class IntelligencePersistenceService
         };
     }
 
+    /**
+     * Validate-and-return the action type. There is deliberately NO
+     * fallback: an unknown type is a FastAPI contract violation and must
+     * never be silently rewritten to "practice".
+     */
     private function mapType(string $type): string
     {
-        return match ($type) {
-            'assessment', 'resource', 'practice', 'simulated_project', 'real_project' => $type,
-            default => 'practice',
-        };
+        if (! in_array($type, RoadmapAction::TYPES, true)) {
+            throw new IntelligenceException(
+                'A roadmap action carries an unknown action type.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['action_type' => $type],
+            );
+        }
+
+        return $type;
     }
 }
