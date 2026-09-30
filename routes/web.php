@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
+use App\Http\Controllers\Web\AdminProjectController;
 use App\Http\Controllers\Web\TestController;
 use Illuminate\Support\Facades\Route;
 
@@ -54,4 +55,24 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
 
     Route::get('/organizations/{organization}/proof-file', [AdminOrganizationController::class, 'downloadProofFile'])
         ->name('admin.web.organizations.proof-file');
+
+    /*
+     * Project management. The page plus the session-authenticated JSON
+     * endpoints its JavaScript calls, mirroring the organizations panel above.
+     *
+     * The lifecycle actions (submit / approve / request-changes / reject /
+     * open) are deliberately NOT duplicated here: the panel calls the
+     * existing /api/v1/projects/* endpoints, so the allowed transitions stay
+     * defined in exactly one place.
+     */
+    Route::view('/projects', 'admin.projects')->name('admin.projects');
+
+    Route::get('/api/projects', [AdminProjectController::class, 'index']);
+    Route::post('/api/projects', [AdminProjectController::class, 'store']);
+    Route::get('/api/projects/{project}', [AdminProjectController::class, 'show'])
+        ->whereNumber('project');
+    Route::patch('/api/projects/{project}', [AdminProjectController::class, 'update'])
+        ->whereNumber('project');
+    Route::post('/api/projects/{project}/cancel', [AdminProjectController::class, 'cancel'])
+        ->whereNumber('project');
 });

@@ -366,6 +366,81 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_OPEN, null, 'project.opened', [], $requestId, $ipAddress, $userAgent);
     }
 
+    /**
+     * Retire a project: cancel it.
+     *
+     * This is the closet thing the lifecycle has to a delete, and it is
+     * deliberately a status move rather than a row delete. A project is
+     * referenced by applications, recommendations and a versioned matching
+     * snapshot; removing the row would orphan every one of them and destroy the
+     * record of decisions already taken on it. `cancelled` keeps the audit
+     * trail intact while taking the project out of play.
+     *
+     * WHY NOT assertTransition()
+     * --------------------------
+     * `Project::TRANSITIONS` gives no state an edge into `cancelled` — the
+     * Pilot never defined who may cancel or from where, so the table is
+     * intentionally silent. Routing through it would make cancellation
+     * impossible from every status. The rules are therefore stated here,
+     * explicitly, instead of being invented in the transition table:
+     *
+     *   - Only a platform administrator may cancel. A project that is live
+     *     (`open` and beyond) is already in front of learners, and a company
+     *     representative retiring their own live project is a product decision
+     *     this code is not allowed to make.
+     *   - Terminal states are refused. A project that is already `cancelled`,
+     *     `archived` or `rejected` has nothing left to cancel, and reporting
+     *     that is clearer than a silent no-op.
+     *   - The move is committed through the shared `transition()` helper, so it
+     *     keeps the same conditional UPDATE (a concurrent request cannot apply
+     *     it twice) and the same audit entry as every other lifecycle action.
+     */
+    public function cancel(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        if (! $this->isPlatformAdmin($actor)) {
+            throw new ProjectException(
+                'Only a platform administrator may cancel a project.',
+                403,
+                'PROJECT_CANCEL_FORBIDDEN',
+                ['project_id' => $project->id],
+            );
+        }
+
+        if (in_array($project->status, [
+            Project::STATUS_CANCELLED,
+            Project::STATUS_ARCHIVED,
+            Project::STATUS_REJECTED,
+        ], true)) {
+            throw new ProjectException(
+                'This project has already reached a final state and cannot be cancelled.',
+                422,
+                'PROJECT_NOT_CANCELLABLE',
+                [
+                    'project_id' => $project->id,
+                    'status' => $project->status,
+                ],
+            );
+        }
+
+        return $this->transition(
+            $project,
+            $actor,
+            Project::STATUS_CANCELLED,
+            $reason,
+            'project.cancelled',
+            [],
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+    }
+
     // -----------------------------------------------------------------
     // Transitions
     // -----------------------------------------------------------------
