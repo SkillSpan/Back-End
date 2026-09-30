@@ -1,0 +1,168 @@
+<?php
+
+namespace App\OpenApi\Schemas;
+
+use OpenApi\Attributes as OA;
+
+#[OA\Schema(
+    schema: 'Project',
+    title: 'Project',
+    description: 'A project as serialised by App\Http\Resources\ProjectResource. '
+        .'`eligibility` / `capacity_state` are attached by the controller only on the details endpoint.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer', example: 55),
+        new OA\Property(property: 'title', type: 'string', example: 'E-commerce API Modernisation'),
+        new OA\Property(property: 'description', type: 'string', nullable: true),
+        new OA\Property(property: 'type', type: 'string', nullable: true),
+        new OA\Property(property: 'domain', type: 'string', nullable: true),
+        new OA\Property(property: 'objectives', type: 'string', nullable: true),
+        new OA\Property(property: 'learning_outcomes', type: 'string', nullable: true),
+        new OA\Property(property: 'difficulty', type: 'string', nullable: true),
+        new OA\Property(property: 'work_mode', type: 'string', nullable: true),
+        new OA\Property(property: 'role', type: 'string', nullable: true),
+        new OA\Property(property: 'schedule', type: 'string', nullable: true),
+        new OA\Property(property: 'capacity', type: 'integer', nullable: true),
+        new OA\Property(property: 'min_team_size', type: 'integer', nullable: true),
+        new OA\Property(property: 'application_deadline', type: 'string', format: 'date', nullable: true),
+        new OA\Property(property: 'start_date', type: 'string', format: 'date', nullable: true),
+        new OA\Property(property: 'end_date', type: 'string', format: 'date', nullable: true),
+        new OA\Property(property: 'duration_days', type: 'integer', nullable: true),
+        new OA\Property(property: 'status', type: 'string', nullable: true, example: 'open'),
+        new OA\Property(property: 'confidentiality', type: 'string', nullable: true),
+        new OA\Property(property: 'version', type: 'integer', nullable: true),
+        new OA\Property(
+            property: 'organization',
+            type: 'object',
+            nullable: true,
+            properties: [
+                new OA\Property(property: 'id', type: 'integer'),
+                new OA\Property(property: 'title', type: 'string', nullable: true),
+            ],
+        ),
+        new OA\Property(
+            property: 'required_skills',
+            type: 'array',
+            nullable: true,
+            items: new OA\Items(
+                type: 'object',
+                properties: [
+                    new OA\Property(property: 'skill_id', type: 'integer'),
+                    new OA\Property(property: 'skill_name', type: 'string', nullable: true),
+                    new OA\Property(property: 'minimum_level', type: 'number', format: 'float'),
+                    new OA\Property(property: 'is_critical_entry', type: 'boolean'),
+                ],
+            ),
+        ),
+        new OA\Property(
+            property: 'available_project_roles',
+            type: 'array',
+            nullable: true,
+            items: new OA\Items(
+                type: 'object',
+                properties: [
+                    new OA\Property(property: 'id', type: 'integer'),
+                    new OA\Property(property: 'title', type: 'string'),
+                    new OA\Property(property: 'description', type: 'string', nullable: true),
+                ],
+            ),
+        ),
+        new OA\Property(property: 'eligibility', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'capacity_state', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'created_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'updated_at', type: 'string', format: 'date-time', nullable: true),
+    ],
+)]
+#[OA\Schema(
+    schema: 'Application',
+    title: 'Application',
+    description: 'A project application, as serialised by App\Http\Resources\ApplicationResource.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer'),
+        new OA\Property(property: 'project_id', type: 'integer'),
+        new OA\Property(property: 'applicant_id', type: 'integer'),
+        new OA\Property(property: 'project_role_id', type: 'integer', nullable: true),
+        new OA\Property(
+            property: 'project_role',
+            type: 'object',
+            nullable: true,
+            properties: [
+                new OA\Property(property: 'id', type: 'integer'),
+                new OA\Property(property: 'title', type: 'string'),
+            ],
+        ),
+        new OA\Property(property: 'status', type: 'string', example: 'pending'),
+        new OA\Property(property: 'is_active', type: 'boolean'),
+        new OA\Property(property: 'project_version', type: 'integer', nullable: true),
+        new OA\Property(property: 'application_data', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'recommendation_id', type: 'integer', nullable: true),
+        new OA\Property(property: 'recommendation_algorithm_version', type: 'string', nullable: true),
+        new OA\Property(property: 'recommendation_configuration_version', type: 'string', nullable: true),
+        new OA\Property(property: 'decision_reason', type: 'string', nullable: true),
+        new OA\Property(property: 'decided_by', type: 'integer', nullable: true),
+        new OA\Property(property: 'decided_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'submitted_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'withdrawn_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'project', ref: '#/components/schemas/Project', nullable: true),
+        new OA\Property(
+            property: 'applicant',
+            type: 'object',
+            nullable: true,
+            properties: [
+                new OA\Property(property: 'id', type: 'integer'),
+                new OA\Property(property: 'name', type: 'string'),
+            ],
+        ),
+        new OA\Property(property: 'created_at', type: 'string', format: 'date-time', nullable: true),
+        new OA\Property(property: 'updated_at', type: 'string', format: 'date-time', nullable: true),
+    ],
+)]
+#[OA\Schema(
+    schema: 'Recommendation',
+    title: 'Recommendation',
+    description: 'A stored project-matching recommendation. When `access_revoked` is true every '
+        .'result-derived field is nulled out by design.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'id', type: 'integer'),
+        new OA\Property(property: 'type', type: 'string', nullable: true),
+        new OA\Property(property: 'project_id', type: 'integer'),
+        new OA\Property(property: 'access_revoked', type: 'boolean'),
+        new OA\Property(property: 'project', ref: '#/components/schemas/Project', nullable: true),
+        new OA\Property(property: 'score', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'eligibility_state', type: 'string', nullable: true),
+        new OA\Property(property: 'matching_state', type: 'string', nullable: true),
+        new OA\Property(property: 'reasons', type: 'array', nullable: true, items: new OA\Items(type: 'string')),
+        new OA\Property(property: 'limiting_factors', type: 'array', nullable: true, items: new OA\Items(type: 'object', additionalProperties: true)),
+        new OA\Property(property: 'factors', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'weighted_contributions', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'skill_results', type: 'array', nullable: true, items: new OA\Items(type: 'object', additionalProperties: true)),
+        new OA\Property(property: 'algorithm_version', type: 'string', nullable: true),
+        new OA\Property(property: 'configuration_version', type: 'string', nullable: true),
+        new OA\Property(property: 'project_version', type: 'integer', nullable: true),
+        new OA\Property(property: 'generated_at', type: 'string', format: 'date-time', nullable: true),
+    ],
+)]
+#[OA\Schema(
+    schema: 'ProjectMatchingResult',
+    title: 'ProjectMatchingResult',
+    description: 'Result of POST /projects/{project}/match (App\Http\Resources\ProjectMatchingResource).',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'request_id', type: 'string'),
+        new OA\Property(property: 'algorithm_version', type: 'string', nullable: true),
+        new OA\Property(property: 'configuration_version', type: 'string', nullable: true),
+        new OA\Property(property: 'project_id', type: 'integer'),
+        new OA\Property(property: 'project_version', type: 'integer', nullable: true),
+        new OA\Property(property: 'eligibility_state', type: 'string', nullable: true),
+        new OA\Property(property: 'matching_state', type: 'string', nullable: true),
+        new OA\Property(property: 'score', type: 'number', format: 'float', nullable: true),
+        new OA\Property(property: 'factor_scores', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'weighted_contributions', type: 'object', nullable: true, additionalProperties: true),
+        new OA\Property(property: 'explanation', type: 'string', nullable: true),
+        new OA\Property(property: 'limiting_factors', type: 'array', nullable: true, items: new OA\Items(type: 'object', additionalProperties: true)),
+        new OA\Property(property: 'skill_results', type: 'array', nullable: true, items: new OA\Items(type: 'object', additionalProperties: true)),
+    ],
+)]
+class ProjectSchemas {}
