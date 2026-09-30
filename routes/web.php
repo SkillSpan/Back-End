@@ -3,6 +3,7 @@
 use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProjectController;
+use App\Http\Controllers\Web\SkillsReferenceController;
 use App\Http\Controllers\Web\TestController;
 use Illuminate\Support\Facades\Route;
 
@@ -75,4 +76,14 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
         ->whereNumber('project');
     Route::post('/api/projects/{project}/cancel', [AdminProjectController::class, 'cancel'])
         ->whereNumber('project');
+
+    /*
+     * Skills reference data for the project form's skill picker.
+     *
+     * The canonical endpoint is `/api/v1/skills/taxonomy`, but that sits behind
+     * `auth:sanctum` and therefore needs a bearer token. The panel has a session
+     * cookie, not a token, so calling it directly returned 401 and the picker
+     * came up empty. This session-backed twin serves the same payload.
+     */
+    Route::get('/api/skills/taxonomy', [SkillsReferenceController::class, 'taxonomy']);
 });

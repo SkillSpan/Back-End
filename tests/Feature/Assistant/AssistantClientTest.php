@@ -72,9 +72,11 @@ class AssistantClientTest extends TestCase
      * @param  array<string, mixed>  $snapshot
      * @return array<string, mixed>
      */
-    private function ask(array $snapshot = ['student_profile_id' => 7]): array
-    {
-        return $this->client()->ask('42', 'Why is my score low?', $snapshot, 'req-1');
+    private function ask(
+        array $snapshot = ['student_profile_id' => 7],
+        string $intent = 'explain_readiness',
+    ): array {
+        return $this->client()->ask('42', 'Why is my score low?', $snapshot, 'req-1', $intent);
     }
 
     // ------------------------------------------------------------ what we send
@@ -88,13 +90,30 @@ class AssistantClientTest extends TestCase
         Http::assertSent(function (Request $request) {
             $body = $request->data();
 
-            // Exactly the three keys the service declares, and nothing else.
-            $this->assertSame(['user_id', 'message', 'context'], array_keys($body));
+            // Exactly the four keys the service declares, and nothing else.
+            $this->assertSame(['user_id', 'message', 'intent', 'context'], array_keys($body));
             $this->assertSame('42', $body['user_id']);
             $this->assertSame('Why is my score low?', $body['message']);
+            $this->assertSame('explain_readiness', $body['intent']);
 
             return true;
         });
+    }
+
+    public function test_it_sends_the_intent_the_caller_validated_verbatim(): void
+    {
+        /*
+         * The intent is relayed as given, not re-derived from the message text.
+         * AskAssistantRequest has already checked it against the six-value
+         * §12.5 whitelist by the time it reaches this transport, so the client
+         * must not second-guess it -- a guess here would let the gateway's
+         * scope decision and the service's recorded intent disagree.
+         */
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
+
+        $this->ask(intent: 'project_bounded_help');
+
+        Http::assertSent(fn (Request $request) => $request->data()['intent'] === 'project_bounded_help');
     }
 
     public function test_it_does_not_send_the_old_invented_field_names(): void
@@ -138,6 +157,49 @@ class AssistantClientTest extends TestCase
             // of the learner's record.
             $this->assertStringContainsString('"student_profile_id": 7', $context);
             $this->assertStringContainsString('"score": 61.5', $context);
+
+            return true;
+        });
+    }
+
+    public function test_the_context_is_always_present_so_service_retrieval_never_runs(): void
+    {
+        /*
+         * A deliberate, load-bearing consequence of always sending `context`.
+         *
+         * The service treats a non-null `context` as "use this verbatim and skip
+         * retrieval" -- documented in ChatRequest.context. `serialiseContext()`
+         * therefore *always* returns a string, even for a learner whose every
+         * snapshot section is `available: false`, so the service's own RAG corpus
+         * is never consulted for a Laravel-originated call.
+         *
+         * That is the correct trade-off (Laravel's stored decision data is
+         * authoritative and REC-07 forbids a second paraphrase of it), but it has
+         * a visible consequence worth pinning: a learner with no readiness,
+         * roadmap or skill gaps gets a context that says so and nothing else, and
+         * the model has no documentation to fall back on -- so it correctly
+         * answers "I don't have enough information" rather than inventing an
+         * explanation. Verified against the live service on 8010.
+         *
+         * If this ever becomes `null` for an empty snapshot, retrieval would
+         * silently switch on and answers would start coming from the corpus
+         * instead of the learner's record.
+         */
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
+
+        $this->ask([
+            'student_profile_id' => 7,
+            'readiness' => ['available' => false, 'reason' => 'No readiness result.'],
+        ]);
+
+        Http::assertSent(function (Request $request) {
+            $context = $request->data()['context'];
+
+            $this->assertIsString($context);
+            $this->assertNotSame('', trim($context));
+            // The unavailability is stated, not omitted -- an absent key would
+            // read as "no information" rather than "not yet calculated".
+            $this->assertStringContainsString('"available": false', $context);
 
             return true;
         });
@@ -248,7 +310,7 @@ class AssistantClientTest extends TestCase
             // No explicit token, so this resolves from config — which is the
             // path a real deployment takes when the env var is missing.
             (new AssistantClient(baseUrl: self::SERVICE_URL, timeout: 5))
-                ->ask('42', 'Why?', [], 'req-1');
+                ->ask('42', 'Why?', [], 'req-1', 'explain_readiness');
 
             $this->fail('Expected a missing credential to fail locally.');
         } catch (AssistantException $e) {

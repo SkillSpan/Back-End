@@ -565,10 +565,12 @@ class AssistantAskTest extends TestCase
                 string $message,
                 array $contextSnapshot,
                 string $requestId,
+                string $intent,
             ): array {
                 $this->calls[] = [
                     'user_id' => $userId,
                     'message' => $message,
+                    'intent' => $intent,
                     'context' => $contextSnapshot,
                     'request_id' => $requestId,
                 ];

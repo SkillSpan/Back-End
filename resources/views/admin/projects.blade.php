@@ -758,8 +758,8 @@
 
 <script>
 // Session-authenticated panel: the cookie rides along automatically and the
-// CSRF token is sent for every mutating request.
-const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+// CSRF token is sent for every mutating request. The token itself is declared
+// next to the `api()` helper below, as `let`, so it can be refreshed in place.
 
 // ── Lifecycle metadata, mirrored from App\Models\Project ──────────────────
 // These are LABELS ONLY. The backend decides every transition; the UI just
@@ -832,7 +832,57 @@ function escapeHtml(value){
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-async function api(path, options = {}){
+// CSRF token is sent for every mutating request. It is held in a variable so a
+// stale token can be refreshed in place instead of reloading the page.
+let CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+
+/**
+ * Ask the server for a fresh CSRF token and update the meta tag.
+ *
+ * A 419 means the token the page was rendered with is no longer the one the
+ * session expects - typically because another tab, or a session rotation,
+ * replaced it. Re-fetching the token lets the next request succeed without a
+ * full reload.
+ *
+ * Returns true when a token was obtained.
+ */
+async function refreshCsrfToken(){
+  try {
+    const res = await fetch(window.location.pathname, {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' },
+    });
+
+    if (!res.ok) return false;
+
+    const html = await res.text();
+    // Attribute order is not guaranteed and the value may be HTML-escaped, so
+    // scan for the meta tag itself rather than assuming `name` precedes
+    // `content`.
+    const meta = html.match(/<meta[^>]*name="csrf-token"[^>]*>/i);
+
+    if (meta){
+      const content = meta[0].match(/content="([^"]*)"/i);
+
+      if (content && content[1]){
+        // Un-escape the entities Blade may have emitted.
+        CSRF_TOKEN = content[1]
+          .replace(/&quot;/g, '"')
+          .replace(/&#039;/g, "'")
+          .replace(/&amp;/g, '&');
+
+        document.querySelector('meta[name="csrf-token"]').setAttribute('content', CSRF_TOKEN);
+        return true;
+      }
+    }
+
+    return false;
+  } catch (e){
+    return false;
+  }
+}
+
+async function api(path, options = {}, isRetry = false){
   const res = await fetch(path, {
     ...options,
     credentials: 'same-origin',
@@ -844,10 +894,29 @@ async function api(path, options = {}){
     },
   });
 
-  // 401 no session, 419 stale CSRF — both mean "sign in again".
-  if (res.status === 401 || res.status === 419){
+  // 419 = the CSRF token is stale, NOT that the session ended. Retry ONCE with
+  // a freshly fetched token before concluding anything: an unconditional
+  // redirect to /admin/login is what turned a stale token into an endless
+  // reload loop for a user who was still signed in.
+  if (res.status === 419 && !isRetry){
+    if (await refreshCsrfToken()){
+      return api(path, options, true);
+    }
+  }
+
+  // 401 = genuinely no session. Send the user to sign in.
+  if (res.status === 401){
     window.location.href = '/admin/login';
     throw new Error('Your session has ended — please sign in again.');
+  }
+
+  // A 419 that survived the retry still means the session is unusable, but say
+  // so plainly rather than bouncing silently.
+  if (res.status === 419){
+    const err = new Error('Your session token could not be verified. Please sign in again.');
+    err.status = 419;
+    err.code = 'CSRF_TOKEN_MISMATCH';
+    throw err;
   }
 
   const body = await res.json().catch(() => ({}));
@@ -1530,9 +1599,14 @@ async function reload(){
 
 function loadSkills(){
   // Reference data comes from the real API; the form never hard-codes a list.
-  // /skills/taxonomy returns { success, message, data: [ { id, name, ... } ] }
-  // - a flat collection of active skills.
-  return api('/api/v1/skills/taxonomy')
+  // Returns { success, message, data: [ { id, name, ... } ] } - a flat
+  // collection of active skills.
+  //
+  // NOTE: this is the SESSION-backed twin (/admin/api/skills/taxonomy), not the
+  // canonical /api/v1/skills/taxonomy. The latter sits behind auth:sanctum and
+  // needs a bearer token, which a browser session cannot provide - calling it
+  // directly returned 401 and left the picker empty.
+  return api('/admin/api/skills/taxonomy')
     .then(body => {
       const list = Array.isArray(body.data) ? body.data : [];
       state.skills = list

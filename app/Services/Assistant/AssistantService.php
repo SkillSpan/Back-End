@@ -155,6 +155,7 @@ class AssistantService
                 (string) $input['question'],
                 $context['snapshot'],
                 $requestId,
+                $intent,
             );
 
             /*
