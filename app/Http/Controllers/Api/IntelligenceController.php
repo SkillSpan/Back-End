@@ -6,6 +6,7 @@ use App\Exceptions\ReadinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CalculateIntelligenceRequest;
 use App\Http\Resources\IntelligenceResultResource;
+use App\Models\DecisionSnapshot;
 use App\Services\Intelligence\IntelligenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -93,8 +94,19 @@ class IntelligenceController extends Controller
             );
         }
 
+        /*
+         * The read model is scoped to the INTELLIGENCE flow.
+         *
+         * Two flows persist SUCCEEDED decision snapshots: this one
+         * (skill gaps + readiness + roadmap) and the legacy composite
+         * readiness flow (`POST /readiness/calculate`), which never has a
+         * roadmap. Selecting the newest succeeded row across both meant a
+         * readiness calculation silently shadowed the learner's roadmap —
+         * the roadmap was in the database, the endpoint reported null.
+         */
         $snapshot = $studentProfile->decisionSnapshots()
-            ->where('status', 'succeeded')
+            ->where('status', DecisionSnapshot::STATUS_SUCCEEDED)
+            ->intelligenceFlow()
             ->when(
                 $request->integer('career_role_id'),
                 fn ($query, $roleId) => $query->where('career_role_id', $roleId),
