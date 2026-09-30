@@ -3,6 +3,7 @@
 namespace App\Services\Projects;
 
 use App\Exceptions\ProjectException;
+use App\Models\Organization;
 use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
 use App\Models\ProjectRequiredSkill;
@@ -37,10 +38,21 @@ use Illuminate\Support\Facades\DB;
  *
  *   - create            → platform admin, company_admin or university_admin
  *   - update/submit/open→ platform admin OR the project's own owner
- *   - approve/request changes/reject → platform admin only
+ *   - approve/request changes/reject → platform admin who is NOT the owner
  *
  * The approval routes additionally carry the `admin` middleware, so the
  * service check is the second line of defence, not the only one.
+ *
+ * OWNERSHIP
+ * ---------
+ * COMPANY-SPONSORED = COMPANY OWNED. The project must name a real, approved
+ * company, and its owner must be an active administrator of that same company.
+ * A platform administrator creating one on behalf of a company must name both
+ * the company and its representative, and is refused if they try to become the
+ * owner themselves.
+ *
+ * SIMULATION = SkillSpan-internal. It requires no company ownership and is
+ * never auto-linked to the creator's organization; the owner is its creator.
  *
  * WHAT THIS SERVICE DELIBERATELY DOES NOT DO
  * ------------------------------------------
@@ -49,6 +61,8 @@ use Illuminate\Support\Facades\DB;
  *   - It never writes `closed` — that legacy value is undecided.
  *   - It never changes a project's type outside the editable window, so the
  *     type cannot change once the project is open and receiving applications.
+ *   - It never assigns ownership from the payload on trust: every owner_id is
+ *     validated against the target organization.
  */
 class ProjectLifecycleService
 {
@@ -56,6 +70,12 @@ class ProjectLifecycleService
 
     /** Role slugs that may create projects on behalf of an organization. */
     private const MANAGEMENT_ROLES = ['company_admin', 'university_admin'];
+
+    /** The Pilot's company-owned project type. */
+    private const TYPE_COMPANY_SPONSORED = 'company_sponsored';
+
+    /** A SkillSpan-internal project. Needs no company ownership. */
+    private const TYPE_SIMULATION = 'simulation';
 
     /**
      * Project columns a caller may set. Everything else — status, owner_id,
@@ -85,12 +105,17 @@ class ProjectLifecycleService
     ): Project {
         $this->assertMayCreate($actor);
 
-        $organizationId = $this->resolveOrganizationId($actor, $data['organization_id'] ?? null);
+        $ownership = $this->resolveOwnership(
+            $actor,
+            (string) $data['type'],
+            $data['organization_id'] ?? null,
+            $data['owner_id'] ?? null,
+        );
 
-        $project = DB::transaction(function () use ($actor, $data, $organizationId): Project {
+        $project = DB::transaction(function () use ($data, $ownership): Project {
             $project = new Project($this->writableAttributes($data));
-            $project->owner_id = $actor->id;
-            $project->organization_id = $organizationId;
+            $project->owner_id = $ownership['owner_id'];
+            $project->organization_id = $ownership['organization_id'];
             $project->status = Project::STATUS_DRAFT;
             $project->version = 1;
             $project->save();
@@ -141,11 +166,39 @@ class ProjectLifecycleService
         $this->assertMayManage($project, $actor);
         $this->assertEditable($project);
 
+        // A TYPE CHANGE re-runs the ownership rules for the new type. Without
+        // this, a simulation (which may legitimately have no organization and
+        // an administrator owner) could be switched to company_sponsored and
+        // become a "company project" that names no company at all. The reverse
+        // is equally important: company_sponsored can never decay into a
+        // simulation that still claims a company.
+        //
+        // `organization_id` and `owner_id` are honoured ONLY here; a normal
+        // edit ignores them, so ownership cannot be re-pointed behind a
+        // cosmetic update.
+        $ownership = null;
+
+        if (array_key_exists('type', $data) && (string) $data['type'] !== (string) $project->type) {
+            $ownership = $this->resolveOwnership(
+                $actor,
+                (string) $data['type'],
+                $data['organization_id'] ?? null,
+                $data['owner_id'] ?? null,
+                (int) $project->owner_id,
+            );
+        }
+
         $before = $project->only(array_merge(self::WRITABLE_ATTRIBUTES, ['version']));
         $versionedBefore = $project->only(Project::VERSIONED_FIELDS);
 
-        DB::transaction(function () use ($project, $data): void {
+        DB::transaction(function () use ($project, $data, $ownership): void {
             $project->fill($this->writableAttributes($data));
+
+            if ($ownership !== null) {
+                $project->organization_id = $ownership['organization_id'];
+                $project->owner_id = $ownership['owner_id'];
+            }
+
             $project->save();
 
             // The child sets are replaced wholesale, but only when the caller
@@ -231,7 +284,7 @@ class ProjectLifecycleService
         ?string $ipAddress = null,
         ?string $userAgent = null,
     ): Project {
-        $this->assertMayReview($actor);
+        $this->assertMayReview($project, $actor);
         $this->assertTransition($project, Project::STATUS_APPROVED);
         $this->assertComplete($project, 'approved');
 
@@ -261,7 +314,7 @@ class ProjectLifecycleService
         ?string $ipAddress = null,
         ?string $userAgent = null,
     ): Project {
-        $this->assertMayReview($actor);
+        $this->assertMayReview($project, $actor);
         $this->assertTransition($project, Project::STATUS_CHANGES_REQUESTED);
 
         if (trim($reason) === '') {
@@ -287,7 +340,7 @@ class ProjectLifecycleService
         ?string $ipAddress = null,
         ?string $userAgent = null,
     ): Project {
-        $this->assertMayReview($actor);
+        $this->assertMayReview($project, $actor);
         $this->assertTransition($project, Project::STATUS_REJECTED);
 
         return $this->transition($project, $actor, Project::STATUS_REJECTED, $reason, 'project.rejected', [], $requestId, $ipAddress, $userAgent);
@@ -433,17 +486,32 @@ class ProjectLifecycleService
         );
     }
 
-    private function assertMayReview(User $actor): void
+    /**
+     * Moderation only: a platform administrator who is NOT the project's owner.
+     *
+     * Review separation is enforced here rather than left to the `admin`
+     * middleware, because an administrator can also be a project owner (an
+     * internal simulation, for instance) and must not be able to approve their
+     * own project.
+     */
+    private function assertMayReview(Project $project, User $actor): void
     {
-        if ($this->isPlatformAdmin($actor)) {
-            return;
+        if (! $this->isPlatformAdmin($actor)) {
+            throw new ProjectException(
+                'Only a platform administrator may review a project.',
+                403,
+                'PROJECT_REVIEW_FORBIDDEN',
+            );
         }
 
-        throw new ProjectException(
-            'Only a platform administrator may review a project.',
-            403,
-            'PROJECT_REVIEW_FORBIDDEN',
-        );
+        if ((int) $project->owner_id === (int) $actor->id) {
+            throw new ProjectException(
+                'A project owner cannot review their own project.',
+                403,
+                'PROJECT_REVIEW_SELF_FORBIDDEN',
+                ['project_id' => $project->id],
+            );
+        }
     }
 
     private function isPlatformAdmin(User $actor): bool
@@ -599,34 +667,242 @@ class ProjectLifecycleService
     }
 
     /**
-     * The project's organization.
+     * Who owns the project, and which organization it belongs to.
      *
-     * An organization representative's project ALWAYS belongs to the
-     * organization they administer — a supplied `organization_id` is ignored,
-     * so a company admin cannot publish into someone else's organization.
-     * A platform administrator may target any organization, or none (a
-     * simulation), which is why the column is nullable.
+     * COMPANY-SPONSORED = COMPANY OWNED. The project must name a real,
+     * approved company, and its owner must be a representative of that same
+     * company — never an arbitrary user, and never the reviewing administrator.
+     *
+     * SIMULATION = SkillSpan-internal. It needs no company ownership at all
+     * and is deliberately NOT auto-linked to the creator's organization: a
+     * simulation only carries an organization when the caller explicitly names
+     * one they administer.
+     *
+     * @return array{organization_id: int|null, owner_id: int}
      */
-    private function resolveOrganizationId(User $actor, mixed $requested): ?int
-    {
-        $administered = $actor->organizations()
-            ->wherePivot('role_in_org', 'admin')
-            ->wherePivot('status', 'active')
-            ->first();
-
-        if ($administered !== null) {
-            return (int) $administered->id;
+    private function resolveOwnership(
+        User $actor,
+        string $type,
+        mixed $requestedOrganizationId,
+        mixed $requestedOwnerId,
+        ?int $currentOwnerId = null,
+    ): array {
+        if ($type === self::TYPE_COMPANY_SPONSORED) {
+            return $this->resolveCompanySponsoredOwnership($actor, $requestedOrganizationId, $requestedOwnerId);
         }
 
-        if ($this->isPlatformAdmin($actor)) {
-            return $requested === null ? null : (int) $requested;
+        return $this->resolveSimulationOwnership($actor, $requestedOrganizationId, $currentOwnerId);
+    }
+
+    /**
+     * @return array{organization_id: int, owner_id: int}
+     */
+    private function resolveCompanySponsoredOwnership(User $actor, mixed $requestedOrganizationId, mixed $requestedOwnerId): array
+    {
+        // An organization representative's project always belongs to THEIR
+        // organization and is owned by THEM. A supplied organization_id or
+        // owner_id is ignored, so nobody can publish into — or on behalf of —
+        // another organization.
+        if (! $this->isPlatformAdmin($actor)) {
+            $administered = $this->administeredOrganization($actor);
+
+            if ($administered === null) {
+                throw new ProjectException(
+                    'Your account does not administer an active organization.',
+                    403,
+                    'PROJECT_ORGANIZATION_REQUIRED',
+                );
+            }
+
+            $organization = $this->assertCompanySponsor($administered);
+
+            return ['organization_id' => (int) $organization->id, 'owner_id' => (int) $actor->id];
+        }
+
+        // A platform administrator creating on behalf of a company must NAME
+        // both the company and the representative who will own the project.
+        // Neither is ever defaulted: silently falling back to the
+        // administrator would make them the owner of a company project, and
+        // falling back to "some member of the organization" would pick an
+        // owner the caller never chose.
+        if ($requestedOrganizationId === null) {
+            throw new ProjectException(
+                'A company_sponsored project must name the sponsoring organization.',
+                422,
+                'PROJECT_ORGANIZATION_REQUIRED',
+            );
+        }
+
+        if ($requestedOwnerId === null) {
+            throw new ProjectException(
+                'A company_sponsored project must name the company representative who will own it.',
+                422,
+                'PROJECT_OWNER_REQUIRED',
+            );
+        }
+
+        $organization = $this->assertCompanySponsor((int) $requestedOrganizationId);
+
+        $owner = User::withTrashed()->find((int) $requestedOwnerId);
+
+        if ($owner === null || $owner->trashed()) {
+            throw new ProjectException(
+                'The selected project owner does not exist.',
+                422,
+                'PROJECT_OWNER_INVALID',
+                ['owner_id' => (int) $requestedOwnerId],
+            );
+        }
+
+        // Review separation: the administrator who moderates company projects
+        // must not own one, so a company project is never quietly routed back
+        // to the moderator.
+        if ((int) $owner->id === (int) $actor->id) {
+            throw new ProjectException(
+                'A company_sponsored project must be owned by a representative of the sponsoring company, not by the administrator creating it.',
+                422,
+                'PROJECT_OWNER_MUST_BE_COMPANY_REPRESENTATIVE',
+                ['owner_id' => (int) $owner->id],
+            );
+        }
+
+        $this->assertRepresentsOrganization($owner, $organization);
+
+        return ['organization_id' => (int) $organization->id, 'owner_id' => (int) $owner->id];
+    }
+
+    /**
+     * @return array{organization_id: int|null, owner_id: int}
+     */
+    private function resolveSimulationOwnership(User $actor, mixed $requestedOrganizationId, ?int $currentOwnerId): array
+    {
+        // Never auto-linked to the creator's organization — that is what would
+        // turn a SkillSpan-internal simulation into a company project.
+        $organizationId = $requestedOrganizationId === null
+            ? null
+            : $this->resolveAdministeredOrganizationId($actor, (int) $requestedOrganizationId);
+
+        return [
+            'organization_id' => $organizationId,
+            // An existing owner is preserved: an administrator editing someone
+            // else's simulation must not inherit it by changing its type.
+            'owner_id' => $currentOwnerId ?? (int) $actor->id,
+        ];
+    }
+
+    /**
+     * The organization must exist, be a company, and have been approved. The
+     * approval requirement mirrors the existing organization rules, which
+     * already refuse a pending/rejected organization access to the platform.
+     */
+    private function assertCompanySponsor(int|Organization $organization): Organization
+    {
+        $model = $organization instanceof Organization
+            ? $organization
+            : Organization::find($organization);
+
+        if ($model === null) {
+            throw new ProjectException(
+                'The sponsoring organization does not exist.',
+                422,
+                'PROJECT_ORGANIZATION_NOT_FOUND',
+            );
+        }
+
+        if ($model->type !== 'company') {
+            throw new ProjectException(
+                'A company_sponsored project must be sponsored by a company.',
+                422,
+                'PROJECT_ORGANIZATION_NOT_A_COMPANY',
+                ['organization_id' => $model->id, 'organization_type' => $model->type],
+            );
+        }
+
+        if ($model->verification_status !== 'verified') {
+            throw new ProjectException(
+                'The sponsoring organization has not been approved yet.',
+                422,
+                'PROJECT_ORGANIZATION_NOT_VERIFIED',
+                [
+                    'organization_id' => $model->id,
+                    'verification_status' => $model->verification_status,
+                ],
+            );
+        }
+
+        return $model;
+    }
+
+    /**
+     * The owner must be an ACTIVE ADMINISTRATOR of the sponsoring organization
+     * — that membership is the existing, unambiguous signal for "company
+     * representative". No new relation is invented for it.
+     */
+    private function assertRepresentsOrganization(User $owner, Organization $organization): void
+    {
+        $isRepresentative = $organization->members()
+            ->where('users.id', $owner->id)
+            ->wherePivot('role_in_org', 'admin')
+            ->wherePivot('status', 'active')
+            ->exists();
+
+        if ($isRepresentative) {
+            return;
         }
 
         throw new ProjectException(
-            'Your account does not administer an active organization.',
-            403,
-            'PROJECT_ORGANIZATION_REQUIRED',
+            'The selected owner is not an active administrator of the sponsoring organization.',
+            422,
+            'PROJECT_OWNER_NOT_ORGANIZATION_REPRESENTATIVE',
+            [
+                'organization_id' => $organization->id,
+                'owner_id' => $owner->id,
+            ],
         );
+    }
+
+    /**
+     * The organization this actor actively administers, if any.
+     */
+    private function administeredOrganization(User $actor): ?Organization
+    {
+        return $actor->organizations()
+            ->wherePivot('role_in_org', 'admin')
+            ->wherePivot('status', 'active')
+            ->first();
+    }
+
+    /**
+     * An organization the actor is allowed to link a project to: one they
+     * administer, or — for a platform administrator — any existing one.
+     */
+    private function resolveAdministeredOrganizationId(User $actor, int $organizationId): int
+    {
+        if ($this->isPlatformAdmin($actor)) {
+            if (! Organization::whereKey($organizationId)->exists()) {
+                throw new ProjectException(
+                    'The organization does not exist.',
+                    422,
+                    'PROJECT_ORGANIZATION_NOT_FOUND',
+                    ['organization_id' => $organizationId],
+                );
+            }
+
+            return $organizationId;
+        }
+
+        $administered = $this->administeredOrganization($actor);
+
+        if ($administered === null || (int) $administered->id !== $organizationId) {
+            throw new ProjectException(
+                'You do not administer that organization.',
+                403,
+                'PROJECT_ORGANIZATION_NOT_ADMINISTERED',
+                ['organization_id' => $organizationId],
+            );
+        }
+
+        return $organizationId;
     }
 
     // -----------------------------------------------------------------

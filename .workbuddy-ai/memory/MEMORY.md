@@ -156,3 +156,25 @@ chars, raw (never `Bearer xxx`).
   projects, so the lifecycle change cannot move the payload contract.
 - ⚠️ **Fixtures using `Project::make()` never hit the DB**, so an enum/check-constraint change will not
   be caught by them. Use persisted models when the constraint is the thing under test.
+
+## Project ownership (company_sponsored vs simulation)
+
+- **`company_sponsored` = COMPANY OWNED.** Enforced in `ProjectLifecycleService::resolveOwnership()`:
+  the organization must exist, be `type='company'` **and** `verification_status='verified'`; the owner
+  must be an **active admin** of that organization (`organization_members.role_in_org='admin'` +
+  `status='active'` — the existing "company representative" signal; no new relation was invented).
+- **`simulation` = SkillSpan-internal.** No company needed; `organization_id` stays **null** unless the
+  actor explicitly names an organization they administer. It is deliberately NOT auto-linked to the
+  creator's organization.
+- **A company rep's own project always derives org+owner from their membership** — a supplied
+  `organization_id`/`owner_id` is ignored, so no cross-org publishing and no ownership transfer.
+- **Admin create-on-behalf** must name BOTH the organization and the representative; naming themselves
+  is refused. `owner_id`/`organization_id` in a payload are honoured **only** on create-on-behalf and
+  when the `type` changes — an ordinary PATCH ignores them (no ownership re-pointing via a cosmetic edit).
+- **A type change re-runs ownership validation** (`simulation → company_sponsored` needs a company;
+  the reverse preserves the existing owner).
+- **Review separation**: the project's own owner cannot approve/request-changes/reject it, even if they
+  hold the `admin` role (`PROJECT_REVIEW_SELF_FORBIDDEN`).
+- ⚠️ `Organization::verification_status` is **not mass-assignable** — fixtures must use
+  `Organization::forceCreate([...])` to build a *verified* company, or every create test hits
+  `PROJECT_ORGANIZATION_NOT_VERIFIED`.

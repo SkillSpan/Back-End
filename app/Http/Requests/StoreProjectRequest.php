@@ -16,10 +16,19 @@ use Illuminate\Validation\Rule;
  * authorization / business questions answered by ProjectLifecycleService —
  * the same split StoreApplicationRequest uses.
  *
- * `organization_id` is accepted but NOT authoritative: the service derives the
- * organization from the actor's own admin membership and ignores a supplied
- * value for anyone but a platform administrator, so it can never be used to
- * publish into another organization.
+ * `organization_id` and `owner_id` are accepted but NOT authoritative:
+ *
+ *   - company_sponsored — the project is COMPANY OWNED. A company
+ *     representative's project always belongs to their own organization and is
+ *     owned by them, so a supplied value is ignored; a platform administrator
+ *     creating on behalf of a company must name both, and both are validated
+ *     against the organization's active administrators.
+ *   - simulation — SkillSpan-internal. It is never auto-linked to the creator's
+ *     organization, so `organization_id` stays null unless the caller names an
+ *     organization they actually administer.
+ *
+ * Ownership is therefore never taken from the payload on trust — see
+ * ProjectLifecycleService::resolveOwnership().
  *
  * Date ORDERING (end >= start, deadline <= start) is deliberately not expressed
  * with `after_or_equal` here: on an update a field may be omitted and taken
@@ -54,6 +63,14 @@ class StoreProjectRequest extends FormRequest
             'application_deadline' => ['sometimes', 'nullable', 'date'],
             'confidentiality' => ['sometimes', 'string', Rule::in(['public', 'restricted'])],
             'organization_id' => ['sometimes', 'nullable', 'integer', 'gt:0', 'exists:organizations,id'],
+
+            // Only honoured when a PLATFORM ADMINISTRATOR creates a
+            // company_sponsored project on behalf of a company — the company
+            // representative who will own it. A company representative's own
+            // project is always owned by them, and a simulation is always owned
+            // by its creator, so the value is ignored in those cases rather than
+            // silently reassigning ownership.
+            'owner_id' => ['sometimes', 'nullable', 'integer', 'gt:0', 'exists:users,id'],
 
             // `distinct` mirrors the unique indexes on the child tables, so a
             // duplicated skill or role title is reported as a validation error

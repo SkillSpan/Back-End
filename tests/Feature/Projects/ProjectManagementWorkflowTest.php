@@ -44,9 +44,43 @@ class ProjectManagementWorkflowTest extends TestCase
     // Fixtures
     // -----------------------------------------------------------------
 
+    /**
+     * A VERIFIED company — the only kind that may sponsor a company_sponsored
+     * project. `forceCreate` is required because `verification_status` is
+     * deliberately not mass-assignable on the Organization model.
+     */
     private function organization(string $name = 'Test Org'): Organization
     {
-        return Organization::create(['name' => $name, 'type' => 'company']);
+        return Organization::forceCreate([
+            'name' => $name,
+            'type' => 'company',
+            'verification_status' => 'verified',
+        ]);
+    }
+
+    /**
+     * An organization of another type, to prove a company_sponsored project
+     * cannot be sponsored by a university or a training partner.
+     */
+    private function university(string $name = 'Test University'): Organization
+    {
+        return Organization::forceCreate([
+            'name' => $name,
+            'type' => 'university',
+            'verification_status' => 'verified',
+        ]);
+    }
+
+    /**
+     * A company that has not been approved yet.
+     */
+    private function pendingCompany(string $name = 'Pending Company'): Organization
+    {
+        return Organization::forceCreate([
+            'name' => $name,
+            'type' => 'company',
+            'verification_status' => 'pending',
+        ]);
     }
 
     /**
@@ -680,5 +714,348 @@ class ProjectManagementWorkflowTest extends TestCase
 
         $catalog = $this->getJson('/api/v1/projects')->assertOk();
         $this->assertNotContains($project->id, collect($catalog->json('data'))->pluck('id')->all());
+    }
+
+    // -----------------------------------------------------------------
+    // I. Ownership — company_sponsored = COMPANY OWNED
+    // -----------------------------------------------------------------
+
+    public function test_a_company_sponsored_project_must_name_an_organization(): void
+    {
+        $admin = $this->user('admin@test.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/projects', $this->payload())
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_REQUIRED');
+
+        $this->assertSame(0, Project::count());
+    }
+
+    public function test_a_company_sponsored_project_cannot_be_sponsored_by_a_non_company(): void
+    {
+        $university = $this->university();
+        $actor = $this->user('university@test.com', 'university_admin', $university);
+
+        Sanctum::actingAs($actor);
+
+        $this->postJson('/api/v1/projects', $this->payload())
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_NOT_A_COMPANY');
+
+        $this->assertSame(0, Project::count());
+    }
+
+    public function test_a_company_sponsored_project_cannot_be_sponsored_by_an_unapproved_company(): void
+    {
+        $company = $this->pendingCompany();
+        $actor = $this->user('company@test.com', 'company_admin', $company);
+
+        Sanctum::actingAs($actor);
+
+        $this->postJson('/api/v1/projects', $this->payload())
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_NOT_VERIFIED')
+            ->assertJsonPath('details.verification_status', 'pending');
+    }
+
+    // -----------------------------------------------------------------
+    // J. Ownership — administrator creating on behalf of a company
+    // -----------------------------------------------------------------
+
+    public function test_an_administrator_creating_on_behalf_of_a_company_does_not_become_the_owner(): void
+    {
+        $company = $this->organization('Sponsored Company');
+        $representative = $this->user('rep@company.com', 'company_admin', $company);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->postJson('/api/v1/projects', $this->payload([
+            'organization_id' => $company->id,
+            'owner_id' => $representative->id,
+        ]))->assertStatus(201);
+
+        $project = Project::find($response->json('data.id'));
+
+        $this->assertSame($representative->id, $project->owner_id);
+        $this->assertSame($company->id, $project->organization_id);
+        $this->assertNotSame($admin->id, $project->owner_id);
+    }
+
+    public function test_an_administrator_creating_on_behalf_of_a_company_must_name_the_representative(): void
+    {
+        $company = $this->organization('Sponsored Company');
+        $this->user('rep@company.com', 'company_admin', $company);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/projects', $this->payload([
+            'organization_id' => $company->id,
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_REQUIRED');
+
+        $this->assertSame(0, Project::count());
+    }
+
+    public function test_an_administrator_cannot_name_themselves_as_the_owner_of_a_company_project(): void
+    {
+        $company = $this->organization('Sponsored Company');
+        $admin = $this->user('admin@test.com', 'admin');
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/projects', $this->payload([
+            'organization_id' => $company->id,
+            'owner_id' => $admin->id,
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_MUST_BE_COMPANY_REPRESENTATIVE');
+
+        $this->assertSame(0, Project::count());
+    }
+
+    public function test_an_administrator_cannot_assign_an_unrelated_user_as_the_owner(): void
+    {
+        $company = $this->organization('Sponsored Company');
+        $outsider = $this->user('outsider@test.com', 'company_admin', $this->organization('Other Company'));
+        $admin = $this->user('admin@test.com', 'admin');
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/projects', $this->payload([
+            'organization_id' => $company->id,
+            'owner_id' => $outsider->id,
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_NOT_ORGANIZATION_REPRESENTATIVE');
+
+        $this->assertSame(0, Project::count());
+    }
+
+    /**
+     * A plain member of the company is not a company representative — the
+     * pivot has to say `admin`.
+     */
+    public function test_an_administrator_cannot_assign_a_plain_member_as_the_owner(): void
+    {
+        $company = $this->organization('Sponsored Company');
+        $member = $this->user('member@company.com', 'learner');
+        $company->members()->attach($member->id, ['role_in_org' => 'member', 'status' => 'active']);
+
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson('/api/v1/projects', $this->payload([
+            'organization_id' => $company->id,
+            'owner_id' => $member->id,
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_OWNER_NOT_ORGANIZATION_REPRESENTATIVE');
+    }
+
+    // -----------------------------------------------------------------
+    // K. Ownership — simulation
+    // -----------------------------------------------------------------
+
+    public function test_an_authorized_actor_can_create_a_simulation_project(): void
+    {
+        $admin = $this->user('admin@test.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        $response = $this->postJson('/api/v1/projects', $this->payload(['type' => 'simulation']))
+            ->assertStatus(201)
+            ->assertJsonPath('data.type', 'simulation')
+            ->assertJsonPath('data.organization_id', null);
+
+        $project = Project::find($response->json('data.id'));
+
+        $this->assertNull($project->organization_id);
+        $this->assertSame($admin->id, $project->owner_id);
+    }
+
+    /**
+     * The creator's organization must NOT be attached automatically — that is
+     * what would silently turn a SkillSpan-internal simulation into a company
+     * project.
+     */
+    public function test_a_simulation_is_not_automatically_linked_to_the_creators_organization(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $actor = $this->user('company@test.com', 'company_admin', $company);
+
+        Sanctum::actingAs($actor);
+
+        $response = $this->postJson('/api/v1/projects', $this->payload(['type' => 'simulation']))
+            ->assertStatus(201);
+
+        $this->assertNull(Project::find($response->json('data.id'))->organization_id);
+    }
+
+    public function test_a_simulation_can_name_an_organization_the_actor_administers(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $actor = $this->user('company@test.com', 'company_admin', $company);
+
+        Sanctum::actingAs($actor);
+
+        $response = $this->postJson('/api/v1/projects', $this->payload([
+            'type' => 'simulation',
+            'organization_id' => $company->id,
+        ]))->assertStatus(201);
+
+        $this->assertSame($company->id, Project::find($response->json('data.id'))->organization_id);
+    }
+
+    public function test_a_simulation_cannot_name_an_organization_the_actor_does_not_administer(): void
+    {
+        $own = $this->organization('Own Company');
+        $other = $this->organization('Other Company');
+        $actor = $this->user('company@test.com', 'company_admin', $own);
+
+        Sanctum::actingAs($actor);
+
+        $this->postJson('/api/v1/projects', $this->payload([
+            'type' => 'simulation',
+            'organization_id' => $other->id,
+        ]))
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_NOT_ADMINISTERED');
+    }
+
+    public function test_a_simulation_follows_the_same_lifecycle(): void
+    {
+        $project = $this->completeProject(Project::STATUS_DRAFT);
+        $project->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+        $project = $project->fresh();
+
+        Sanctum::actingAs($project->owner);
+
+        $this->postJson("/api/v1/projects/{$project->id}/submit")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_SUBMITTED);
+
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson("/api/v1/projects/{$project->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        Sanctum::actingAs($project->owner);
+
+        $this->postJson("/api/v1/projects/{$project->id}/open")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_OPEN);
+    }
+
+    /**
+     * The conversion guard: a simulation must not become a "company project"
+     * that names no company. A company representative is covered by the test
+     * below (their company is derived from their own membership); this is the
+     * case where there is genuinely no company to derive.
+     */
+    public function test_a_simulation_cannot_be_converted_to_company_sponsored_without_a_company(): void
+    {
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $admin);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", ['type' => 'company_sponsored'])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ORGANIZATION_REQUIRED');
+
+        $this->assertSame('simulation', $simulation->fresh()->type);
+    }
+
+    public function test_an_administrator_can_convert_a_simulation_by_naming_the_company_and_its_representative(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $representative = $this->user('rep@company.com', 'company_admin', $company);
+        $admin = $this->user('admin@test.com', 'admin');
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $admin);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", [
+            'type' => 'company_sponsored',
+            'organization_id' => $company->id,
+            'owner_id' => $representative->id,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.type', 'company_sponsored');
+
+        $fresh = $simulation->fresh();
+        $this->assertSame($company->id, $fresh->organization_id);
+        $this->assertSame($representative->id, $fresh->owner_id);
+        $this->assertNotSame($admin->id, $fresh->owner_id);
+    }
+
+    public function test_a_company_representative_can_convert_their_simulation_into_a_company_project(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $actor = $this->user('company@test.com', 'company_admin', $company);
+
+        $simulation = $this->completeProject(Project::STATUS_DRAFT, $actor);
+        $simulation->forceFill(['type' => 'simulation', 'organization_id' => null])->save();
+
+        Sanctum::actingAs($actor);
+
+        $this->patchJson("/api/v1/projects/{$simulation->id}", ['type' => 'company_sponsored'])
+            ->assertOk()
+            ->assertJsonPath('data.type', 'company_sponsored');
+
+        $fresh = $simulation->fresh();
+        $this->assertSame($company->id, $fresh->organization_id);
+        $this->assertSame($actor->id, $fresh->owner_id);
+    }
+
+    // -----------------------------------------------------------------
+    // L. Ownership — security
+    // -----------------------------------------------------------------
+
+    /**
+     * A cosmetic update must not be a way to re-point ownership.
+     */
+    public function test_a_representative_cannot_reassign_ownership_through_an_ordinary_update(): void
+    {
+        $company = $this->organization('Sponsoring Company');
+        $actor = $this->user('company@test.com', 'company_admin', $company);
+        $other = $this->user('other@company.com', 'company_admin', $company);
+
+        $project = $this->completeProject(Project::STATUS_DRAFT, $actor);
+
+        Sanctum::actingAs($actor);
+
+        $this->patchJson("/api/v1/projects/{$project->id}", [
+            'title' => 'Renamed',
+            'owner_id' => $other->id,
+            'organization_id' => $this->organization('Other Company')->id,
+        ])->assertOk();
+
+        $fresh = $project->fresh();
+        $this->assertSame($actor->id, $fresh->owner_id);
+        $this->assertSame($company->id, $fresh->organization_id);
+    }
+
+    public function test_an_administrator_cannot_review_a_project_they_own(): void
+    {
+        $admin = $this->user('admin@test.com', 'admin');
+
+        // An internal simulation owned by the administrator themselves.
+        $project = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson("/api/v1/projects/{$project->id}/approve")
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'PROJECT_REVIEW_SELF_FORBIDDEN');
+
+        $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
     }
 }
