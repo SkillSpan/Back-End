@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Notifications\OrganizationApprovedNotification;
 use App\Notifications\OrganizationRejectedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -580,5 +581,44 @@ class AdminOrganizationTest extends TestCase
         // The reason is optional, so the no-reason variant has to render too.
         $withoutReason = (new OrganizationRejectedNotification($org))->toMail($orgAdmin)->render();
         $this->assertStringContainsString($org->name, $withoutReason);
+    }
+
+    /**
+     * A dispatched review outcome is logged with the addresses it went to.
+     * Without that trace, "the approval email never arrived" cannot be told
+     * apart from "there was nobody to send it to".
+     */
+    public function test_approval_logs_the_recipients_it_notified(): void
+    {
+        Log::spy();
+
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+        $this->attachOrgAdmin($org, 'owner@company.com');
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")->assertOk();
+
+        Log::shouldHaveReceived('info')->once();
+    }
+
+    /**
+     * The silent case: the approval succeeds but there is no active admin
+     * account, so no mail is attempted. It has to leave a warning behind.
+     */
+    public function test_approval_with_no_active_admin_logs_a_warning_and_sends_nothing(): void
+    {
+        Log::spy();
+
+        Sanctum::actingAs($this->admin());
+        $org = $this->organization();
+        $removed = $this->attachOrgAdmin($org, 'owner@company.com');
+        $org->members()->updateExistingPivot($removed->id, ['status' => 'removed']);
+        $this->proofFile($org);
+
+        $this->postJson("/api/v1/admin/organizations/{$org->id}/approve")->assertOk();
+
+        Notification::assertNothingSentTo($removed);
+        Log::shouldHaveReceived('warning')->once();
     }
 }

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProjectController;
+use App\Http\Controllers\Api\ProjectManagementController;
 use App\Http\Controllers\Api\ProjectMatchingController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
@@ -122,6 +123,54 @@ Route::prefix('v1')->group(function () {
             ->name('projects.applications.decide')
             ->whereNumber('project')
             ->whereNumber('application');
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // Project Management Workflow (Pilot) — the owner / administrator side
+    // of a project: create, update, submit, approve, request changes,
+    // reject, open.
+    //
+    // The `role` middleware accepts a SINGLE slug, so a multi-role rule
+    // (owner OR platform admin, or company_admin / university_admin / admin
+    // for creation) cannot be expressed on the route. Same precedent as the
+    // application owner-side endpoints above: authorization lives in
+    // ProjectLifecycleService, which checks the stored owner_id and the
+    // actor's roles.
+    // ──────────────────────────────────────────────────────────────
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
+        Route::post('/projects', [ProjectManagementController::class, 'store'])
+            ->name('projects.store');
+
+        Route::patch('/projects/{project}', [ProjectManagementController::class, 'update'])
+            ->name('projects.update')
+            ->whereNumber('project');
+
+        Route::post('/projects/{project}/submit', [ProjectManagementController::class, 'submit'])
+            ->name('projects.submit')
+            ->whereNumber('project');
+
+        // Opening is the step that makes an APPROVED project discoverable and
+        // lets matching and applications operate.
+        Route::post('/projects/{project}/open', [ProjectManagementController::class, 'open'])
+            ->name('projects.open')
+            ->whereNumber('project');
+    });
+
+    // Review decisions are platform-administrator only. The `admin` middleware
+    // is the first line of defence; ProjectLifecycleService re-checks, so the
+    // rule holds even if a route is ever added without the middleware.
+    Route::middleware(['auth:sanctum', 'account.active', 'admin'])->group(function () {
+        Route::post('/projects/{project}/approve', [ProjectManagementController::class, 'approve'])
+            ->name('projects.approve')
+            ->whereNumber('project');
+
+        Route::post('/projects/{project}/request-changes', [ProjectManagementController::class, 'requestChanges'])
+            ->name('projects.request-changes')
+            ->whereNumber('project');
+
+        Route::post('/projects/{project}/reject', [ProjectManagementController::class, 'reject'])
+            ->name('projects.reject')
+            ->whereNumber('project');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {

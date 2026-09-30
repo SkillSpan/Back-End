@@ -131,3 +131,28 @@ chars, raw (never `Bearer xxx`).
 - **Both transitions are claimed with a conditional `UPDATE … WHERE verification_status='pending'`**
   so a double-click/retry cannot send two emails; the loser gets the same 422 as a sequential repeat.
 - A lost proof upload is reported as `proof_file.available=false`, not as a missing file.
+
+## Project lifecycle (Pilot)
+
+- **Official lifecycle** = `draft, submitted, changes_requested, approved, rejected, open, selection,
+  active, under_review, completed, cancelled, archived`. The old enum's `pending_review`/`in_progress`
+  are **renamed** (`→ submitted` / `→ active`) by `2026_09_30_000001_unify_projects_status_lifecycle`.
+  ⚠️ **`closed` is still in the enum, undecided** — nothing but the declaration references it; do not
+  remove or use it without a product decision.
+- **Enum ALTER order matters**: MySQL coerces a value no longer in an enum to `''`, so a rename must
+  run the `UPDATE`s **before** `->change()`, or every affected row is silently blanked.
+- **Lifecycle lives on the model**, not in an enum class: `Project::STATUS_*`, `STATUSES`,
+  `EDITABLE_STATUSES`, `TRANSITIONS`, `VERSIONED_FIELDS`, `canTransitionTo()`, `isEditable()` —
+  the same shape `Application` already used.
+- **`role` middleware takes ONE slug** (`EnsureUserHasRole(..., string $role)`). A comma list is passed
+  verbatim to `hasRole()` and always fails. Multi-role rules therefore live in the service
+  (`ProjectLifecycleService`), matching ApplicationService's owner-side precedent.
+- Workflow: `ProjectLifecycleService` + `ProjectManagementController` (`POST /projects`,
+  `PATCH /projects/{id}`, `…/submit|approve|request-changes|reject|open`). Editable only in
+  `draft`/`changes_requested`; approval yields `approved` (never auto-open/activate); `rejected` is
+  terminal; decision reasons go in the `audit_events` row (no reason column exists).
+- `projects.version` is bumped only when a `VERSIONED_FIELDS` value (or required skills) changes —
+  those are exactly the fields in the FastAPI project snapshot. Matching reads **snapshots**, not live
+  projects, so the lifecycle change cannot move the payload contract.
+- ⚠️ **Fixtures using `Project::make()` never hit the DB**, so an enum/check-constraint change will not
+  be caught by them. Use persisted models when the constraint is the thing under test.

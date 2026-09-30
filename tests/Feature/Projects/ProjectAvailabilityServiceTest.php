@@ -45,9 +45,9 @@ class ProjectAvailabilityServiceTest extends TestCase
         $this->assertNotEmpty($result->reasons);
     }
 
-    public function test_pending_review_project_is_unavailable(): void
+    public function test_submitted_project_is_unavailable(): void
     {
-        $project = $this->makeProject(['status' => 'pending_review']);
+        $project = $this->makeProject(['status' => Project::STATUS_SUBMITTED]);
 
         $result = $this->service->check($project);
 
@@ -65,9 +65,9 @@ class ProjectAvailabilityServiceTest extends TestCase
         $this->assertNotEmpty($result->reasons);
     }
 
-    public function test_in_progress_project_is_unavailable(): void
+    public function test_active_project_is_unavailable(): void
     {
-        $project = $this->makeProject(['status' => 'in_progress']);
+        $project = $this->makeProject(['status' => Project::STATUS_ACTIVE]);
 
         $result = $this->service->check($project);
 

@@ -11,6 +11,7 @@ use App\Notifications\OrganizationRejectedNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
@@ -327,16 +328,61 @@ class OrganizationController extends Controller
      * not control. Memberships marked 'removed' are skipped, matching the
      * pivot-status filter used everywhere else the organization admin is
      * resolved (AuthController, the organization's own profile endpoint).
+     *
+     * Every outcome is logged. Laravel's mail channel returns silently when a
+     * notifiable has no routable address, and this loop does nothing at all
+     * when no membership matches — so without a trace here, "the approval
+     * email never arrived" is indistinguishable from "there was nobody to
+     * send it to", and there is nothing to debug against. The recipient list
+     * and the skipped memberships are the two facts needed to tell those
+     * apart.
      */
     private function notifyOrganizationAdmins(Organization $organization, $notification): void
     {
-        $admins = $organization->members()
+        $members = $organization->members()
             ->wherePivot('role_in_org', 'admin')
-            ->wherePivot('status', 'active')
             ->get();
 
-        foreach ($admins as $admin) {
-            $admin->notify($notification);
+        $recipients = [];
+        $skipped = [];
+
+        foreach ($members as $member) {
+            if ($member->pivot->status !== 'active') {
+                $skipped[] = "{$member->email} (membership {$member->pivot->status})";
+
+                continue;
+            }
+
+            if (! $member->email) {
+                $skipped[] = "#{$member->id} (no email address on the account)";
+
+                continue;
+            }
+
+            $recipients[] = $member->email;
+        }
+
+        if ($recipients === []) {
+            Log::warning('Organization review notification has no recipient.', [
+                'organization_id' => $organization->id,
+                'notification' => $notification::class,
+                'skipped' => $skipped,
+            ]);
+
+            return;
+        }
+
+        Log::info('Organization review notification dispatched.', [
+            'organization_id' => $organization->id,
+            'notification' => $notification::class,
+            'recipients' => $recipients,
+            'skipped' => $skipped,
+        ]);
+
+        foreach ($members as $member) {
+            if (in_array($member->email, $recipients, true)) {
+                $member->notify($notification);
+            }
         }
     }
 }

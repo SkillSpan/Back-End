@@ -253,7 +253,7 @@ class MentorStudentService
      */
     public function validateProjectAvailability(Project $project): void
     {
-        if (! in_array($project->status, ['open', 'in_progress'])) {
+        if (! in_array($project->status, [Project::STATUS_OPEN, Project::STATUS_ACTIVE], true)) {
             throw new CommunicationException(
                 "Project is not available for connections (status: {$project->status}).",
                 422,
