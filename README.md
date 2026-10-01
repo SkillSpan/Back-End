@@ -664,8 +664,50 @@ Meaning:
 3 weeks  = expected calendar duration
 ```
 
+`estimated_duration_weeks` is an **integer or null**:
+
+``` text
+estimated_duration_weeks = integer | null
+```
+
+FastAPI returns `null` when the learner has no weekly availability
+(`weekly_availability_hours` is `null` or `0`). When the learner **does**
+have availability, the duration must be a positive integer. A float
+(`1.5`) or a numeric string (`"3"`) is a contract violation — the value is
+never rounded or coerced.
+
 `estimated_duration_hours` is not part of the current Roadmap v1
 contract.
+
+------------------------------------------------------------------------
+
+## Roadmap Totals
+
+The roadmap itself carries two totals, both owned by FastAPI and persisted
+verbatim (the total is **never** re-derived by summing the actions):
+
+``` text
+estimated_total_hours     = total effort for the roadmap
+estimated_duration_weeks  = calendar duration in weeks (integer | null)
+```
+
+They are returned on the roadmap block of the intelligence resource
+alongside the per-action values.
+
+------------------------------------------------------------------------
+
+## Limitations
+
+FastAPI reports machine-readable limitation codes that are validated,
+persisted and exposed — never dropped:
+
+``` json
+{
+  "limitations": [
+    "market_demand_factor_unavailable_neutral_1_0"
+  ]
+}
+```
 
 ------------------------------------------------------------------------
 
@@ -1404,8 +1446,10 @@ and is rate-limited.
 ``` text
 algorithm_version
 configuration_version
-estimated_hours
+estimated_total_hours
 estimated_duration_weeks
+limitations
+estimated_hours
 next_best_action_id
 actions
 prerequisite_skill_ids

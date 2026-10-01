@@ -16,11 +16,51 @@ class RegisterOrganizationRequest extends FormRequest
     /**
      * نطبّع الإيميل (حروف صغيرة + إزالة مسافات) قبل الفاليديشن،
      * عشان قاعدة unique تكتشف التكرار حتى لو انكتب بحروف مختلفة.
+     *
+     * نسخ احتياطي للأسماء القديمة (بدون بادئة organization_):
+     * الـ frontend كان يبعت seven حقول بأسماء بدون البادئة
+     * (`organization_size`, `website`, `description`, `country`, `city`,
+     * `address`, `postal_code`)، اللي ما كانت متطابقة مع أي قاعدة
+     * فاليديشن، فكانت validation بتنجح مع `null` وما بتخزن شي —
+     * ولهذا الـ admin panel كان يعرض "No description was provided"
+     * حتى لو المستخدم كتب وصف. حالياً الـ patch جاهز في
+     * `FRONTEND_ORG_FIELD_FIX.patch`، لكن لحد ما يُطبَّق على
+     * الـ frontend بنقبل كلتا التسميتين — prefixed (canonical) ولّا
+     * unprefixed (legacy). لما يُحدَّث الـ frontend، يصير الـ fallback
+     * no-op بدون أي تغيير بالعقد.
+     *
+     * normalization of the email is also done here (lowercase + trim)
+     * so the unique rule catches duplicates regardless of letter casing.
      */
     protected function prepareForValidation(): void
     {
         if ($this->has('email')) {
             $this->merge(['email' => strtolower(trim((string) $this->input('email')))]);
+        }
+
+        // Canonical → legacy aliases. The prefixed name is the contract;
+        // the unprefixed one is the older send that the frontend was using
+        // before FRONTEND_ORG_FIELD_FIX landed. We only fall back when the
+        // canonical value is empty, so a future client that sends both
+        // correctly cannot be surprised by the wrong one winning.
+        $legacyAliases = [
+            'organization_company_size' => 'organization_size',
+            'organization_website' => 'website',
+            'organization_description' => 'description',
+            'organization_country' => 'country',
+            'organization_city' => 'city',
+            'organization_address' => 'address',
+            'organization_postal_code' => 'postal_code',
+        ];
+
+        foreach ($legacyAliases as $canonical => $legacy) {
+            $canonicalValue = $this->input($canonical);
+            $legacyValue = $this->input($legacy);
+
+            if (($canonicalValue === null || $canonicalValue === '')
+                && $legacyValue !== null && $legacyValue !== '') {
+                $this->merge([$canonical => $legacyValue]);
+            }
         }
     }
 

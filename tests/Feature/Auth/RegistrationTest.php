@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Organization;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -194,5 +195,112 @@ class RegistrationTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors(['proof_file']);
+    }
+
+    /**
+     * Regression: the live frontend was sending seven organization details
+     * under UNPREFIXED names (`organization_size`, `website`, `description`,
+     * `country`, `city`, `address`, `postal_code`) that matched NO rule on
+     * RegisterOrganizationRequest, so they validated as absent and the
+     * columns stayed NULL — which is what made the admin panel say
+     * "No description was provided for this organization." even though the
+     * user typed one.
+     *
+     * The canonical fix lives on the frontend (see FRONTEND_ORG_FIELD_FIX.patch
+     * and FRONTEND_ORG_REGISTRATION_FIELD_AUDIT.md). Until that lands we
+     * accept both names in prepareForValidation() — this test pins the
+     * fallback so it cannot quietly break again.
+     */
+    public function test_organization_registration_accepts_legacy_unprefixed_field_names(): void
+    {
+        $file = UploadedFile::fake()->image('proof.jpg');
+
+        $response = $this->postJson('/api/v1/auth/register/organization', [
+            'name' => 'Sam Admin',
+            'email' => 'sam@acme.example',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => true,
+            'privacy_accepted' => true,
+
+            // The canonical, prefixed names — these have always worked.
+            'organization_name' => 'Northwind Traders',
+            'organization_type' => 'company',
+            'organization_industry' => 'Software & IT Services',
+            'organization_contact_email' => 'sam@acme.example',
+            'organization_contact_phone' => '+962 6 555 1234',
+
+            // The seven legacy, unprefixed names — these are what the live
+            // frontend is sending today. Before the fallback they were
+            // silently dropped and stored as NULL.
+            'organization_size' => '11 - 50 employees',
+            'website' => 'https://northwind.example',
+            'description' => 'We build developer tooling for the region.',
+            'country' => 'Jordan',
+            'city' => 'Amman',
+            'address' => '123 Main St',
+            'postal_code' => '11183',
+
+            'proof_file' => $file,
+        ]);
+
+        $response->assertStatus(201);
+
+        // Every column that the user typed must actually be in the database.
+        $this->assertDatabaseHas('organizations', [
+            'name' => 'Northwind Traders',
+            'industry' => 'Software & IT Services',
+            'description' => 'We build developer tooling for the region.',
+            'company_size' => '11 - 50 employees',
+            'website' => 'https://northwind.example',
+            'country' => 'Jordan',
+            'city' => 'Amman',
+            'address' => '123 Main St',
+            'postal_code' => '11183',
+            'contact_email' => 'sam@acme.example',
+            'contact_phone' => '+962 6 555 1234',
+        ]);
+    }
+
+    /**
+     * No-regression guard for the fallback: when BOTH the canonical and the
+     * legacy name are sent, the canonical one wins (the contract). The
+     * fallback must only kick in when the canonical field is absent.
+     */
+    public function test_the_canonical_organization_field_name_wins_when_both_are_sent(): void
+    {
+        $file = UploadedFile::fake()->image('proof.jpg');
+
+        $response = $this->postJson('/api/v1/auth/register/organization', [
+            'name' => 'Both Names Admin',
+            'email' => 'both@acme.example',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'terms_accepted' => true,
+            'privacy_accepted' => true,
+            'organization_name' => 'Both Names Co',
+            'organization_type' => 'company',
+            'organization_contact_email' => 'both@acme.example',
+
+            'organization_description' => 'canonical description',
+            'description' => 'legacy description that must be ignored',
+            'organization_city' => 'Cairo',
+            'city' => 'Amman',
+
+            'proof_file' => $file,
+        ]);
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseHas('organizations', [
+            'name' => 'Both Names Co',
+            'description' => 'canonical description',
+            'city' => 'Cairo',
+        ]);
+
+        // And neither legacy value leaked into a different column.
+        $org = Organization::where('name', 'Both Names Co')->first();
+        $this->assertSame('canonical description', $org->description);
+        $this->assertSame('Cairo', $org->city);
     }
 }

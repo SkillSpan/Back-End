@@ -85,6 +85,37 @@ class ProjectController extends Controller
             $query->where('organization_id', $filters['organization_id']);
         }
 
+        // Role filter — "show me the projects for a Frontend Developer".
+        //
+        // A project advertises a role in TWO places, and they are not
+        // interchangeable:
+        //   - `projects.role` is the single headline role, a free-text column;
+        //   - `project_roles` is the set of roles a learner may actually apply
+        //     as (surfaced as `available_project_roles`), and a role that has
+        //     been deactivated is NOT something a learner can apply to.
+        //
+        // Matching only one of them would silently hide projects the learner
+        // can legitimately see: a project whose headline is "Data Analyst" but
+        // which also offers an active "Data Analyst" role would be found by
+        // neither test alone in the reverse case. So the filter matches EITHER,
+        // and the `project_roles` branch requires `is_active` for the same
+        // reason the resource filters on it.
+        //
+        // This is deliberately a FILTER, not a hard visibility rule: a learner
+        // who supplies no `role` still sees the whole catalog (including
+        // projects outside their specialty), which is what keeps discovery,
+        // details and the recommendation list agreeing with each other.
+        if (! empty($filters['role'])) {
+            $role = $filters['role'];
+
+            $query->where(function ($q) use ($role) {
+                $q->where('role', $role)
+                    ->orWhereHas('projectRoles', function ($roleQuery) use ($role) {
+                        $roleQuery->where('title', $role)->where('is_active', true);
+                    });
+            });
+        }
+
         // Required-skill filters: the project must require ALL of the
         // supplied skill ids (joined through the pivot table).
         if (! empty($filters['skill_ids'])) {
@@ -255,6 +286,11 @@ class ProjectController extends Controller
             'type' => ['nullable', 'string', 'in:simulation,company_sponsored'],
             'domain' => ['nullable', 'string', 'max:100'],
             'work_mode' => ['nullable', 'string', 'max:50'],
+            // Free text on purpose: `projects.role` is a free-text column and
+            // `project_roles.title` is free text too, so an `in:` whitelist
+            // would reject role titles that legitimately exist. An unmatched
+            // value simply returns an empty page, exactly like `domain`.
+            'role' => ['nullable', 'string', 'max:100'],
             'difficulty' => ['nullable', 'numeric', 'min:0', 'max:5'],
             'organization_id' => ['nullable', 'integer', 'gt:0', 'exists:organizations,id'],
             'skill_ids' => ['nullable', 'array'],

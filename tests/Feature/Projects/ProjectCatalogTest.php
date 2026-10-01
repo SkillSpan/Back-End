@@ -5,6 +5,7 @@ namespace Tests\Feature\Projects;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\ProjectRequiredSkill;
+use App\Models\ProjectRole;
 use App\Models\Role;
 use App\Models\Skill;
 use App\Models\StudentProfile;
@@ -816,6 +817,136 @@ class ProjectCatalogTest extends TestCase
         $response->assertStatus(200)
             ->assertJsonFragment(['title' => 'React Marketing Dashboard'])
             ->assertJsonMissing(['title' => 'Laravel API Service']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Role filter
+    //
+    // A project advertises a role in two places: `projects.role` (the headline
+    // role, free text) and `project_roles` (the roles a learner may apply as,
+    // surfaced as `available_project_roles`). The filter must match EITHER, and
+    // must ignore a deactivated project_role.
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function test_role_filter_matches_the_headline_role_column(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        $fixtures['laravel']->update(['role' => 'Backend Developer']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'Backend Developer']));
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_role_filter_matches_an_active_project_role_title(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        // The headline role deliberately does NOT match, so this can only pass
+        // through the `project_roles` branch.
+        $fixtures['laravel']->update(['role' => 'Backend Developer']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        ProjectRole::create([
+            'project_id' => $fixtures['laravel']->id,
+            'title' => 'API Developer',
+            'is_active' => true,
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'API Developer']));
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'Laravel API Service'])
+            ->assertJsonMissing(['title' => 'React Marketing Dashboard']);
+    }
+
+    public function test_role_filter_ignores_a_deactivated_project_role(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        $fixtures['laravel']->update(['role' => 'Backend Developer']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        // A deactivated role is not something a learner can apply to, so
+        // filtering by it must not surface the project.
+        ProjectRole::create([
+            'project_id' => $fixtures['laravel']->id,
+            'title' => 'Retired Role',
+            'is_active' => false,
+        ]);
+
+        $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'Retired Role']));
+
+        $response->assertStatus(200)
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_role_filter_is_optional_and_absent_role_returns_everything(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        $fixtures['laravel']->update(['role' => 'Backend Developer']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        // No `role` param → the full catalog, so the filter can never narrow
+        // discovery for a client that does not use it.
+        $this->getJson('/api/v1/projects')
+            ->assertStatus(200)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_role_filter_returns_an_empty_page_for_an_unknown_role(): void
+    {
+        $this->createFilterFixtures();
+
+        // Free-text by design (like `domain`) — an unmatched value is an empty
+        // page, NOT a 422.
+        $this->getJson('/api/v1/projects?role=Astronaut')
+            ->assertStatus(200)
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_role_filter_does_not_widen_visibility_rules(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        // A closed project that matches the role must stay hidden: the role
+        // filter is additive on top of the access rules, never a bypass.
+        $fixtures['laravel']->update(['role' => 'Backend Developer', 'status' => 'draft']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'Backend Developer']));
+
+        $response->assertStatus(200)
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_role_filter_combines_with_other_filters(): void
+    {
+        $fixtures = $this->createFilterFixtures();
+
+        $fixtures['laravel']->update(['role' => 'Backend Developer']);
+        $fixtures['react']->update(['role' => 'Frontend Developer']);
+
+        // `react` is type=simulation, `laravel` company_sponsored.
+        $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'Frontend Developer', 'type' => 'simulation']));
+
+        $response->assertStatus(200)
+            ->assertJsonFragment(['title' => 'React Marketing Dashboard'])
+            ->assertJsonMissing(['title' => 'Laravel API Service']);
+    }
+
+    public function test_invalid_role_filter_is_rejected(): void
+    {
+        $this->createFilterFixtures();
+
+        $this->getJson('/api/v1/projects?role='.str_repeat('a', 101))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
 
     public function test_invalid_type_filter_is_rejected(): void
