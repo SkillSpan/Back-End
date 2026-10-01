@@ -34,5 +34,13 @@
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="GOOGLE_CLIENT_ID" value="test-client-id"/>
+        <!--
+            The suite is written against the DOCUMENTED default of this
+            feature flag (disabled). Pin it here so a developer's local
+            `.env` — which may legitimately enable Roadmap generation for a
+            Production E2E — cannot silently change which code path the
+            tests exercise. Tests that need the flag ON set it themselves.
+        -->
+        <env name="DATA_SCIENCE_ROADMAP_ENABLED" value="false"/>
     </php>
 </phpunit>
