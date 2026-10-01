@@ -21,6 +21,17 @@ The most user-visible symptom is exactly the reported one:
 **size, website, country, city, address and postal code all arrive empty**, so the admin panel
 has nothing to render for them.
 
+> **Update 2026-09-30 (backend defensive fix).** While the frontend patch is still
+> pending, the backend was updated so `RegisterOrganizationRequest::prepareForValidation()`
+> copies the seven legacy unprefixed names into the canonical prefixed ones when the
+> prefixed value is absent. This makes existing registrations actually persist their
+> data — the admin panel stops showing "No description was provided." for in-flight
+> sign-ups. The canonical contract is unchanged: prefixed names still win when both
+> are sent, and the fallback is a no-op once the frontend patch lands. See
+> `RegisterOrganizationRequest` for the implementation and
+> `RegistrationTest::test_organization_registration_accepts_legacy_unprefixed_field_names`
+> for the regression guard.
+
 ---
 
 ## Root cause
