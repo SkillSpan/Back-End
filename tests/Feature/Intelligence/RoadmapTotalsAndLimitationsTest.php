@@ -15,6 +15,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -121,6 +122,54 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
     public function test_roadmap_duration_null_is_rejected_with_weekly_availability(): void
     {
         $this->assertRoadmapDuration(20, null, 502);
+    }
+
+    // ------------------------------------------------ action duration serialization
+
+    public function test_resource_serializes_action_duration_weeks_as_integer(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['estimated_duration_weeks'] = 4;
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $weeks = $response->json('data.roadmap.actions.0.estimated_duration_weeks');
+
+        // integer | null — a whole number of weeks, never a float.
+        $this->assertIsInt($weeks);
+        $this->assertSame(4, $weeks);
+    }
+
+    public function test_resource_serializes_null_action_duration_weeks_as_null(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(null);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, null, null);
+        $roadmap['phases'][0]['actions'][0]['estimated_duration_weeks'] = null;
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $weeks = $response->json('data.roadmap.actions.0.estimated_duration_weeks');
+
+        // null must stay null — never coerced to 0.
+        $this->assertNull($weeks);
+        $this->assertNotSame(0, $weeks);
+    }
+
+    public function test_roadmap_actions_duration_weeks_column_is_an_integer_type(): void
+    {
+        // The column must be INTEGER NULL, not DECIMAL (Roadmap v1).
+        $type = Schema::getColumnType('roadmap_actions', 'estimated_duration_weeks');
+
+        $this->assertStringContainsString('int', strtolower($type));
     }
 
     // ------------------------------------------------ roadmap totals

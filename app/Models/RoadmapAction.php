@@ -40,7 +40,7 @@ class RoadmapAction extends Model
     protected $casts = [
         'completed_at' => 'datetime',
         'estimated_hours' => 'float',
-        'estimated_duration_weeks' => 'float',
+        'estimated_duration_weeks' => 'integer',
     ];
 
     public function roadmap()

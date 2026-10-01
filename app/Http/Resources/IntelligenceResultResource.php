@@ -127,7 +127,7 @@ class IntelligenceResultResource extends JsonResource
                     'estimated_hours' => $action->estimated_hours === null ? null : (float) $action->estimated_hours,
                     'estimated_duration_weeks' => $action->estimated_duration_weeks === null
                         ? null
-                        : (float) $action->estimated_duration_weeks,
+                        : (int) $action->estimated_duration_weeks,
                     'order_index' => $action->order_index,
                     'completion_criteria' => $action->completion_criteria,
                     'explanation' => $action->explanation,
