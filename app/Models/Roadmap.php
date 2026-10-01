@@ -13,9 +13,17 @@ class Roadmap extends Model
 
     public const STATUS_SUPERSEDED = 'superseded';
 
-    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'status', 'next_best_action_id', 'generated_at', 'algorithm_version', 'configuration_version', 'request_id', 'explanation'];
+    protected $fillable = ['student_profile_id', 'career_role_id', 'career_role_version', 'decision_snapshot_id', 'version', 'status', 'next_best_action_id', 'generated_at', 'algorithm_version', 'configuration_version', 'request_id', 'explanation', 'estimated_total_hours', 'estimated_duration_weeks', 'limitations'];
 
-    protected $casts = ['generated_at' => 'datetime'];
+    protected $casts = [
+        'generated_at' => 'datetime',
+        // Roadmap-level totals (FastAPI-owned): total effort is a float,
+        // the calendar duration is an integer or null (Roadmap v1), and the
+        // limitations are a JSON list of machine-readable codes.
+        'estimated_total_hours' => 'float',
+        'estimated_duration_weeks' => 'integer',
+        'limitations' => 'array',
+    ];
 
     public function studentProfile()
     {

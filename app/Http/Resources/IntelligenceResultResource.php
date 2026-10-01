@@ -94,6 +94,19 @@ class IntelligenceResultResource extends JsonResource
                 'next_best_action_id' => $roadmap->next_best_action_id,
                 'generated_at' => optional($roadmap->generated_at)->toIso8601String(),
                 'explanation' => $roadmap->explanation,
+                /*
+                 * Roadmap-level totals (FastAPI-owned) and the limitations
+                 * list. `estimated_duration_weeks` is an integer or null
+                 * (null when the learner has no weekly availability); the
+                 * limitations are surfaced verbatim, never dropped.
+                 */
+                'estimated_total_hours' => $roadmap->estimated_total_hours === null
+                    ? null
+                    : (float) $roadmap->estimated_total_hours,
+                'estimated_duration_weeks' => $roadmap->estimated_duration_weeks === null
+                    ? null
+                    : (int) $roadmap->estimated_duration_weeks,
+                'limitations' => $roadmap->limitations,
                 'actions' => $roadmap->actions->map(fn ($action): array => [
                     'id' => $action->id,
                     'phase' => $action->phase,
@@ -114,10 +127,15 @@ class IntelligenceResultResource extends JsonResource
                     'estimated_hours' => $action->estimated_hours === null ? null : (float) $action->estimated_hours,
                     'estimated_duration_weeks' => $action->estimated_duration_weeks === null
                         ? null
-                        : (float) $action->estimated_duration_weeks,
+                        : (int) $action->estimated_duration_weeks,
                     'order_index' => $action->order_index,
+                    // Roadmap v1: lists of strings, returned as arrays (or
+                    // null for legacy rows) — never imploded into a string.
                     'completion_criteria' => $action->completion_criteria,
                     'explanation' => $action->explanation,
+                    // The skills CURRENTLY blocking the action — distinct
+                    // from prerequisite_skill_ids above.
+                    'blocking_prerequisite_skill_ids' => $action->blocking_prerequisite_skill_ids,
                     'status' => $action->status,
                 ])->values()->all(),
             ],

@@ -214,6 +214,23 @@ class IntelligencePersistenceService
                 'configuration_version' => $roadmap['configuration_version'] ?? $configurationVersion,
                 'request_id' => $requestId,
                 'explanation' => $roadmap['explanation'] ?? null,
+                /*
+                 * Roadmap-level totals and limitations are FastAPI-owned and
+                 * are stored VERBATIM from the validated response: the total
+                 * is never re-derived by summing the actions, the calendar
+                 * duration is never recomputed from hours, and limitations
+                 * are never dropped. `estimated_duration_weeks` is an
+                 * integer or null (Roadmap v1).
+                 */
+                'estimated_total_hours' => isset($roadmap['estimated_total_hours'])
+                    && is_numeric($roadmap['estimated_total_hours'])
+                    ? (float) $roadmap['estimated_total_hours']
+                    : null,
+                'estimated_duration_weeks' => isset($roadmap['estimated_duration_weeks'])
+                    && is_numeric($roadmap['estimated_duration_weeks'])
+                    ? (int) $roadmap['estimated_duration_weeks']
+                    : null,
+                'limitations' => $roadmap['limitations'] ?? null,
             ]);
 
             $actionIdMap = $this->persistRoadmapActions($model, $roadmap, $skillNameById);
@@ -286,6 +303,13 @@ class IntelligencePersistenceService
                         : null,
                     'completion_criteria' => $action['completion_criteria'] ?? null,
                     'explanation' => $action['explanation'] ?? null,
+                    /*
+                     * Distinct from `prerequisite_skill_ids`: these are the
+                     * skills CURRENTLY blocking the action. Stored verbatim
+                     * as a JSON list (or null) and never merged into the
+                     * prerequisite relation.
+                     */
+                    'blocking_prerequisite_skill_ids' => $action['blocking_prerequisite_skill_ids'] ?? null,
                 ]);
 
                 foreach ($prerequisiteSkillIds as $prerequisiteSkillId) {
@@ -374,12 +398,24 @@ class IntelligencePersistenceService
         return $normalized;
     }
 
+    /**
+     * Validate-and-return the phase name. There is deliberately NO
+     * fallback: an unknown phase is a FastAPI contract violation and must
+     * never be silently rewritten to "core_skills". The known phases live
+     * once, on RoadmapAction::PHASE_ORDER.
+     */
     private function mapPhase(string $phase): string
     {
-        return match ($phase) {
-            'foundations', 'core_skills', 'applied_practice', 'career_readiness' => $phase,
-            default => 'core_skills',
-        };
+        if (! array_key_exists($phase, RoadmapAction::PHASE_ORDER)) {
+            throw new IntelligenceException(
+                'A roadmap action carries an unknown phase.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['phase' => $phase],
+            );
+        }
+
+        return $phase;
     }
 
     /**
