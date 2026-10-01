@@ -63,7 +63,7 @@ class RoadmapEffortContractTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->fakeCalculation($profile, $role, $roleSkills, [
-            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3.0),
+            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3),
         ]);
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
@@ -95,7 +95,7 @@ class RoadmapEffortContractTest extends TestCase
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        $action = $this->action('A1', 'resource', 'No effort', (int) $roleSkills[0]->skill_id, null, 3.0);
+        $action = $this->action('A1', 'resource', 'No effort', (int) $roleSkills[0]->skill_id, null, 3);
 
         $this->fakeCalculation($profile, $role, $roleSkills, [$action]);
 
@@ -126,7 +126,7 @@ class RoadmapEffortContractTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->fakeCalculation($profile, $role, $roleSkills, [
-            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3.0),
+            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3),
         ]);
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
@@ -149,7 +149,7 @@ class RoadmapEffortContractTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->fakeCalculation($profile, $role, $roleSkills, [
-            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3.0),
+            $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3),
         ]);
 
         $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
@@ -225,7 +225,7 @@ class RoadmapEffortContractTest extends TestCase
                 $sent = $request->data();
 
                 return Http::response($this->roadmapResponse($profile, $role, [
-                    $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3.0),
+                    $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3),
                 ]), 200);
             }
 
@@ -265,7 +265,7 @@ class RoadmapEffortContractTest extends TestCase
                 $sent = $request->data();
 
                 return Http::response($this->roadmapResponse($profile, $role, [
-                    $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3.0),
+                    $this->action('A1', 'resource', 'Brush up SQL', (int) $roleSkills[0]->skill_id, 12.0, 3),
                 ]), 200);
             }
 
@@ -320,13 +320,19 @@ class RoadmapEffortContractTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function action(string $id, string $type, string $title, int $targetSkillId, ?float $hours, ?float $weeks): array
+    private function action(string $id, string $type, string $title, int $targetSkillId, ?float $hours, ?int $weeks): array
     {
         $action = [
             'action_id' => $id,
             'action_type' => $type,
             'title' => $title,
+            // Roadmap v1 action contract — every field below is REQUIRED.
+            'objective' => 'Objective for '.$title,
             'target_skill_id' => $targetSkillId,
+            'target_skill_name' => 'Skill '.$targetSkillId,
+            'priority_score' => 0.5,
+            'completion_criteria' => 'Completion criteria for '.$title,
+            'explanation' => 'Explanation for '.$title,
         ];
 
         if ($hours !== null) {
@@ -350,6 +356,12 @@ class RoadmapEffortContractTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
+            // Roadmap v1 totals + limitations — required by the contract.
+            // The learner HAS weekly availability here (12), so the calendar
+            // duration must be a positive integer.
+            'estimated_total_hours' => 12.0,
+            'estimated_duration_weeks' => 3,
+            'limitations' => [],
             'phases' => [
                 ['phase' => 'foundations', 'actions' => $actions],
             ],

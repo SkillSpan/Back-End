@@ -214,6 +214,23 @@ class IntelligencePersistenceService
                 'configuration_version' => $roadmap['configuration_version'] ?? $configurationVersion,
                 'request_id' => $requestId,
                 'explanation' => $roadmap['explanation'] ?? null,
+                /*
+                 * Roadmap-level totals and limitations are FastAPI-owned and
+                 * are stored VERBATIM from the validated response: the total
+                 * is never re-derived by summing the actions, the calendar
+                 * duration is never recomputed from hours, and limitations
+                 * are never dropped. `estimated_duration_weeks` is an
+                 * integer or null (Roadmap v1).
+                 */
+                'estimated_total_hours' => isset($roadmap['estimated_total_hours'])
+                    && is_numeric($roadmap['estimated_total_hours'])
+                    ? (float) $roadmap['estimated_total_hours']
+                    : null,
+                'estimated_duration_weeks' => isset($roadmap['estimated_duration_weeks'])
+                    && is_numeric($roadmap['estimated_duration_weeks'])
+                    ? (int) $roadmap['estimated_duration_weeks']
+                    : null,
+                'limitations' => $roadmap['limitations'] ?? null,
             ]);
 
             $actionIdMap = $this->persistRoadmapActions($model, $roadmap, $skillNameById);

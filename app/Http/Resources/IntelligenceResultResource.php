@@ -94,6 +94,19 @@ class IntelligenceResultResource extends JsonResource
                 'next_best_action_id' => $roadmap->next_best_action_id,
                 'generated_at' => optional($roadmap->generated_at)->toIso8601String(),
                 'explanation' => $roadmap->explanation,
+                /*
+                 * Roadmap-level totals (FastAPI-owned) and the limitations
+                 * list. `estimated_duration_weeks` is an integer or null
+                 * (null when the learner has no weekly availability); the
+                 * limitations are surfaced verbatim, never dropped.
+                 */
+                'estimated_total_hours' => $roadmap->estimated_total_hours === null
+                    ? null
+                    : (float) $roadmap->estimated_total_hours,
+                'estimated_duration_weeks' => $roadmap->estimated_duration_weeks === null
+                    ? null
+                    : (int) $roadmap->estimated_duration_weeks,
+                'limitations' => $roadmap->limitations,
                 'actions' => $roadmap->actions->map(fn ($action): array => [
                     'id' => $action->id,
                     'phase' => $action->phase,

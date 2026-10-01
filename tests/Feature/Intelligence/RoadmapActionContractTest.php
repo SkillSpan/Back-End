@@ -329,10 +329,15 @@ class RoadmapActionContractTest extends TestCase
             'action_id' => $id,
             'action_type' => $type,
             'title' => $title,
+            // Roadmap v1 action contract — every field below is REQUIRED.
+            'objective' => 'Objective for '.$title,
             'target_skill_id' => $targetSkillId,
-            // Roadmap v1 effort/duration contract — required on every action.
+            'target_skill_name' => 'Skill '.$targetSkillId,
+            'priority_score' => 0.5,
             'estimated_hours' => 12.0,
-            'estimated_duration_weeks' => 3.0,
+            'estimated_duration_weeks' => 3,
+            'completion_criteria' => 'Completion criteria for '.$title,
+            'explanation' => 'Explanation for '.$title,
         ];
 
         if ($prerequisites !== null) {
@@ -355,6 +360,10 @@ class RoadmapActionContractTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
+            // Roadmap v1 totals + limitations — required by the contract.
+            'estimated_total_hours' => 12.0,
+            'estimated_duration_weeks' => null,
+            'limitations' => [],
             'phases' => [
                 ['phase' => 'foundations', 'actions' => $actions],
             ],
