@@ -35,12 +35,19 @@ class RoadmapAction extends Model
      * contract: it is not mass-assignable, not validated, not persisted and
      * not serialized, and it is never converted into weeks.
      */
-    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_weeks', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation'];
+    protected $fillable = ['roadmap_id', 'phase', 'type', 'target_skill_id', 'prerequisite_skill_id', 'title', 'objective', 'description', 'priority_score', 'estimated_hours', 'estimated_duration_weeks', 'order_index', 'fastapi_order', 'completion_criteria', 'explanation', 'blocking_prerequisite_skill_ids'];
 
     protected $casts = [
         'completed_at' => 'datetime',
         'estimated_hours' => 'float',
         'estimated_duration_weeks' => 'integer',
+        // Roadmap v1: these two are LISTS of strings, and
+        // blocking_prerequisite_skill_ids is a list of integer skill ids
+        // (distinct from prerequisite_skill_ids). Stored as JSON text and
+        // returned as arrays.
+        'completion_criteria' => 'array',
+        'explanation' => 'array',
+        'blocking_prerequisite_skill_ids' => 'array',
     ];
 
     public function roadmap()

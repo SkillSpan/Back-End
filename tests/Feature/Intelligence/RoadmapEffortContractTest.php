@@ -329,10 +329,12 @@ class RoadmapEffortContractTest extends TestCase
             // Roadmap v1 action contract — every field below is REQUIRED.
             'objective' => 'Objective for '.$title,
             'target_skill_id' => $targetSkillId,
-            'target_skill_name' => 'Skill '.$targetSkillId,
+            // The CANONICAL name of that skill — it must agree with the id.
+            'target_skill_name' => (string) Skill::query()->findOrFail($targetSkillId)->name,
             'priority_score' => 0.5,
-            'completion_criteria' => 'Completion criteria for '.$title,
-            'explanation' => 'Explanation for '.$title,
+            // Roadmap v1: lists of strings, never a plain string.
+            'completion_criteria' => ['Completion criteria for '.$title],
+            'explanation' => ['Explanation for '.$title],
         ];
 
         if ($hours !== null) {

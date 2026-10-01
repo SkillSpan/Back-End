@@ -129,8 +129,13 @@ class IntelligenceResultResource extends JsonResource
                         ? null
                         : (int) $action->estimated_duration_weeks,
                     'order_index' => $action->order_index,
+                    // Roadmap v1: lists of strings, returned as arrays (or
+                    // null for legacy rows) — never imploded into a string.
                     'completion_criteria' => $action->completion_criteria,
                     'explanation' => $action->explanation,
+                    // The skills CURRENTLY blocking the action — distinct
+                    // from prerequisite_skill_ids above.
+                    'blocking_prerequisite_skill_ids' => $action->blocking_prerequisite_skill_ids,
                     'status' => $action->status,
                 ])->values()->all(),
             ],

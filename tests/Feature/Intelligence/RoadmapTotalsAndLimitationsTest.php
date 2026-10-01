@@ -343,7 +343,253 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
 
+    // ------------------------------------------------ completion_criteria / explanation (string[])
+
+    public function test_action_completion_criteria_and_explanation_accept_string_lists(): void
+    {
+        // A + B: both fields are lists of non-empty strings.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $criteria = ['Complete task', 'Pass validation'];
+        $explanation = ['Critical skill', 'Largest gap'];
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['completion_criteria'] = $criteria;
+        $roadmap['phases'][0]['actions'][0]['explanation'] = $explanation;
+
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        // The API returns ARRAYS, never an imploded string.
+        $this->assertIsArray($response->json('data.roadmap.actions.0.completion_criteria'));
+        $this->assertIsArray($response->json('data.roadmap.actions.0.explanation'));
+        $this->assertSame($criteria, $response->json('data.roadmap.actions.0.completion_criteria'));
+        $this->assertSame($explanation, $response->json('data.roadmap.actions.0.explanation'));
+
+        $action = RoadmapAction::query()->firstOrFail();
+        $this->assertSame($criteria, $action->completion_criteria);
+        $this->assertSame($explanation, $action->explanation);
+    }
+
+    public function test_action_completion_criteria_as_string_is_rejected(): void
+    {
+        // C: a plain string is not accepted.
+        $this->assertActionFieldRejected('completion_criteria', 'Complete task');
+    }
+
+    public function test_action_explanation_as_string_is_rejected(): void
+    {
+        // D.
+        $this->assertActionFieldRejected('explanation', 'Explanation');
+    }
+
+    public function test_action_completion_criteria_empty_list_is_rejected(): void
+    {
+        // E.
+        $this->assertActionFieldRejected('completion_criteria', []);
+    }
+
+    public function test_action_explanation_empty_list_is_rejected(): void
+    {
+        // F.
+        $this->assertActionFieldRejected('explanation', []);
+    }
+
+    public function test_action_completion_criteria_blank_element_is_rejected(): void
+    {
+        // G.
+        $this->assertActionFieldRejected('completion_criteria', ['valid', '']);
+    }
+
+    public function test_action_explanation_blank_element_is_rejected(): void
+    {
+        // H.
+        $this->assertActionFieldRejected('explanation', ['valid', '']);
+    }
+
+    public function test_action_completion_criteria_non_string_element_is_rejected(): void
+    {
+        $this->assertActionFieldRejected('completion_criteria', ['valid', 123]);
+    }
+
+    public function test_action_explanation_blank_single_element_is_rejected(): void
+    {
+        $this->assertActionFieldRejected('explanation', ['   ']);
+    }
+
+    // ------------------------------------------------ roadmap zero duration
+
+    public function test_zero_effort_roadmap_with_zero_duration_is_valid(): void
+    {
+        // I: total = 0 and duration = 0 is a valid roadmap.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 0, 0, null);
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        // 0 stays integer 0 in the API output.
+        $duration = $response->json('data.roadmap.estimated_duration_weeks');
+        $this->assertIsInt($duration);
+        $this->assertSame(0, $duration);
+
+        $model = Roadmap::query()->firstOrFail();
+        $this->assertEqualsWithDelta(0.0, (float) $model->estimated_total_hours, 0.0001);
+        $this->assertSame(0, (int) $model->estimated_duration_weeks);
+    }
+
+    public function test_roadmap_zero_duration_is_rejected_when_effort_and_availability_exist(): void
+    {
+        // J: effort > 0 AND weekly availability > 0 => duration must be > 0.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 0, null);
+        $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
+    }
+
+    public function test_zero_effort_roadmap_zero_duration_is_valid_without_availability(): void
+    {
+        // The cross-field rule needs availability too: total = 0 => 0 is fine.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(null);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 0, 0, null);
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+    }
+
+    // ------------------------------------------------ blocking_prerequisite_skill_ids
+
+    public function test_blocking_prerequisite_skill_ids_survive_validation_persistence_and_resource(): void
+    {
+        // M.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $blocking = [(int) $roleSkills[0]->skill_id, (int) $roleSkills[1]->skill_id];
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['blocking_prerequisite_skill_ids'] = $blocking;
+
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201)
+            ->assertJsonPath('data.roadmap.actions.0.blocking_prerequisite_skill_ids', $blocking);
+
+        $action = RoadmapAction::query()->firstOrFail();
+        $this->assertSame($blocking, $action->blocking_prerequisite_skill_ids);
+
+        // It must NOT leak into the declared prerequisite relation.
+        $this->assertSame([], $action->prerequisites->pluck('id')->all());
+    }
+
+    public function test_unknown_blocking_prerequisite_skill_id_is_rejected(): void
+    {
+        // N.
+        $this->assertActionFieldRejected('blocking_prerequisite_skill_ids', [999999]);
+    }
+
+    public function test_duplicate_blocking_prerequisite_skill_ids_are_rejected(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $duplicate = (int) $roleSkills[0]->skill_id;
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['blocking_prerequisite_skill_ids'] = [$duplicate, $duplicate];
+
+        $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
+    }
+
+    public function test_blocking_prerequisite_skill_ids_as_string_is_rejected(): void
+    {
+        $this->assertActionFieldRejected('blocking_prerequisite_skill_ids', '1,2');
+    }
+
+    public function test_blocking_prerequisite_skill_ids_with_float_id_is_rejected(): void
+    {
+        $this->assertActionFieldRejected('blocking_prerequisite_skill_ids', [1.5]);
+    }
+
+    public function test_empty_blocking_prerequisite_skill_ids_is_accepted(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['blocking_prerequisite_skill_ids'] = [];
+
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201)
+            ->assertJsonPath('data.roadmap.actions.0.blocking_prerequisite_skill_ids', []);
+    }
+
+    // ------------------------------------------------ target_skill_name consistency
+
+    public function test_target_skill_name_matching_the_payload_skill_is_accepted(): void
+    {
+        // O: the fixture uses the canonical payload skill name.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $canonicalName = (string) $roleSkills[0]->skill->name;
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['target_skill_name'] = $canonicalName;
+
+        $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+    }
+
+    public function test_target_skill_name_mismatch_is_rejected(): void
+    {
+        // P: the id and the name must refer to the SAME skill.
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['target_skill_name'] = 'Python';
+
+        $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
+    }
+
+    public function test_target_skill_name_with_different_casing_is_rejected(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0]['target_skill_name'] = strtolower((string) $roleSkills[0]->skill->name);
+
+        $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
+    }
+
     // ------------------------------------------------ helpers
+
+    private function assertActionFieldRejected(string $field, mixed $value): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
+        Sanctum::actingAs($user);
+
+        $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
+        $roadmap['phases'][0]['actions'][0][$field] = $value;
+
+        $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
+    }
 
     private function assertActionDuration(?float $weeklyHours, mixed $weeks, int $expectedStatus): void
     {
@@ -471,8 +717,9 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             'priority_score' => 0.5,
             'estimated_hours' => 12.0,
             'estimated_duration_weeks' => 3,
-            'completion_criteria' => 'Completion criteria '.$id,
-            'explanation' => 'Explanation '.$id,
+            // Roadmap v1: lists of strings, never a plain string.
+            'completion_criteria' => ['Completion criteria '.$id],
+            'explanation' => ['Explanation '.$id],
         ];
     }
 

@@ -303,6 +303,13 @@ class IntelligencePersistenceService
                         : null,
                     'completion_criteria' => $action['completion_criteria'] ?? null,
                     'explanation' => $action['explanation'] ?? null,
+                    /*
+                     * Distinct from `prerequisite_skill_ids`: these are the
+                     * skills CURRENTLY blocking the action. Stored verbatim
+                     * as a JSON list (or null) and never merged into the
+                     * prerequisite relation.
+                     */
+                    'blocking_prerequisite_skill_ids' => $action['blocking_prerequisite_skill_ids'] ?? null,
                 ]);
 
                 foreach ($prerequisiteSkillIds as $prerequisiteSkillId) {
