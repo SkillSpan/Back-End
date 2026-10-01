@@ -467,6 +467,7 @@ class IntelligenceLatestRoadmapTest extends TestCase
             'phases' => [
                 [
                     'phase' => 'foundations',
+                    'order' => 1,
                     'actions' => [
                         [
                             'action_id' => 'A1',

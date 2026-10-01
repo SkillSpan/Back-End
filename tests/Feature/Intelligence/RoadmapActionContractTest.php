@@ -367,7 +367,7 @@ class RoadmapActionContractTest extends TestCase
             'estimated_duration_weeks' => null,
             'limitations' => [],
             'phases' => [
-                ['phase' => 'foundations', 'actions' => $actions],
+                ['phase' => 'foundations', 'order' => 1, 'actions' => $actions],
             ],
             'next_best_action_id' => $actions[0]['action_id'] ?? null,
         ];

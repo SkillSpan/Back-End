@@ -398,12 +398,24 @@ class IntelligencePersistenceService
         return $normalized;
     }
 
+    /**
+     * Validate-and-return the phase name. There is deliberately NO
+     * fallback: an unknown phase is a FastAPI contract violation and must
+     * never be silently rewritten to "core_skills". The known phases live
+     * once, on RoadmapAction::PHASE_ORDER.
+     */
     private function mapPhase(string $phase): string
     {
-        return match ($phase) {
-            'foundations', 'core_skills', 'applied_practice', 'career_readiness' => $phase,
-            default => 'core_skills',
-        };
+        if (! array_key_exists($phase, RoadmapAction::PHASE_ORDER)) {
+            throw new IntelligenceException(
+                'A roadmap action carries an unknown phase.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['phase' => $phase],
+            );
+        }
+
+        return $phase;
     }
 
     /**

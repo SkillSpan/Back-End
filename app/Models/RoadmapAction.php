@@ -24,6 +24,21 @@ class RoadmapAction extends Model
     ];
 
     /**
+     * The ONLY allowed roadmap phases, mapped to their canonical order.
+     * Mirrors the `phase` enum in the roadmap_actions migration and is the
+     * single source of the phase name <-> order mapping consumed by the
+     * response validator and the persistence service — an unknown phase, or
+     * an order that disagrees with its phase, is a contract violation and
+     * must never be coerced.
+     */
+    public const PHASE_ORDER = [
+        'foundations' => 1,
+        'core_skills' => 2,
+        'applied_practice' => 3,
+        'career_readiness' => 4,
+    ];
+
+    /**
      * Roadmap v1 contract fields:
      *   estimated_hours          — effort required to complete the action;
      *   estimated_duration_weeks — calendar duration in weeks, derived from

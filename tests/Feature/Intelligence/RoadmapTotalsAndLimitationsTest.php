@@ -693,6 +693,7 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             'phases' => [
                 [
                     'phase' => 'foundations',
+                    'order' => 1,
                     'actions' => [
                         $this->action('A1', 'resource', (int) $roleSkills[0]->skill_id, (string) $roleSkills[0]->skill->name),
                     ],

@@ -442,13 +442,16 @@ class IntelligenceResponseValidator
     }
 
     /**
+     * Validate one roadmap phase: a CLOSED phase enum, a REQUIRED `order`
+     * that matches the phase exactly, and its actions.
+     *
      * @param  list<int>  $knownSkillIds
      * @param  list<string>  $actionIds
      * @param  array<int, string>  $skillNameById
      */
     private function validatePhase(array $phase, array $knownSkillIds, array &$actionIds, mixed $weeklyAvailabilityHours, array $skillNameById): void
     {
-        foreach (['phase', 'actions'] as $key) {
+        foreach (['phase', 'order', 'actions'] as $key) {
             if (! array_key_exists($key, $phase)) {
                 throw new IntelligenceException(
                     'The intelligence service response contains an incomplete roadmap phase.',
@@ -459,11 +462,32 @@ class IntelligenceResponseValidator
             }
         }
 
-        if (! is_string($phase['phase']) || $phase['phase'] === '') {
+        /*
+         * `phase` is a CLOSED enum. An unknown value (e.g. "basics", or a
+         * typo) is a FastAPI contract violation and must fail loudly — never
+         * be coerced to a default such as "core_skills".
+         */
+        if (! is_string($phase['phase']) || ! array_key_exists($phase['phase'], RoadmapAction::PHASE_ORDER)) {
             throw new IntelligenceException(
-                'The intelligence service response contains an invalid roadmap phase name.',
+                'The intelligence service response contains an unknown roadmap phase name.',
                 502,
                 'INTELLIGENCE_INVALID_RESPONSE',
+                ['phase' => $phase['phase']],
+            );
+        }
+
+        /*
+         * Every phase carries its canonical order (foundations=1 …
+         * career_readiness=4). The order is REQUIRED, must be an integer,
+         * and must match its phase exactly — there is no auto-correction and
+         * no fallback. The mapping lives once, on RoadmapAction::PHASE_ORDER.
+         */
+        if (! is_int($phase['order']) || $phase['order'] !== RoadmapAction::PHASE_ORDER[$phase['phase']]) {
+            throw new IntelligenceException(
+                'The intelligence service response contains a roadmap phase order that does not match its phase.',
+                502,
+                'INTELLIGENCE_INVALID_RESPONSE',
+                ['phase' => $phase['phase'], 'order' => $phase['order']],
             );
         }
 
