@@ -921,6 +921,76 @@
           ]
         },
         {
+          "name": "فحص توفّر الإيميل (Check Email)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/check-email",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "check-email"
+              ]
+            },
+            "description": "**POST /api/v1/auth/check-email** — فحص إذا الإيميل مسجّل مسبقًا ولا لأ. الوظيفة الوحيدة: بترجّع boolean، وما بترجّع أي بيانات عن صاحب الحساب (لا id، لا اسم، لا حالة).\n\n**عام (بدون توكن)** — بيتنادى من شاشة التسجيل قبل ما يكون في token.\n\n**لازم:** `email`.\n\n**معدّل الطلبات:** 10/دقيقة.\n\n**الرد:** `200` مع `data.exists` و `data.available`.\n\n⚠️ ملاحظة مهمة للفرونت: الحساب المحذوف ناعمًا (soft-deleted) بيتحسب **مسجّل** — لأن `unique:users,email` عند التسجيل بيمنع نفس الإيميل. فإذا الـ endpoint قال `available` التسجيل بيمشي، وإذا قال `exists` التسجيل بيعطي 422.\n\n⚠️ الإيميلات المؤقتة (disposable) **مش** من شغل هالـ endpoint — التسجيل هو يلي يرفضها بـ `indisposable`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('data.exists is a boolean', () => {",
+                  "    pm.expect(j.data && j.data.exists).to.be.a('boolean');",
+                  "  });",
+                  "  pm.test('data.available is the inverse of exists', () => {",
+                  "    pm.expect(j.data.available).to.eql(!j.data.exists);",
+                  "  });",
+                  "  pm.test('no account details are returned', () => {",
+                  "    pm.expect(Object.keys(j.data).sort()).to.eql(['available', 'email', 'exists']);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "تأكيد الإيميل بـ OTP (Verify)",
           "request": {
             "method": "POST",

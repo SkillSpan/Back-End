@@ -32,6 +32,10 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
         Route::post('/register/organization', [AuthController::class, 'registerOrganization'])->middleware('throttle:10,1');
+        // Public on purpose: it is called from the sign-up form, before the
+        // visitor has any token. Throttled because it answers "is this address
+        // registered?" — see AuthController::checkEmail for the reasoning.
+        Route::post('/check-email', [AuthController::class, 'checkEmail'])->middleware('throttle:10,1');
         Route::post('/verify', [AuthController::class, 'verify'])->middleware('throttle:10,1');
         Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:10,1');
         Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:20,1');
