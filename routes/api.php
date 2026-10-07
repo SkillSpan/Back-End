@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
+use App\Http\Controllers\Api\SupportRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -231,6 +232,22 @@ Route::prefix('v1')->group(function () {
         // irrelevant, unfair or incorrect.
         Route::put('/interactions/{interaction}/report', [AssistantController::class, 'report']);
     });
+
+    // AI → human support handoff. When the assistant answers with
+    // `insufficient_context` (or the learner simply asks for a human), the
+    // learner can open a support request. It is NOT a `conversations` row:
+    // `conversations.mentor_student_connection_id` is NOT nullable, so a
+    // learner with no mentor could never have one.
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
+        ->prefix('support')
+        ->group(function () {
+            Route::post('/requests', [SupportRequestController::class, 'store']);
+            Route::get('/requests', [SupportRequestController::class, 'index']);
+            Route::get('/requests/{supportRequest}', [SupportRequestController::class, 'show'])
+                ->whereNumber('supportRequest');
+            Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
+                ->whereNumber('supportRequest');
+        });
 
     // Public reference data for onboarding dropdowns (no auth needed).
     Route::prefix('reference')->group(function () {

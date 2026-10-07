@@ -8,6 +8,7 @@ use App\Models\CareerRole;
 use App\Models\Role;
 use App\Models\StudentProfile;
 use App\Models\User;
+use App\Services\Assistant\AssistantAnswer;
 use App\Services\Assistant\AssistantClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -499,6 +500,119 @@ class AssistantAskTest extends TestCase
         // A token shipped to a browser is public. It must never appear in a
         // response the learner can read.
         $this->assertStringNotContainsString('test-service-token', (string) $response->getContent());
+    }
+
+    // ------------------------------------------------- human handoff signal
+
+    /*
+     * These drive `AssistantClient` through a stub, so the array they return is
+     * the PARSED shape the real client produces — `answer_status`, not the
+     * wire's `status`. The wire-level mapping is covered in AssistantClientTest.
+     */
+
+    public function test_an_ungrounded_answer_offers_the_human_handoff(): void
+    {
+        /*
+         * `status: insufficient_context` is REQUIRED in the service's published
+         * AssistantChatResponse schema, and it is the only machine-readable way
+         * to tell "the assistant could not answer" from "the assistant
+         * answered" — the reply is generated prose, so it can never be
+         * string-matched. This is the signal the support handoff is built on.
+         */
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'reply' => 'I do not have information about that in the documentation.',
+            'answer_status' => AssistantAnswer::STATUS_INSUFFICIENT_CONTEXT,
+            'grounded' => false,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'What is the refund policy for company-sponsored projects?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.answer_status', AssistantAnswer::STATUS_INSUFFICIENT_CONTEXT)
+            ->assertJsonPath('data.grounded', false)
+            ->assertJsonPath('data.handoff_available', true);
+
+        $interaction = AssistantInteraction::query()->firstOrFail();
+
+        $this->assertSame(AssistantAnswer::STATUS_INSUFFICIENT_CONTEXT, $interaction->answer_status);
+        $this->assertFalse((bool) $interaction->grounded);
+    }
+
+    public function test_a_grounded_answer_does_not_offer_the_handoff(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'answer_status' => AssistantAnswer::STATUS_ANSWERED,
+            'grounded' => true,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.answer_status', AssistantAnswer::STATUS_ANSWERED)
+            ->assertJsonPath('data.grounded', true)
+            ->assertJsonPath('data.handoff_available', false);
+    }
+
+    public function test_a_provider_outage_does_not_offer_the_handoff(): void
+    {
+        /*
+         * Two different signals, deliberately kept apart. A total outage is
+         * infrastructure, not "the assistant has no answer" — offering
+         * "talk to technical support" there would send learners to a human for
+         * a question the assistant never actually considered.
+         */
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'reply' => "I'm temporarily unavailable. Please try again shortly.",
+            'provider_used' => null,
+            'answer_status' => AssistantAnswer::STATUS_INSUFFICIENT_CONTEXT,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.provider_used', null)
+            ->assertJsonPath('data.handoff_available', false);
+    }
+
+    public function test_an_answer_without_the_status_field_does_not_offer_the_handoff(): void
+    {
+        /*
+         * The status is REQUIRED by the published schema, but a service that
+         * predates it (or a partial rollout) simply will not send one. Treating
+         * an absent field as "insufficient_context" would offer a human on
+         * every single question.
+         */
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse());
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'Which gap should I close first?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.answer_status', null)
+            ->assertJsonPath('data.handoff_available', false);
     }
 
     // ------------------------------------------------------------ helpers

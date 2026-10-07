@@ -20,7 +20,11 @@ use Tests\TestCase;
  * The contract is the one the service actually implements:
  *
  *     POST /chat  { user_id, message, context? }
- *             -> { reply, provider_used, timestamp, prompt_version }
+ *             -> { reply, provider_used, timestamp, prompt_version,
+ *                  status, grounded }
+ *
+ * `status` (answered | insufficient_context) and `grounded` are REQUIRED by the
+ * service's published schema and are read back as `answer_status` / `grounded`.
  *
  * No database is involved, so this does not use RefreshDatabase.
  */
@@ -275,6 +279,68 @@ class AssistantClientTest extends TestCase
 
         $this->assertNull($result['prompt_version']);
         $this->assertSame('groq', $result['provider_used']);
+    }
+
+    public function test_it_maps_the_wire_status_onto_answer_status(): void
+    {
+        /*
+         * The regression this exists for: the transport used to return only
+         * four keys, silently discarding `status` and `grounded`. That made
+         * "the assistant could not answer" indistinguishable from "the
+         * assistant answered" — the reply is generated prose in the learner's
+         * own language, so it can never be string-matched — and it cost the
+         * learner the offer of a human. The rename is deliberate: `status` on
+         * the wire is about the answer, while `response_status` in our own
+         * model is about the call.
+         */
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
+            'status' => 'insufficient_context',
+            'grounded' => false,
+        ]), 200)]);
+
+        $result = $this->ask();
+
+        $this->assertSame('insufficient_context', $result['answer_status']);
+        $this->assertFalse($result['grounded']);
+    }
+
+    public function test_an_answered_status_is_read_as_answered(): void
+    {
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
+            'status' => 'answered',
+            'grounded' => true,
+        ]), 200)]);
+
+        $result = $this->ask();
+
+        $this->assertSame('answered', $result['answer_status']);
+        $this->assertTrue($result['grounded']);
+    }
+
+    public function test_a_missing_status_is_null_rather_than_a_guess(): void
+    {
+        /*
+         * A service that predates the field will not send one. Treating an
+         * absent status as "insufficient_context" would offer a human on every
+         * single question.
+         */
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
+
+        $result = $this->ask();
+
+        $this->assertNull($result['answer_status']);
+        $this->assertFalse($result['grounded']);
+    }
+
+    public function test_a_non_boolean_grounded_is_coerced_to_false(): void
+    {
+        // `grounded` is a boolean in the schema, but a stringy "false" must not
+        // read as true — that would claim an ungrounded answer was sourced.
+        Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
+            'grounded' => 'false',
+        ]), 200)]);
+
+        $this->assertFalse($this->ask()['grounded']);
     }
 
     // ----------------------------------------------------------- failure modes

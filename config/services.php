@@ -201,6 +201,35 @@ return [
         'timeout' => (int) env('ASSISTANT_SERVICE_TIMEOUT', 60),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Support handoff — AI conversation escalated to a human
+    |--------------------------------------------------------------------------
+    |
+    | When the assistant answers `insufficient_context` it could not ground an
+    | answer in its documentation, and the learner is offered a human instead.
+    | The countdown lives here rather than in the frontend so the wait is one
+    | number in one place: the API returns it, and the UI counts down from it.
+    |
+    | `max_transcript_messages` caps how much of the conversation is snapshotted
+    | onto the support request. A support person needs the recent exchange, not
+    | the entire session, and an unbounded copy would grow the only place
+    | learner-authored text is stored.
+    |
+    */
+    'support' => [
+        // Seconds the UI counts down before completing the transfer. 0 means
+        // transfer immediately (the UI then shows no countdown).
+        'handoff_seconds' => (int) env('SUPPORT_HANDOFF_SECONDS', 5),
+
+        // How many of the most recent transcript turns to snapshot.
+        'max_transcript_messages' => (int) env('SUPPORT_HANDOFF_MAX_TRANSCRIPT', 20),
+
+        // Notify platform administrators as well as the learner's mentor.
+        // The mentor is the support person; admins get visibility.
+        'notify_admins' => (bool) env('SUPPORT_NOTIFY_ADMINS', true),
+    ],
+
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
     // calculation from evidence. Configurable and versioned per the
     // "Configurability" algorithm design principle (Table 46).

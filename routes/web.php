@@ -3,8 +3,10 @@
 use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProjectController;
+use App\Http\Controllers\Web\AdminSupportController;
 use App\Http\Controllers\Web\SkillsReferenceController;
 use App\Http\Controllers\Web\TestController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -86,4 +88,43 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
      * came up empty. This session-backed twin serves the same payload.
      */
     Route::get('/api/skills/taxonomy', [SkillsReferenceController::class, 'taxonomy']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Support inbox — administrator AND mentor
+|--------------------------------------------------------------------------
+|
+| Where an escalated assistant conversation is answered. When the assistant
+| answers `insufficient_context`, the learner is offered a person; accepting
+| opens a support request here.
+|
+| This block is deliberately NOT inside the `admin` group above. The person
+| who answers is the mentor already connected to the learner, so gating it on
+| `admin` would notify a mentor and then refuse them the very page the
+| notification links to. The route carries `auth` + `account.active` only;
+| Api\Admin\SupportController enforces the split — an administrator sees every
+| request, a mentor only the ones assigned to them, anyone else 403.
+|
+*/
+Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function () {
+    Route::get('/support', function (Request $request) {
+        abort_unless(AdminSupportController::isSupportAgent($request->user()), 403);
+
+        return view('admin.support');
+    })->name('admin.support');
+
+    Route::get('/api/support', [AdminSupportController::class, 'index']);
+
+    Route::get('/api/support/{supportRequest}', [AdminSupportController::class, 'show'])
+        ->whereNumber('supportRequest');
+
+    Route::post('/api/support/{supportRequest}/messages', [AdminSupportController::class, 'reply'])
+        ->whereNumber('supportRequest');
+
+    Route::post('/api/support/{supportRequest}/assign', [AdminSupportController::class, 'assign'])
+        ->whereNumber('supportRequest');
+
+    Route::post('/api/support/{supportRequest}/resolve', [AdminSupportController::class, 'resolve'])
+        ->whereNumber('supportRequest');
 });
