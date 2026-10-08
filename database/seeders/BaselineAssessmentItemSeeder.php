@@ -1570,26 +1570,426 @@ class BaselineAssessmentItemSeeder extends Seeder
             ],
         ];
 
-        foreach ($items as $skillSlug => [$question, $options, $correctAnswer]) {
+        // Author against the version the assessment actually selects from, so
+        // a configured DATA_SCIENCE_BASELINE_VERSION can never leave the bank
+        // empty for the active version.
+        $version = (string) config('services.data_science.baseline.version', 'v1.0');
+
+        foreach ($items as $skillSlug => $entry) {
             $skill = Skill::where('slug', $skillSlug)->first();
 
             if (! $skill) {
                 continue; // Skip silently if SkillSeeder hasn't created it yet.
             }
 
-            BaselineAssessmentItem::updateOrCreate(
-                ['assessment_version' => 'v1.0', 'item_id' => $skillSlug.'-001'],
-                [
-                    'item_type' => 'single_choice',
-                    'question_text' => $question,
-                    'skill_id' => $skill->id,
-                    'options' => $options,
-                    'correct_answer' => $correctAnswer,
-                    'scoring_rule' => null,
-                    'weight' => 1.000,
-                    'is_active' => true,
-                ]
+            // The base map holds one question per skill; additionalQuestions()
+            // tops specific skills up to the required floor. Both are merged so
+            // the numbering stays {skillSlug}-001, -002, …
+            $questions = array_merge(
+                $this->normalizeQuestions($entry),
+                $this->normalizeQuestions($this->additionalQuestions()[$skillSlug] ?? []),
             );
+
+            foreach ($questions as $index => $question) {
+                [$questionText, $options, $correctAnswer] = $question;
+
+                BaselineAssessmentItem::updateOrCreate(
+                    [
+                        'assessment_version' => $version,
+                        'item_id' => $skillSlug.'-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT),
+                    ],
+                    [
+                        'item_type' => 'single_choice',
+                        'question_text' => $questionText,
+                        'skill_id' => $skill->id,
+                        'options' => $options,
+                        'correct_answer' => $correctAnswer,
+                        'scoring_rule' => null,
+                        'weight' => 1.000,
+                        'is_active' => true,
+                    ]
+                );
+            }
         }
+    }
+
+    /**
+     * Accepts either a single question ([text, options, answer]) or a list of
+     * them, so a skill can carry more than one question without rewriting the
+     * one-question entries.
+     *
+     * @return array<int, array{0: string, 1: array<int, string>, 2: string}>
+     */
+    private function normalizeQuestions(mixed $entry): array
+    {
+        if (! is_array($entry) || $entry === []) {
+            return [];
+        }
+
+        // A single question starts with the question text (a string); a list
+        // of questions starts with an array.
+        if (is_string($entry[0] ?? null)) {
+            return [$entry];
+        }
+
+        return array_values(array_filter($entry, 'is_array'));
+    }
+
+    /**
+     * Extra questions that raise a skill to the baseline coverage floor.
+     *
+     * The BaselineQuestionSelectionService requires at least one active
+     * question per required skill; below that a career role fails with
+     * INSUFFICIENT_QUESTION_COVERAGE. These entries give the skills that were
+     * identified as thin a healthier pool (>= 5 questions each) so the
+     * assessment is varied rather than a single-item check.
+     *
+     * Every question is single_choice with four distinct options and exactly
+     * one correct answer drawn from those options. They are written at
+     * beginner-to-intermediate level, which is what a baseline assessment is
+     * for, and each one maps to the skill it is filed under — never to a
+     * neighbouring skill.
+     *
+     * @return array<string, array<int, array{0: string, 1: array<int, string>, 2: string}>>
+     */
+    private function additionalQuestions(): array
+    {
+        return [
+            'sql-databases' => [
+                [
+                    'Which SQL statement is used to retrieve data from a table?',
+                    ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
+                    'SELECT',
+                ],
+                [
+                    'Which SQL clause is used to filter the rows a query returns?',
+                    ['WHERE', 'ORDER BY', 'GROUP BY', 'LIMIT'],
+                    'WHERE',
+                ],
+                [
+                    'What does a JOIN do in SQL?',
+                    ['Combines rows from two or more related tables', 'Deletes rows from a table', 'Creates a new database', 'Encrypts the table'],
+                    'Combines rows from two or more related tables',
+                ],
+                [
+                    'What is a foreign key?',
+                    ['A column that references the primary key of another table', 'A key used to encrypt the database', 'A unique identifier for the whole database', 'A backup copy of a table'],
+                    'A column that references the primary key of another table',
+                ],
+                [
+                    'Why is an index used in a database?',
+                    ['To speed up data retrieval', 'To reduce the number of tables', 'To encrypt stored data', 'To back up the data automatically'],
+                    'To speed up data retrieval',
+                ],
+            ],
+
+            'authentication-authorization' => [
+                [
+                    'What is password hashing used for?',
+                    ['Storing passwords so the original cannot be recovered', 'Sending passwords over the network', 'Generating usernames automatically', 'Encrypting the whole database'],
+                    'Storing passwords so the original cannot be recovered',
+                ],
+                [
+                    'What is a session in web authentication?',
+                    ['A server-side record that keeps a user logged in across requests', 'A type of database index', 'A network protocol for file transfer', 'A backup of the user profile'],
+                    'A server-side record that keeps a user logged in across requests',
+                ],
+                [
+                    'What is an access token used for?',
+                    ['Proving a user identity to an API without resending credentials', 'Compressing API responses', 'Storing the database password', 'Rendering the user interface'],
+                    'Proving a user identity to an API without resending credentials',
+                ],
+                [
+                    'What is a role in an access control system?',
+                    ['A named set of permissions assigned to users', 'A type of encryption key', 'A database backup', 'A network address'],
+                    'A named set of permissions assigned to users',
+                ],
+                [
+                    'What does access control decide?',
+                    ['Which resources a user is allowed to use', 'How fast the database runs', 'Which theme is applied to the interface', 'How files are compressed'],
+                    'Which resources a user is allowed to use',
+                ],
+            ],
+
+            'cicd' => [
+                [
+                    'What is continuous integration?',
+                    ['Merging code changes frequently and verifying them automatically', 'Writing all the code in a single commit at the end', 'Deploying every change straight to production', 'Storing the source code in a database'],
+                    'Merging code changes frequently and verifying them automatically',
+                ],
+                [
+                    'What is the difference between continuous delivery and continuous deployment?',
+                    ['Delivery needs a manual release step, deployment releases automatically', 'They are exactly the same thing', 'Deployment needs manual approval, delivery is automatic', 'Delivery only applies to mobile applications'],
+                    'Delivery needs a manual release step, deployment releases automatically',
+                ],
+                [
+                    'What is a build in a CI/CD pipeline?',
+                    ['Compiling and packaging the application from source', 'Deleting the repository', 'Writing the documentation', 'Designing the user interface'],
+                    'Compiling and packaging the application from source',
+                ],
+                [
+                    'Why is automated testing important in CI/CD?',
+                    ['It catches regressions before changes reach production', 'It makes the code run faster at runtime', 'It removes the need for code review', 'It replaces version control'],
+                    'It catches regressions before changes reach production',
+                ],
+                [
+                    'What is a deployment pipeline?',
+                    ['The automated steps that take a build to an environment', 'A physical network cable', 'A database migration file', 'A design system component'],
+                    'The automated steps that take a build to an environment',
+                ],
+            ],
+
+            'backup-recovery' => [
+                [
+                    'What is a full backup?',
+                    ['A complete copy of all data', 'Only the data changed since the last backup', 'A copy of the database schema only', 'A copy of the application source code only'],
+                    'A complete copy of all data',
+                ],
+                [
+                    'What is an incremental backup?',
+                    ['A backup of only the changes since the last backup', 'A complete copy of all data every time', 'A backup of the operating system only', 'A backup stored only in memory'],
+                    'A backup of only the changes since the last backup',
+                ],
+                [
+                    'What does restoring a backup mean?',
+                    ['Recovering data from a backup copy', 'Deleting old backups', 'Encrypting the database', 'Compressing the backup file'],
+                    'Recovering data from a backup copy',
+                ],
+                [
+                    'What is disaster recovery?',
+                    ['The plan and process for restoring systems after a major failure', 'A type of database index', 'A programming language', 'A network routing protocol'],
+                    'The plan and process for restoring systems after a major failure',
+                ],
+                [
+                    'What does the recovery point objective (RPO) describe?',
+                    ['The maximum acceptable amount of data loss measured in time', 'The maximum time to restore the service', 'The size of the backup file', 'The number of backups kept'],
+                    'The maximum acceptable amount of data loss measured in time',
+                ],
+            ],
+
+            'cc' => [
+                [
+                    'What is a pointer in C/C++?',
+                    ['A variable that stores the memory address of another value', 'A function that returns nothing', 'A type of loop', 'A preprocessor directive'],
+                    'A variable that stores the memory address of another value',
+                ],
+                [
+                    'What is the purpose of a variable in C/C++?',
+                    ['To store a value of a specific data type in memory', 'To compile the program', 'To link external libraries', 'To format the source code'],
+                    'To store a value of a specific data type in memory',
+                ],
+                [
+                    'What does a compiler do?',
+                    ['Translates source code into machine code before execution', 'Executes the code line by line', 'Stores the program in a database', 'Designs the user interface'],
+                    'Translates source code into machine code before execution',
+                ],
+                [
+                    'In C/C++, what is an array?',
+                    ['A fixed-size collection of elements of the same type', 'A collection of mixed types that can grow', 'A function that returns a pointer', 'A type of comment'],
+                    'A fixed-size collection of elements of the same type',
+                ],
+                [
+                    'Why must dynamically allocated memory be freed in C/C++?',
+                    ['To avoid memory leaks', 'To make the program compile faster', 'To increase the screen resolution', 'To enable networking'],
+                    'To avoid memory leaks',
+                ],
+            ],
+
+            'nextjs' => [
+                [
+                    'How is routing defined in the Next.js App Router?',
+                    ['By folders and files in the app directory', 'By a single routes configuration array', 'By database tables', 'By CSS classes'],
+                    'By folders and files in the app directory',
+                ],
+                [
+                    'What is a Server Component in Next.js?',
+                    ['A component rendered on the server that does not ship its JavaScript to the browser by default', 'A component that can only run in the browser', 'A component used only for styling', 'A component that replaces the database'],
+                    'A component rendered on the server that does not ship its JavaScript to the browser by default',
+                ],
+                [
+                    'When is a Client Component needed in Next.js?',
+                    ['When the component needs browser interactivity or hooks', 'When the component only reads data', 'When the page has no styling', 'When the application has no routing'],
+                    'When the component needs browser interactivity or hooks',
+                ],
+                [
+                    'What does server-side rendering mean?',
+                    ['The HTML is generated on the server for each request', 'The HTML is generated only once at build time', 'The browser generates all the HTML with JavaScript', 'No HTML is produced at all'],
+                    'The HTML is generated on the server for each request',
+                ],
+                [
+                    'What is a Route Handler in Next.js used for?',
+                    ['Handling HTTP requests, such as building an API endpoint', 'Styling a page', 'Defining a database schema', 'Managing environment variables only'],
+                    'Handling HTTP requests, such as building an API endpoint',
+                ],
+            ],
+
+            'nodejs' => [
+                [
+                    'What is npm?',
+                    ['The package manager for Node.js', 'A JavaScript engine', 'A relational database', 'A CSS framework'],
+                    'The package manager for Node.js',
+                ],
+                [
+                    'What is a module in Node.js?',
+                    ['A reusable unit of code that can be imported', 'A database table', 'A network protocol', 'A design pattern for CSS'],
+                    'A reusable unit of code that can be imported',
+                ],
+                [
+                    'What is the Node.js event loop responsible for?',
+                    ['Handling asynchronous callbacks without blocking the main thread', 'Compiling JavaScript to machine code', 'Rendering HTML on the server', 'Managing database indexes'],
+                    'Handling asynchronous callbacks without blocking the main thread',
+                ],
+                [
+                    'Which statement about asynchronous code in Node.js is correct?',
+                    ['It lets other work continue while an operation completes', 'It blocks the server until the operation finishes', 'It only works with synchronous libraries', 'It disables the event loop'],
+                    'It lets other work continue while an operation completes',
+                ],
+                [
+                    'How do you typically create a basic HTTP server in Node.js?',
+                    ['Using the built-in http module', 'Using a CSS preprocessor', 'Using a database migration', 'Using an image editor'],
+                    'Using the built-in http module',
+                ],
+            ],
+
+            'routing-switching' => [
+                [
+                    'What is a MAC address?',
+                    ['A unique hardware identifier for a network interface', 'A logical address assigned by DHCP', 'A type of network cable', 'A web page address'],
+                    'A unique hardware identifier for a network interface',
+                ],
+                [
+                    'What is a LAN?',
+                    ['A network covering a small area such as an office', 'A network spanning multiple countries', 'A type of database', 'A programming language'],
+                    'A network covering a small area such as an office',
+                ],
+                [
+                    'What does a switch use to forward frames within a local network?',
+                    ['MAC addresses', 'Domain names', 'Email addresses', 'File names'],
+                    'MAC addresses',
+                ],
+                [
+                    'What is the main purpose of IP routing?',
+                    ['Forwarding packets between different networks', 'Assigning MAC addresses', 'Encrypting web traffic', 'Compressing files'],
+                    'Forwarding packets between different networks',
+                ],
+                [
+                    'What is a VLAN used for?',
+                    ['Logically separating devices on the same physical network', 'Increasing the physical cable length', 'Replacing the need for IP addresses', 'Encrypting all network traffic'],
+                    'Logically separating devices on the same physical network',
+                ],
+            ],
+
+            'sensors-actuators' => [
+                [
+                    'What is a digital sensor?',
+                    ['A sensor that outputs discrete values such as on or off', 'A sensor that outputs a continuous voltage', 'A device that moves a motor', 'A type of database'],
+                    'A sensor that outputs discrete values such as on or off',
+                ],
+                [
+                    'What is an analog sensor?',
+                    ['A sensor that outputs a continuous range of values', 'A sensor that only outputs 0 or 1', 'A device that stores data', 'A network protocol'],
+                    'A sensor that outputs a continuous range of values',
+                ],
+                [
+                    'What does a microcontroller do with sensor data?',
+                    ['Reads the signal and processes it in code', 'Stores it permanently without processing', 'Sends it to the cloud with no code at all', 'Converts it into a network cable'],
+                    'Reads the signal and processes it in code',
+                ],
+                [
+                    'What is a relay used for in an IoT circuit?',
+                    ['Switching a higher-power load using a low-power signal', 'Measuring temperature', 'Storing sensor readings', 'Encrypting device traffic'],
+                    'Switching a higher-power load using a low-power signal',
+                ],
+                [
+                    'What is a motor an example of?',
+                    ['An actuator', 'A sensor', 'A microcontroller', 'A network protocol'],
+                    'An actuator',
+                ],
+            ],
+
+            'tcpip' => [
+                [
+                    'What is the role of IP in the TCP/IP model?',
+                    ['Addressing and routing packets between hosts', 'Ensuring packets arrive in order', 'Encrypting the payload', 'Assigning MAC addresses'],
+                    'Addressing and routing packets between hosts',
+                ],
+                [
+                    'What is a port number used for?',
+                    ['Identifying a specific service on a host', 'Identifying the physical cable', 'Encrypting the connection', 'Assigning a MAC address'],
+                    'Identifying a specific service on a host',
+                ],
+                [
+                    'What is a packet?',
+                    ['A unit of data sent across a network', 'A physical network cable', 'A type of database row', 'A programming language'],
+                    'A unit of data sent across a network',
+                ],
+                [
+                    'Which protocol guarantees ordered, reliable delivery?',
+                    ['TCP', 'UDP', 'ICMP', 'ARP'],
+                    'TCP',
+                ],
+                [
+                    'What does an IP address identify?',
+                    ['A device on a network', 'A web page', 'A database table', 'A file on disk'],
+                    'A device on a network',
+                ],
+            ],
+
+            'threats-vulnerabilities' => [
+                [
+                    'What is risk in a security context?',
+                    ['The likelihood and impact of a threat exploiting a vulnerability', 'A guaranteed attack on the network', 'A type of firewall', 'A software update'],
+                    'The likelihood and impact of a threat exploiting a vulnerability',
+                ],
+                [
+                    'What is malware?',
+                    ['Software designed to harm a system or gain unauthorised access', 'A security patch', 'A backup utility', 'A network cable'],
+                    'Software designed to harm a system or gain unauthorised access',
+                ],
+                [
+                    'What is phishing?',
+                    ['A fraudulent attempt to trick people into revealing sensitive information', 'A method of encrypting files', 'A type of database backup', 'A network routing protocol'],
+                    'A fraudulent attempt to trick people into revealing sensitive information',
+                ],
+                [
+                    'Why should software be patched regularly?',
+                    ['To close known vulnerabilities before they can be exploited', 'To make the interface prettier', 'To reduce the database size', 'To increase the screen resolution'],
+                    'To close known vulnerabilities before they can be exploited',
+                ],
+                [
+                    'What is a zero-day vulnerability?',
+                    ['A weakness that is exploited before a fix is available', 'A vulnerability that has already been patched', 'A type of malware scanner', 'A security policy document'],
+                    'A weakness that is exploited before a fix is available',
+                ],
+            ],
+
+            'user-permission-management' => [
+                [
+                    'What is the principle of least privilege?',
+                    ['Granting users only the access they need to do their job', 'Giving every user administrator rights', 'Sharing one account between all users', 'Disabling all passwords'],
+                    'Granting users only the access they need to do their job',
+                ],
+                [
+                    'What is role-based access control (RBAC)?',
+                    ['Assigning permissions to roles rather than to individual users', 'Encrypting user passwords', 'Backing up user accounts', 'Logging users out automatically'],
+                    'Assigning permissions to roles rather than to individual users',
+                ],
+                [
+                    'What is a permission in an access management system?',
+                    ['An allowed action on a resource', 'A type of network cable', 'A database backup', 'A user password'],
+                    'An allowed action on a resource',
+                ],
+                [
+                    'Why should each user have their own account?',
+                    ['So actions can be attributed and access controlled individually', 'To make the system run faster', 'To reduce the number of servers', 'To avoid using passwords'],
+                    'So actions can be attributed and access controlled individually',
+                ],
+                [
+                    'What should happen when an employee leaves an organisation?',
+                    ['Their account and access should be revoked promptly', 'Their account should stay active indefinitely', 'They should keep administrator rights', 'Their password should be shared with the team'],
+                    'Their account and access should be revoked promptly',
+                ],
+            ],
+        ];
     }
 }
