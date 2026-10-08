@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\CheckEmailRequest;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\GoogleLoginRequest;
 use App\Http\Requests\Auth\LoginRequest;
@@ -78,6 +79,46 @@ class AuthController extends Controller
                 'requires_verification' => false,
             ],
         ], 201);
+    }
+
+    /**
+     * POST /api/v1/auth/check-email
+     *
+     * Single-purpose endpoint: tells the client whether an address is already
+     * registered, so the sign-up form can say "this email already has an
+     * account — log in instead?" before the user fills in the whole form.
+     *
+     * ⚠️ This is an account-enumeration surface by design, and it is worth
+     * being explicit about that. It does not create a new leak — POST
+     * /auth/register already answers the same question via the
+     * `email.unique` rule ("This email is already registered."), and
+     * /auth/forgot-password behaves the same way. What this endpoint changes
+     * is the *cost* of asking: no form fill, no OTP email, one small request.
+     * Two mitigations therefore apply, and both matter:
+     *
+     *   1. It is throttled (throttle:10,1) so it cannot be used to sweep a
+     *      list of addresses quickly.
+     *   2. It returns the boolean and nothing else — no user id, name, status
+     *      or role — so a single call cannot confirm *whose* account it is.
+     *
+     * Do not add fields to `data` without re-reading this note.
+     */
+    public function checkEmail(CheckEmailRequest $request): JsonResponse
+    {
+        $email = $request->validated('email');
+        $exists = $this->authService->emailExists($email);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Email availability checked.',
+            'data' => [
+                'email' => $email,
+                // `exists` is the primary field; `available` is its inverse,
+                // sent so the client never has to negate it by hand.
+                'exists' => $exists,
+                'available' => ! $exists,
+            ],
+        ]);
     }
 
     public function verify(VerifyRequest $request): JsonResponse

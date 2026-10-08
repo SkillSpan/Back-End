@@ -33,4 +33,17 @@ class BaselineAssessmentItem extends Model
     {
         return $this->belongsTo(Skill::class);
     }
+
+    /**
+     * The frozen question snapshots that reference this item.
+     *
+     * Used by the admin question bank to refuse deleting a question that is
+     * already part of an assessment: the snapshot FK cascades on delete, so
+     * removing the item would silently erase the questions a learner was
+     * (or is being) assessed on.
+     */
+    public function questionSnapshots()
+    {
+        return $this->hasMany(BaselineQuestionSnapshot::class, 'baseline_assessment_item_id');
+    }
 }

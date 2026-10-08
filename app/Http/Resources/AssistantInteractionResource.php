@@ -40,6 +40,8 @@ class AssistantInteractionResource extends JsonResource
             'related_recommendation_id' => $this->related_recommendation_id,
             'related_project_id' => $this->related_project_id,
             'response_status' => $this->response_status,
+            'answer_status' => $this->answer_status,
+            'grounded' => $this->grounded,
             'report_status' => $this->report_status,
             'report_reason' => $this->report_reason,
             'reported_at' => $this->reported_at?->toIso8601String(),
@@ -57,10 +59,16 @@ class AssistantInteractionResource extends JsonResource
          * the service answered with its fallback text, so there IS a reply, but
          * no model produced it — see AssistantService::ask(). Monitoring should
          * branch on response_status; the UI should render the reply.
+         *
+         * `handoff_available` is the UI's cue to offer "talk to technical
+         * support". It is true only when the assistant replied but had nothing
+         * to ground an answer in — never on a provider outage, where a human
+         * would be handed a question the assistant never actually considered.
          */
         if ($this->answer !== null) {
             $payload['reply'] = $this->answer->reply;
             $payload['provider_used'] = $this->answer->providerUsed;
+            $payload['handoff_available'] = $this->answer->needsHumanHandoff();
         }
 
         return $payload;

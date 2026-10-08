@@ -4650,8 +4650,21 @@
                     "Career Roles"
                 ],
                 "summary": "List approved career roles",
-                "description": "Returns approved career roles ordered by version (descending) with a deterministic `id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header.",
+                "description": "Returns approved career roles ordered by version (descending) with a deterministic `id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. When `specialization_id` is supplied, only the approved career roles linked to that specialization (via the career_role_specialization pivot) are returned — this is the filter the frontend uses to drive the specialization -> career role -> skills -> questions flow. The \"Self-Learning / Free Track\" specialization is the exception: it carries no pivot rows and returns EVERY approved career role, so a self-taught learner can pick any role. Omitting the filter preserves the original \"list every approved role\" behaviour.",
                 "operationId": "careerRolesIndex",
+                "parameters": [
+                    {
+                        "name": "specialization_id",
+                        "in": "query",
+                        "description": "Optional filter. Must be a positive integer referencing an existing specialization. When present, only approved career roles linked to that specialization are returned — except for the \"Self-Learning / Free Track\", which returns every approved role. When omitted, every approved career role is returned (unchanged behaviour).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 2,
+                            "minimum": 1
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Career roles retrieved.",
@@ -4763,6 +4776,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error — `specialization_id` is not a positive integer or does not reference an existing specialization.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationErrorResponse"
                                 }
                             }
                         }
@@ -10129,7 +10152,7 @@
                     "Baseline Assessment"
                 ],
                 "summary": "Start a baseline assessment",
-                "description": "Creates a new baseline assessment for the learner's own student profile against an approved career role, freezing the selected question set into an immutable snapshot. Requires the `learner` role.",
+                "description": "Creates a new baseline assessment for the learner's own student profile against an approved career role, freezing the selected question set into an immutable snapshot. The questions are selected from the skills required by the chosen career role (career role -> required skills -> mapped questions), so different roles yield different questions. `specialization_id` is OPTIONAL: when supplied it must reference an existing specialization and the career role must actually belong to it, otherwise the request is rejected as a validation error (the mismatch is never silently accepted). The \"Self-Learning / Free Track\" specialization accepts any existing career role. Omitting it keeps the original `career_role_id`-only contract. Requires the `learner` role.",
                 "operationId": "baselineStart",
                 "requestBody": {
                     "required": true,
@@ -10144,6 +10167,12 @@
                                         "description": "Must exist and have status `approved`.",
                                         "type": "integer",
                                         "example": 7
+                                    },
+                                    "specialization_id": {
+                                        "description": "Optional. Must reference an existing specialization, and the career role must be linked to it (via career_role_specialization). A role that does not belong to the specialization is rejected.",
+                                        "type": "integer",
+                                        "example": 2,
+                                        "nullable": true
                                     }
                                 },
                                 "type": "object"
@@ -10196,7 +10225,7 @@
                         }
                     },
                     "422": {
-                        "description": "No student profile (`STUDENT_PROFILE_NOT_FOUND`), unknown/unapproved career role, or a validation failure.",
+                        "description": "No student profile (`STUDENT_PROFILE_NOT_FOUND`), unknown/unapproved career role, a `specialization_id` that does not exist, a career role that does not belong to the given specialization, or another validation failure.",
                         "content": {
                             "application/json": {
                                 "schema": {

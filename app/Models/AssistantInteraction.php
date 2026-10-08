@@ -41,6 +41,8 @@ class AssistantInteraction extends Model
         'related_recommendation_id',
         'related_project_id',
         'response_status',
+        'answer_status',
+        'grounded',
         'report_status',
         'report_reason',
         'reported_at',
@@ -53,6 +55,7 @@ class AssistantInteraction extends Model
 
     protected $casts = [
         'reported_at' => 'datetime',
+        'grounded' => 'boolean',
     ];
 
     public function studentProfile(): BelongsTo

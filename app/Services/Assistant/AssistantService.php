@@ -173,6 +173,20 @@ class AssistantService
             $providerUsed = $response['provider_used'] ?? null;
             $answered = $providerUsed !== null;
 
+            /*
+             * What the service said about its own answer. Kept separate from
+             * `$answered` on purpose:
+             *
+             *   * `$answered === false`  → nobody answered (infrastructure).
+             *   * `insufficient_context` → a model answered, and said it has
+             *     nothing to ground an answer in. Recorded as SUCCEEDED, because
+             *     it genuinely succeeded as a call — the reply is real and is
+             *     shown to the learner. `answer_status` is what says it was not
+             *     a useful answer, and it is what drives the handoff offer.
+             */
+            $answerStatus = $response['answer_status'] ?? null;
+            $grounded = ($response['grounded'] ?? false) === true;
+
             $interaction->update([
                 'response_status' => $answered
                     ? AssistantInteraction::STATUS_SUCCEEDED
@@ -180,6 +194,8 @@ class AssistantService
                 'failure_code' => $answered
                     ? null
                     : 'ASSISTANT_PROVIDERS_UNAVAILABLE',
+                'answer_status' => $answerStatus,
+                'grounded' => $grounded,
                 // Which prompt produced this answer. Distinct from
                 // algorithm_version, which records the *intelligence* algorithm
                 // behind the learner's stored data — the two are not
@@ -195,6 +211,8 @@ class AssistantService
                 'configuration_version' => $configurationVersion,
                 'provider_used' => $providerUsed,
                 'prompt_version' => $response['prompt_version'] ?? null,
+                'answer_status' => $answerStatus,
+                'grounded' => $grounded,
             ]);
 
             return new AssistantAnswer(
@@ -202,6 +220,8 @@ class AssistantService
                 reply: (string) $response['reply'],
                 providerUsed: $providerUsed,
                 promptVersion: $response['prompt_version'] ?? null,
+                answerStatus: $answerStatus,
+                grounded: $grounded,
             );
         } catch (AssistantException $e) {
             // The attempt is recorded as failed with a stable code. No

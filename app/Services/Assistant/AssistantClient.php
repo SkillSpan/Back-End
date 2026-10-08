@@ -98,7 +98,7 @@ class AssistantClient
      *                          correlation and never puts it in the prompt.
      * @param  array<string, mixed>  $contextSnapshot  The approved snapshot from
      *                                                 {@see AssistantContextBuilder::build()}.
-     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null}
+     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null, answer_status: string|null, grounded: bool}
      *
      * @throws AssistantException
      */
@@ -238,7 +238,7 @@ class AssistantClient
     }
 
     /**
-     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null}
+     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null, answer_status: string|null, grounded: bool}
      */
     private function parseResponse(Response $response, string $requestId, float $startedAt): array
     {
@@ -336,6 +336,22 @@ class AssistantClient
             // infrastructure.
         ]);
 
+        /*
+         * `status` is REQUIRED in the service's published AssistantChatResponse
+         * schema and is either 'answered' or 'insufficient_context'. It is the
+         * only machine-readable way to tell "the assistant could not answer"
+         * from "the assistant answered" — the reply is generated prose in the
+         * learner's own language, so it can never be string-matched. Dropping
+         * this field (as this method used to) makes the difference invisible and
+         * costs the learner the offer of a human.
+         *
+         * `grounded` is reported alongside it and means the reply was grounded
+         * in the service's documentation rather than improvised.
+         */
+        $answerStatus = isset($data['status']) && is_string($data['status'])
+            ? $data['status']
+            : null;
+
         return [
             'reply' => $data['reply'],
             'provider_used' => $providerUsed,
@@ -345,6 +361,8 @@ class AssistantClient
             'timestamp' => isset($data['timestamp']) && is_string($data['timestamp'])
                 ? $data['timestamp']
                 : null,
+            'answer_status' => $answerStatus,
+            'grounded' => ($data['grounded'] ?? false) === true,
         ];
     }
 

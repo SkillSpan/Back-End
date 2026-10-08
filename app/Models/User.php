@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PanelAccess;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -60,6 +61,18 @@ class User extends Authenticatable
     public function professionalProfile()
     {
         return $this->hasOne(ProfessionalProfile::class);
+    }
+
+    /**
+     * Panel presentation fields (display title, bio, age, avatar).
+     *
+     * Only ever populated for accounts that can open the admin panel. A learner
+     * has no row here, so every reader must tolerate `null` — see
+     * {@see PanelAccess} for who is allowed to have one.
+     */
+    public function adminProfile()
+    {
+        return $this->hasOne(AdminProfile::class);
     }
 
     public function ownedProjects()

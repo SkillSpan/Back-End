@@ -55,6 +55,32 @@ class AuthService
     }
 
     /**
+     * POST /api/v1/auth/check-email
+     *
+     * Answers one question — "is this address already registered?" — and
+     * returns a boolean. It deliberately returns no other attribute of the
+     * account (no id, name, status, role or verification state).
+     *
+     * ⚠️ withTrashed() is not optional here. The `unique:users,email` rule in
+     * RegisterRequest queries the table directly, so it also sees
+     * soft-deleted rows: a deleted account's address still occupies the
+     * unique index and registration still fails with 422. If this method
+     * ignored trashed rows it would answer "available" and registration would
+     * then reject the address — exactly the kind of frontend/backend
+     * disagreement that makes a UI lie to the user.
+     *
+     * The address is normalised the same way registration normalises it
+     * (lowercase + trim). User::setEmailAttribute() already guarantees stored
+     * values are normalised, so this only has to handle the incoming query.
+     */
+    public function emailExists(string $email): bool
+    {
+        return User::withTrashed()
+            ->where('email', strtolower(trim($email)))
+            ->exists();
+    }
+
+    /**
      * POST /api/auth/register/organization
      * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
      * إلزامي. لا يوجد OTP لهاد الفلو — اليوزر بينعمله verify تلقائيًا،

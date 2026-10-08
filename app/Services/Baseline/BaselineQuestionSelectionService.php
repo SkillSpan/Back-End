@@ -231,6 +231,8 @@ class BaselineQuestionSelectionService
      *     a generated or placeholder prompt.
      *   - `single_choice` must carry at least two distinct options, since
      *     the answer is validated against them.
+     *   - `text` carries no options at all — its model answer lives in
+     *     `correct_answer` — so it is exempt from the options check.
      *   - `scale` must carry at least one anchor.
      *
      * All violations are collected and reported together so a question
@@ -261,6 +263,11 @@ class BaselineQuestionSelectionService
                 if (count($distinctOptions) < 2) {
                     $problems[] = 'insufficient_distinct_options';
                 }
+            } elseif ($question['item_type'] === 'text') {
+                // A free-text question has no options by design; its model
+                // answer is stored in `correct_answer`, so there is nothing
+                // to validate here. Every other non-choice type (e.g. `scale`
+                // anchors) must still expose options.
             } elseif ($distinctOptions === []) {
                 $problems[] = 'missing_options';
             }
@@ -540,7 +547,7 @@ class BaselineQuestionSelectionService
     }
 
     /**
-     * `single_choice` | `scale`. Unknown/missing is treated as
+     * `single_choice` | `text` | `scale`. Unknown/missing is treated as
      * `single_choice` so option validation stays on (fail closed).
      */
     public function snapshotItemType(BaselineQuestionSnapshot $snapshot): string

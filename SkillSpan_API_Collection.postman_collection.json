@@ -387,6 +387,11 @@
       "value": "1",
       "type": "string",
       "description": "تخصص من القائمة المرجعية"
+    },
+    {
+      "key": "support_request_id",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -915,6 +920,76 @@
                   "",
                   "let j = {};",
                   "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "فحص توفّر الإيميل (Check Email)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/check-email",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "check-email"
+              ]
+            },
+            "description": "**POST /api/v1/auth/check-email** — فحص إذا الإيميل مسجّل مسبقًا ولا لأ. الوظيفة الوحيدة: بترجّع boolean، وما بترجّع أي بيانات عن صاحب الحساب (لا id، لا اسم، لا حالة).\n\n**عام (بدون توكن)** — بيتنادى من شاشة التسجيل قبل ما يكون في token.\n\n**لازم:** `email`.\n\n**معدّل الطلبات:** 10/دقيقة.\n\n**الرد:** `200` مع `data.exists` و `data.available`.\n\n⚠️ ملاحظة مهمة للفرونت: الحساب المحذوف ناعمًا (soft-deleted) بيتحسب **مسجّل** — لأن `unique:users,email` عند التسجيل بيمنع نفس الإيميل. فإذا الـ endpoint قال `available` التسجيل بيمشي، وإذا قال `exists` التسجيل بيعطي 422.\n\n⚠️ الإيميلات المؤقتة (disposable) **مش** من شغل هالـ endpoint — التسجيل هو يلي يرفضها بـ `indisposable`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{learner_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('data.exists is a boolean', () => {",
+                  "    pm.expect(j.data && j.data.exists).to.be.a('boolean');",
+                  "  });",
+                  "  pm.test('data.available is the inverse of exists', () => {",
+                  "    pm.expect(j.data.available).to.eql(!j.data.exists);",
+                  "  });",
+                  "  pm.test('no account details are returned', () => {",
+                  "    pm.expect(Object.keys(j.data).sort()).to.eql(['available', 'email', 'exists']);",
+                  "  });",
+                  "}"
                 ]
               }
             }
@@ -5389,6 +5464,226 @@
                   "",
                   "let j = {};",
                   "try { j = pm.response.json(); } catch (e) { j = {}; }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "20 · Support — الدعم الفني",
+      "description": "تحويل الشات من المساعد الذكي لدعم فني بشري. **4 endpoints.**\n\nالمساعد بيرجّع `status: insufficient_context` لما ميكونش عنده إجابة موثّقة — ده الإشارة الوحيدة القابلة للقراءة آلياً، لأن الرد نص مولّد مش ممكن يتطابق عليه. وقتها الواجهة بتعرض «جاري تحويلك لدعم الفني»، وبتعمل countdown بعدد ثواني جاي في `handoff_seconds`، وبعدها بتنادي `POST /requests` بالشات اللي فشل.\n\n**ملاحظة مهمة:** مفيش محادثة محفوظة على السيرفر (§12.5) — عشان كده الفرونت هو اللي بيبعت `transcript`، واللارافيل بيحفظ آخر 20 رسالة بس.\n\nالشخص اللي بيرد هو **المنتور** المرتبط بالطالب (لو موجود)، والإشعار بيوصل للأدمن كمان عشان يتابع. لو مفيش منتور مرتبط، الطلب يفضل `pending` لحد ما الأدمن ياخده.",
+      "item": [
+        {
+          "name": "طلب دعم فني بشري (Request Human Support)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "requests"
+              ]
+            },
+            "description": "**POST /api/v1/support/requests** — تحويل المحادثة لدعم فني.\n\n**اختياري:** `reason` — `insufficient_context` (الافتراضي) أو `learner_requested` (الطالب طلب بنفسه).\n\n**اختياري:** `subject` (لحد 180 حرف). لو مبعتش، بياخده من أول رسالة للطالب في الـ transcript.\n\n**اختياري:** `transcript` — مصفوفة رسائل (لحد 40)، كل واحدة `{ role: learner|assistant, body: string }`. الـ `body` مطلوب في كل رسالة، و`role` لازم تكون واحدة من الاتنين دول. اللارافيل بيحفظ آخر 20 رسالة بس وبيقصّ كل رسالة على 2000 حرف.\n\n**اختياري:** `source_interaction_id` — رقم تفاعل المساعد اللي فشل. لازم يكون بتاع نفس الطالب، وإلا بيتجاهله (مش بيرجّع 403).\n\n**الرد:** `201` — وفيه `handoff_seconds` اللي الواجهة بتعدّ بيه تنازلياً قبل ما تفتح الثريد.\n\n**idempotent:** لو الطالب عنده طلب مفتوح بالفعل، بيرجّع نفس الطلب بدل ما يعمل واحد تاني — عشان الدبل-كليك ما يعملش ثريدين.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"insufficient_context\",\n  \"subject\": \"مش فاهم ليه المشروع اترفض\",\n  \"transcript\": [\n    { \"role\": \"learner\", \"body\": \"ليه المشروع بتاعي اترفض؟\" },\n    { \"role\": \"assistant\", \"body\": \"معلش، مفيش عندي معلومة عن كده في المستندات.\" }\n  ],\n  \"source_interaction_id\": \"{{assistant_interaction_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [201, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 422]);",
+                  "});",
+                  "",
+                  "let j = {};",
+                  "try { j = pm.response.json(); } catch (e) { j = {}; }",
+                  "",
+                  "const d = j.data || {};",
+                  "",
+                  "if (d.id !== undefined && d.id !== null) {",
+                  "  pm.collectionVariables.set('support_request_id', d.id);",
+                  "}",
+                  "",
+                  "// The countdown the UI runs before revealing the thread.",
+                  "pm.test('handoff_seconds is present', () => {",
+                  "  pm.expect(d.handoff_seconds).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "طلبات الدعم بتاعتي (My Support Requests)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "requests"
+              ]
+            },
+            "description": "**GET /api/v1/support/requests** — كل طلبات الدعم بتاعة الطالب الحالي، الأحدث الأول.\n\n**اختياري:** `per_page` (1–100، الافتراضي 15).\n\nبيرجّع الطلبات بتاعة صاحب التوكن بس — طلب طالب تاني مش هيظهر ومش هيتقرأ.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status is 200', () => {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test('returns a paginated envelope', () => {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j).to.have.property('data');",
+                  "  pm.expect(j.data).to.be.an('array');",
+                  "  pm.expect(j).to.have.property('meta');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "تفاصيل طلب دعم (Support Request Detail)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/requests/{{support_request_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "requests",
+                "{{support_request_id}}"
+              ]
+            },
+            "description": "**GET /api/v1/support/requests/{id}** — الطلب مع كل الثريد.\n\nفيه:\n- `transcript` — الشات اللي كان مع المساعد وقت التحويل (لقطة تاريخية، مش بيتغير).\n- `messages` — الرسائل الفعلية بين الطالب والدعم. اللي `message_type: system` هي رسالة التحويل، مش حد قالها.\n- `handoff_seconds` — عدد الثواني للـ countdown.\n\n**خطأ:** `404 SUPPORT_REQUEST_NOT_FOUND` — وده بيرجع كمان لو الطلب بتاع طالب تاني، بنفس الرد بالظبط، عشان ما ينفعش تجسّب الأرقام.\n\n**الصلاحية:** `role:learner`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [200, 404]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "إرسال رسالة في طلب دعم (Send Support Message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/requests/{{support_request_id}}/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "requests",
+                "{{support_request_id}}",
+                "messages"
+              ]
+            },
+            "description": "**POST /api/v1/support/requests/{id}/messages** — الطالب يضيف رسالة في الثريد بتاعه.\n\n**لازم:** `body` — من 1 لـ 4000 حرف.\n\n**الرد:** `201` بالرسالة نفسها. اللي بترجع فيه `sender_id` عشان الواجهة تفرّق رسايلها عن رسايل الدعم.\n\n**أخطاء:**\n- `404 SUPPORT_REQUEST_NOT_FOUND` — مش بتاعه.\n- `422 SUPPORT_REQUEST_CLOSED` — الطلب اتحل خلاص.\n\n**الصلاحية:** `role:learner`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"شكراً، جربت الحل بس لسه نفس المشكلة.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP status in [201, 404, 422]', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 404, 422]);",
+                  "});"
                 ]
               }
             }

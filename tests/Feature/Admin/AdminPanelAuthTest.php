@@ -3,6 +3,7 @@
 namespace Tests\Feature\Admin;
 
 use App\Models\Organization;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\UploadedFile;
 use App\Models\User;
@@ -60,6 +61,32 @@ class AdminPanelAuthTest extends TestCase
         $user->roles()->attach(Role::where('slug', 'learner')->first()->id);
 
         return $user;
+    }
+
+    /**
+     * A mentor account: no role at all, just a mentor ProfessionalProfile.
+     *
+     * Deliberately role-less — mentor identity is a profile attribute, not a
+     * role slug, and the sign-in must key off the same thing the rest of the
+     * app does.
+     */
+    private function mentor(): User
+    {
+        $user = User::forceCreate([
+            'name' => 'Support Mentor',
+            'email' => 'mentor@example.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        ProfessionalProfile::create([
+            'user_id' => $user->id,
+            'type' => 'mentor',
+            'expertise' => 'Backend engineering',
+        ]);
+
+        return $user->fresh();
     }
 
     private function organization(string $status = 'pending'): Organization
@@ -188,6 +215,68 @@ class AdminPanelAuthTest extends TestCase
         ])->assertSessionHasErrors('email');
 
         $this->assertGuest();
+    }
+
+    /**
+     * A mentor is admitted, because the support inbox lives in this panel.
+     *
+     * When the assistant cannot answer, the learner is routed to the mentor
+     * already connected to them — not to an administrator. Refusing the mentor
+     * at sign-in would notify them and then lock them out of the page the
+     * notification links to.
+     */
+    public function test_a_mentor_with_valid_credentials_can_sign_in(): void
+    {
+        $this->mentor();
+
+        // Not `admin.organizations`: that page sits behind the `admin`
+        // middleware, so landing a mentor there answers 403 immediately after a
+        // successful sign-in and reads as "my credentials are wrong".
+        $this->post('/admin/login', [
+            'email' => 'mentor@example.com',
+            'password' => 'password123',
+        ])->assertRedirect(route('admin.support'));
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_a_mentors_landing_page_actually_opens(): void
+    {
+        // The point of the redirect above: whatever it names has to be a page
+        // the account can open. Asserting the redirect target alone is exactly
+        // how the mentor sign-in came to send people to a 403.
+        $this->mentor();
+
+        $landing = $this->post('/admin/login', [
+            'email' => 'mentor@example.com',
+            'password' => 'password123',
+        ])->getTargetUrl();
+
+        $this->get($landing)->assertOk();
+    }
+
+    /**
+     * Admitting a mentor grants nothing beyond the inbox and their own profile.
+     *
+     * The `admin` middleware still guards every other page, so a mentor session
+     * opens the support inbox and is refused the review screens. This is the
+     * assertion that keeps the relaxed sign-in from becoming a privilege leak.
+     */
+    public function test_a_mentor_session_reaches_the_inbox_but_not_the_admin_pages(): void
+    {
+        $this->mentor();
+
+        $this->post('/admin/login', [
+            'email' => 'mentor@example.com',
+            'password' => 'password123',
+        ])->assertRedirect(route('admin.support'));
+
+        $this->get('/admin/support')->assertOk();
+        $this->get('/admin/profile')->assertOk();
+
+        $this->get('/admin/organizations')->assertStatus(403);
+        $this->get('/admin/projects')->assertStatus(403);
+        $this->getJson('/admin/api/organizations')->assertStatus(403);
     }
 
     public function test_a_suspended_admin_is_refused(): void

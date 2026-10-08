@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ListCareerRolesRequest;
 use App\Models\CareerRole;
+use App\Models\Specialization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -13,10 +15,26 @@ class CareerRoleController extends Controller
     /**
      * GET /api/v1/career-roles
      * List all approved career roles.
+     *
+     * Optional `?specialization_id={id}` narrows the list to the approved
+     * roles linked to that specialization (via career_role_specialization).
+     * The "Self-Learning / Free Track" specialization is the exception: it
+     * carries no links and returns EVERY approved role, so a self-taught
+     * learner is not restricted to one academic track.
+     *
+     * Without the filter the original behaviour is unchanged, so existing
+     * consumers keep working.
      */
-    public function index(Request $request): JsonResponse
+    public function index(ListCareerRolesRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
+
+        // Present-and-valid, or null when the filter was omitted.
+        $specializationId = $request->validated('specialization_id');
+
+        $specialization = $specializationId !== null
+            ? Specialization::find($specializationId)
+            : null;
 
         /*
          * `version` alone is not a total order. Most approved roles share
@@ -32,6 +50,13 @@ class CareerRoleController extends Controller
          */
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
+            ->when(
+                $specialization !== null && ! $specialization->isFreeTrack(),
+                fn ($query) => $query->whereHas(
+                    'specializations',
+                    fn ($specializationQuery) => $specializationQuery->whereKey($specialization->id),
+                ),
+            )
             ->latest('version')
             ->orderByDesc('id')
             ->paginate(15);
