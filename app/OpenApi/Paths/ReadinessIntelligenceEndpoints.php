@@ -277,7 +277,12 @@ class ReadinessIntelligenceEndpoints
         summary: 'Start a baseline assessment',
         description: 'Creates a new baseline assessment for the learner\'s own student profile against an '
             .'approved career role, freezing the selected question set into an immutable snapshot. '
-            .'Requires the `learner` role.',
+            .'The questions are selected from the skills required by the chosen career role '
+            .'(career role -> required skills -> mapped questions), so different roles yield different '
+            .'questions. `specialization_id` is OPTIONAL: when supplied it must reference an existing '
+            .'specialization and the career role must actually belong to it, otherwise the request is '
+            .'rejected as a validation error (the mismatch is never silently accepted). Omitting it keeps '
+            .'the original `career_role_id`-only contract. Requires the `learner` role.',
         security: [['bearerAuth' => []]],
         requestBody: new OA\RequestBody(
             required: true,
@@ -285,6 +290,13 @@ class ReadinessIntelligenceEndpoints
                 required: ['career_role_id'],
                 properties: [
                     new OA\Property(property: 'career_role_id', type: 'integer', example: 7, description: 'Must exist and have status `approved`.'),
+                    new OA\Property(
+                        property: 'specialization_id',
+                        type: 'integer',
+                        nullable: true,
+                        example: 2,
+                        description: 'Optional. Must reference an existing specialization, and the career role must be linked to it (via career_role_specialization). A role that does not belong to the specialization is rejected.',
+                    ),
                 ],
             ),
         ),
@@ -302,7 +314,7 @@ class ReadinessIntelligenceEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Authenticated user is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'No student profile (`STUDENT_PROFILE_NOT_FOUND`), unknown/unapproved career role, or a validation failure.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
+            new OA\Response(response: 422, description: 'No student profile (`STUDENT_PROFILE_NOT_FOUND`), unknown/unapproved career role, a `specialization_id` that does not exist, a career role that does not belong to the given specialization, or another validation failure.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
             new OA\Response(response: 500, description: 'Assessment could not be started (`BASELINE_ASSESSMENT_FAILED`).', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
         ],
     )]

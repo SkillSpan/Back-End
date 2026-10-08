@@ -165,8 +165,23 @@ class EvidenceCareerRoleEndpoints
         summary: 'List approved career roles',
         description: 'Returns approved career roles ordered by version (descending) with a deterministic '
             .'`id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. '
-            .'The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header.',
+            .'The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. '
+            .'When `specialization_id` is supplied, only the approved career roles linked to that '
+            .'specialization (via the career_role_specialization pivot) are returned — this is the filter '
+            .'the frontend uses to drive the specialization -> career role -> skills -> questions flow. '
+            .'Omitting it preserves the original "list every approved role" behaviour.',
         security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'specialization_id',
+                in: 'query',
+                required: false,
+                description: 'Optional filter. Must be a positive integer referencing an existing specialization. '
+                    .'When present, only approved career roles linked to that specialization are returned. '
+                    .'When omitted, every approved career role is returned (unchanged behaviour).',
+                schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
+            ),
+        ],
         responses: [
             new OA\Response(
                 response: 200,
@@ -201,6 +216,7 @@ class EvidenceCareerRoleEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: 'Validation error — `specialization_id` is not a positive integer or does not reference an existing specialization.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
         ],
     )]
     public function careerRolesIndex(): void {}

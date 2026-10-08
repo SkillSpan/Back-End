@@ -37,4 +37,13 @@ class CareerRole extends Model
     {
         return $this->hasMany(Roadmap::class);
     }
+
+    /**
+     * Specializations this career role belongs to. Many-to-many — see
+     * Specialization::careerRoles() for the inverse.
+     */
+    public function specializations()
+    {
+        return $this->belongsToMany(Specialization::class, 'career_role_specialization')->withTimestamps();
+    }
 }
