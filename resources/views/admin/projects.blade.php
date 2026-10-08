@@ -409,6 +409,12 @@
         Projects
         <span class="badge" id="nav-open-badge" style="display:none">0</span>
       </a>
+      <a class="nav-item" href="{{ route('admin.questions') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.9c0 1.6-2.4 2-2.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>
+        </span>
+        Questions
+      </a>
       <a class="nav-item" href="{{ route('admin.support') }}">
         <span class="ic">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>

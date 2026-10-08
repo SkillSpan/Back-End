@@ -415,6 +415,12 @@
         </span>
         Projects
       </a>
+      <a class="nav-item" href="{{ route('admin.questions') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.9c0 1.6-2.4 2-2.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>
+        </span>
+        Questions
+      </a>
       @endif
       <a class="nav-item active" href="{{ route('admin.support') }}" aria-current="page">
         <span class="ic">

@@ -4,6 +4,7 @@ use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProfileController;
 use App\Http\Controllers\Web\AdminProjectController;
+use App\Http\Controllers\Web\AdminQuestionController;
 use App\Http\Controllers\Web\AdminSupportController;
 use App\Http\Controllers\Web\SkillsReferenceController;
 use App\Http\Controllers\Web\TestController;
@@ -90,6 +91,36 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
      * came up empty. This session-backed twin serves the same payload.
      */
     Route::get('/api/skills/taxonomy', [SkillsReferenceController::class, 'taxonomy']);
+
+    /*
+     * Dynamic assessment question bank — the admin "Questions" page.
+     *
+     * The page drives the existing chain
+     * specialization -> career role -> skill -> question, using the models
+     * and relationships already in the project (Specialization::careerRoles(),
+     * CareerRole::roleSkills(), Skill, baseline_assessment_items). Nothing
+     * new is modelled: the endpoints below read and write the same item bank
+     * the baseline assessment selects from.
+     *
+     * The page itself plus the session-authenticated JSON endpoints its
+     * JavaScript calls, mirroring the projects panel above.
+     */
+    Route::view('/questions', 'admin.questions')->name('admin.questions');
+
+    Route::get('/api/questions', [AdminQuestionController::class, 'index']);
+
+    // Dynamic dropdowns. Ordered before the {question} routes so a literal
+    // segment can never be mistaken for a bound model id.
+    Route::get('/api/questions/specializations', [AdminQuestionController::class, 'specializations']);
+    Route::get('/api/questions/career-roles', [AdminQuestionController::class, 'careerRoles']);
+    Route::get('/api/questions/skills', [AdminQuestionController::class, 'skills']);
+    Route::get('/api/questions/skill-context', [AdminQuestionController::class, 'skillContext']);
+
+    Route::post('/api/questions', [AdminQuestionController::class, 'store']);
+    Route::patch('/api/questions/{question}', [AdminQuestionController::class, 'update'])
+        ->whereNumber('question');
+    Route::delete('/api/questions/{question}', [AdminQuestionController::class, 'destroy'])
+        ->whereNumber('question');
 });
 
 /*
