@@ -4,6 +4,7 @@ namespace Tests\Feature\Projects;
 
 use App\Exceptions\ProjectException;
 use App\Models\AuditEvent;
+use App\Models\CareerRole;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\Role;
@@ -129,6 +130,33 @@ class ProjectManagementWorkflowTest extends TestCase
     }
 
     /**
+     * US-MATCH-DATA-03 — the career role every project must now target, with
+     * the test skill approved in its mapping so a project may require it.
+     */
+    private function careerRole(): CareerRole
+    {
+        $role = CareerRole::first() ?? CareerRole::create([
+            'title' => 'Backend Developer',
+            'slug' => 'backend-developer',
+            'version' => 1,
+            'status' => 'approved',
+        ]);
+
+        $skill = $this->skill();
+
+        if (! $role->roleSkills()->where('skill_id', $skill->id)->exists()) {
+            $role->roleSkills()->create([
+                'skill_id' => $skill->id,
+                'required_level' => 3,
+                'importance_weight' => 1,
+                'is_critical' => true,
+            ]);
+        }
+
+        return $role;
+    }
+
+    /**
      * A complete, submittable creation payload.
      *
      * @return array<string, mixed>
@@ -145,6 +173,7 @@ class ProjectManagementWorkflowTest extends TestCase
             'work_mode' => 'remote',
             'capacity' => 2,
             'confidentiality' => 'public',
+            'career_role_id' => $this->careerRole()->id,
             'start_date' => now()->addDays(20)->toDateString(),
             'end_date' => now()->addDays(50)->toDateString(),
             'application_deadline' => now()->addDays(10)->toDateString(),

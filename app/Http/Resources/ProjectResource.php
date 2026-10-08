@@ -48,6 +48,16 @@ class ProjectResource extends JsonResource
             'learning_outcomes' => $project->learning_outcomes,
             'difficulty' => $project->difficulty,
             'work_mode' => $project->work_mode,
+            // US-MATCH-DATA-03 — `career_role_id` is the authoritative link;
+            // `role` is kept (derived from the career role title) so existing
+            // consumers and the matching contract do not change.
+            'career_role_id' => $project->career_role_id,
+            'career_role' => $this->whenLoaded('careerRole', fn () => $project->careerRole === null ? null : [
+                'id' => $project->careerRole->id,
+                'title' => $project->careerRole->title,
+                'slug' => $project->careerRole->slug,
+                'version' => $project->careerRole->version,
+            ]),
             'role' => $project->role,
             'schedule' => $project->schedule,
             'capacity' => $project->capacity,
@@ -69,7 +79,11 @@ class ProjectResource extends JsonResource
             'required_skills' => $this->whenLoaded('requiredSkills', fn () => $project->requiredSkills->map(fn ($rs) => [
                 'skill_id' => $rs->skill_id,
                 'skill_name' => $rs->skill?->name,
+                // `minimum_level` is the existing contract key; the canonical
+                // `minimum_required_level` is exposed alongside it. Both read
+                // the same decimal(3,2) column, so they can never diverge.
                 'minimum_level' => (float) $rs->minimum_level,
+                'minimum_required_level' => (float) $rs->minimum_level,
                 'is_critical_entry' => (bool) $rs->is_critical_entry,
             ])),
             'available_project_roles' => $this->whenLoaded('projectRoles', fn () => $project->projectRoles

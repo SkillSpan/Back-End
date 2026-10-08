@@ -3,6 +3,7 @@
 namespace Tests\Feature\Admin;
 
 use App\Http\Resources\ProjectResource;
+use App\Models\CareerRole;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\Role;
@@ -74,6 +75,19 @@ class AdminProjectTest extends TestCase
             'name' => $name,
             'type' => 'company',
             'verification_status' => 'verified',
+        ]);
+    }
+
+    /**
+     * US-MATCH-DATA-03 — a career role a project must now target.
+     */
+    private function careerRole(): CareerRole
+    {
+        return CareerRole::first() ?? CareerRole::create([
+            'title' => 'Backend Developer',
+            'slug' => 'backend-developer',
+            'version' => 1,
+            'status' => 'approved',
         ]);
     }
 
@@ -623,6 +637,7 @@ class AdminProjectTest extends TestCase
             'title' => 'Admin Created Project',
             'description' => 'Created from the admin panel.',
             'capacity' => 6,
+            'career_role_id' => $this->careerRole()->id,
         ]);
 
         $response->assertStatus(201)
@@ -728,6 +743,7 @@ class AdminProjectTest extends TestCase
                 'type' => 'simulation',
                 'title' => 'Via Session',
                 'capacity' => 3,
+                'career_role_id' => $this->careerRole()->id,
             ])
             ->assertStatus(201)
             ->json('data.id');

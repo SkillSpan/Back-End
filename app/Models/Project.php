@@ -132,11 +132,12 @@ class Project extends Model
         'difficulty',
         'work_mode',
         'role',
+        'career_role_id',
         'schedule',
         'confidentiality',
     ];
 
-    protected $fillable = ['organization_id', 'owner_id', 'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes', 'difficulty', 'work_mode', 'role', 'schedule', 'capacity', 'min_team_size', 'start_date', 'end_date', 'application_deadline', 'status', 'confidentiality', 'rubric_id', 'version'];
+    protected $fillable = ['organization_id', 'owner_id', 'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes', 'difficulty', 'work_mode', 'role', 'career_role_id', 'schedule', 'capacity', 'min_team_size', 'start_date', 'end_date', 'application_deadline', 'status', 'confidentiality', 'rubric_id', 'version'];
 
     protected $casts = ['learning_outcomes' => 'array', 'application_deadline' => 'date', 'start_date' => 'date', 'end_date' => 'date', 'approved_at' => 'datetime', 'difficulty' => 'float'];
 
@@ -169,6 +170,20 @@ class Project extends Model
     public function rubric()
     {
         return $this->belongsTo(Rubric::class);
+    }
+
+    /**
+     * US-MATCH-DATA-03 — the career role this project targets.
+     *
+     * This is the authoritative Project → Career Role link: the career role
+     * determines which skills may be attached as project requirements (through
+     * the existing `career_role_skills` mapping). The legacy free-text `role`
+     * column is a derived projection of this relation's title, kept only for
+     * the frozen project-matching contract.
+     */
+    public function careerRole()
+    {
+        return $this->belongsTo(CareerRole::class);
     }
 
     public function clonedFrom()
