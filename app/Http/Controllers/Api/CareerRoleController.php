@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ListCareerRolesRequest;
 use App\Models\CareerRole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,10 +14,18 @@ class CareerRoleController extends Controller
     /**
      * GET /api/v1/career-roles
      * List all approved career roles.
+     *
+     * Optional `?specialization_id={id}` narrows the list to the approved
+     * roles linked to that specialization (via career_role_specialization).
+     * Without the filter the original behaviour is unchanged, so existing
+     * consumers keep working.
      */
-    public function index(Request $request): JsonResponse
+    public function index(ListCareerRolesRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
+
+        // Present-and-valid, or null when the filter was omitted.
+        $specializationId = $request->validated('specialization_id');
 
         /*
          * `version` alone is not a total order. Most approved roles share
@@ -32,6 +41,13 @@ class CareerRoleController extends Controller
          */
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
+            ->when(
+                $specializationId !== null,
+                fn ($query) => $query->whereHas(
+                    'specializations',
+                    fn ($specializationQuery) => $specializationQuery->whereKey($specializationId),
+                ),
+            )
             ->latest('version')
             ->orderByDesc('id')
             ->paginate(15);

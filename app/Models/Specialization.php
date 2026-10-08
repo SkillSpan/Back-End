@@ -14,4 +14,13 @@ class Specialization extends Model
     {
         return $this->hasMany(StudentProfile::class);
     }
+
+    /**
+     * Career roles relevant to this specialization. Many-to-many: a role
+     * such as "Backend Developer" belongs to several specializations.
+     */
+    public function careerRoles()
+    {
+        return $this->belongsToMany(CareerRole::class, 'career_role_specialization')->withTimestamps();
+    }
 }

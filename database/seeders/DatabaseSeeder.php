@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             SpecializationsSeeder::class,
             SkillSeeder::class,
             CareerRoleSeeder::class,
+            CareerRoleSpecializationSeeder::class,
             BaselineAssessmentItemSeeder::class,
             AlgorithmConfigurationSeeder::class,
         ]);
