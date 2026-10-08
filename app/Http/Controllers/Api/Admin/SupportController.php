@@ -7,11 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\SendSupportMessageRequest;
 use App\Http\Resources\SupportMessageResource;
 use App\Http\Resources\SupportRequestResource;
-use App\Models\ProfessionalProfile;
 use App\Models\SupportMessage;
 use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Support\SupportRequestService;
+use App\Support\PanelAccess;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -285,29 +285,23 @@ class SupportController extends Controller
      * May this account open the support inbox at all?
      *
      * Used by the Blade route, which has to answer with a 403 page rather
-     * than a JSON body.
+     * than a JSON body. The rule itself lives in {@see PanelAccess} so this
+     * page, the profile page and the panel nav cannot disagree about who is
+     * allowed in.
      */
     public static function isSupportAgent(User $user): bool
     {
-        return $user->hasRole('admin') || self::isMentor($user);
+        return PanelAccess::allows($user);
     }
 
     private static function isMentor(User $user): bool
     {
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug
-        // — see EnsureUserIsMentor. Any type='mentor' profile counts here:
-        // the verified-only gate belongs on the routes that grant mentor
-        // powers, and an unverified mentor still needs to answer the learner
-        // they were already assigned.
-        return ProfessionalProfile::query()
-            ->where('user_id', $user->id)
-            ->where('type', 'mentor')
-            ->exists();
+        return PanelAccess::isMentor($user);
     }
 
     private function isAdministrator(User $user): bool
     {
-        return $user->hasRole('admin');
+        return PanelAccess::isAdministrator($user);
     }
 
     // ── Read tracking ─────────────────────────────────────────────────────

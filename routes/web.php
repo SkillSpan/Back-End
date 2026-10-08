@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
+use App\Http\Controllers\Web\AdminProfileController;
 use App\Http\Controllers\Web\AdminProjectController;
 use App\Http\Controllers\Web\AdminSupportController;
 use App\Http\Controllers\Web\SkillsReferenceController;
 use App\Http\Controllers\Web\TestController;
+use App\Support\PanelAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -106,6 +108,9 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
 | Api\Admin\SupportController enforces the split — an administrator sees every
 | request, a mentor only the ones assigned to them, anyone else 403.
 |
+| The profile block further down shares this group for the same reason: the
+| audience is identical, so the two must not be allowed to drift apart.
+|
 */
 Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function () {
     Route::get('/support', function (Request $request) {
@@ -127,4 +132,45 @@ Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function (
 
     Route::post('/api/support/{supportRequest}/resolve', [AdminSupportController::class, 'resolve'])
         ->whereNumber('supportRequest');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Panel profile — administrator AND mentor
+|--------------------------------------------------------------------------
+|
+| The account's own name, title, bio, age, photo and password. It lives in
+| this group rather than the `admin` one above for the same reason the inbox
+| does: mentors open the panel, and locking them out of their own profile
+| would leave them unable to change a password the seeder chose.
+|
+| Api\Admin\ProfileController enforces the audience — anyone who is neither an
+| administrator nor a mentor gets 403. There is no id anywhere in these routes:
+| every method reads the authenticated user, so no request shape edits somebody
+| else's profile.
+|
+| The avatar is its own route rather than a field in the JSON, so the browser
+| can cache the image. Its `?v=` token changes whenever the bytes do, which is
+| what makes the year-long cache header safe.
+|
+*/
+Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function () {
+    Route::get('/profile', function (Request $request) {
+        abort_unless(PanelAccess::allows($request->user()), 403);
+
+        return view('admin.profile');
+    })->name('admin.profile');
+
+    Route::get('/profile/avatar', [AdminProfileController::class, 'avatar'])
+        ->name('admin.profile.avatar');
+
+    Route::get('/api/profile', [AdminProfileController::class, 'show']);
+
+    Route::patch('/api/profile', [AdminProfileController::class, 'updateDetails']);
+
+    Route::post('/api/profile/avatar', [AdminProfileController::class, 'uploadAvatar']);
+
+    Route::delete('/api/profile/avatar', [AdminProfileController::class, 'deleteAvatar']);
+
+    Route::post('/api/profile/password', [AdminProfileController::class, 'changePassword']);
 });

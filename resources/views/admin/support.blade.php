@@ -114,13 +114,15 @@
   }
 
   .sidebar-foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--nav-line);}
-  .user-card{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:var(--nav-bg-soft);}
+  .user-card{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:var(--nav-bg-soft);text-decoration:none;color:inherit;transition:background .15s ease;}
+  .user-card:hover{background:var(--nav-bg-hover);}
   .user-card .avatar{
     width:38px;height:38px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;
-    font-weight:600;font-size:14px;color:#fff;flex-shrink:0;
+    font-weight:600;font-size:14px;color:#fff;flex-shrink:0;overflow:hidden;
     background:linear-gradient(135deg,#5EEAD4,#2F6F5E);
   }
+  .user-card .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
   .user-card .meta{min-width:0;flex:1;}
   .user-card .meta .nm{font-size:13.5px;color:#fff;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .user-card .meta .rl{font-size:11.5px;color:var(--nav-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -429,17 +431,15 @@
         Users
       </a>
       @endif
+      <a class="nav-item" href="{{ route('admin.profile') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
+        Profile
+      </a>
     </nav>
 
-    <div class="sidebar-foot">
-      <div class="user-card">
-        <div class="avatar">{{ strtoupper(substr(auth()->user()->name ?? 'A', 0, 1)) }}</div>
-        <div class="meta">
-          <div class="nm">{{ auth()->user()->name }}</div>
-          <div class="rl" title="{{ auth()->user()->email }}">{{ auth()->user()->email }}</div>
-        </div>
-      </div>
-    </div>
+    @include('admin.partials.user-card')
   </aside>
 
   <!-- ============================= Main ============================= -->

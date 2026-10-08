@@ -229,16 +229,34 @@ class AdminPanelAuthTest extends TestCase
     {
         $this->mentor();
 
+        // Not `admin.organizations`: that page sits behind the `admin`
+        // middleware, so landing a mentor there answers 403 immediately after a
+        // successful sign-in and reads as "my credentials are wrong".
         $this->post('/admin/login', [
             'email' => 'mentor@example.com',
             'password' => 'password123',
-        ])->assertRedirect(route('admin.organizations'));
+        ])->assertRedirect(route('admin.support'));
 
         $this->assertAuthenticated();
     }
 
+    public function test_a_mentors_landing_page_actually_opens(): void
+    {
+        // The point of the redirect above: whatever it names has to be a page
+        // the account can open. Asserting the redirect target alone is exactly
+        // how the mentor sign-in came to send people to a 403.
+        $this->mentor();
+
+        $landing = $this->post('/admin/login', [
+            'email' => 'mentor@example.com',
+            'password' => 'password123',
+        ])->getTargetUrl();
+
+        $this->get($landing)->assertOk();
+    }
+
     /**
-     * Admitting a mentor grants nothing beyond the inbox.
+     * Admitting a mentor grants nothing beyond the inbox and their own profile.
      *
      * The `admin` middleware still guards every other page, so a mentor session
      * opens the support inbox and is refused the review screens. This is the
@@ -251,9 +269,10 @@ class AdminPanelAuthTest extends TestCase
         $this->post('/admin/login', [
             'email' => 'mentor@example.com',
             'password' => 'password123',
-        ])->assertRedirect(route('admin.organizations'));
+        ])->assertRedirect(route('admin.support'));
 
         $this->get('/admin/support')->assertOk();
+        $this->get('/admin/profile')->assertOk();
 
         $this->get('/admin/organizations')->assertStatus(403);
         $this->get('/admin/projects')->assertStatus(403);

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
-use App\Models\ProfessionalProfile;
 use App\Models\User;
+use App\Support\PanelAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -106,14 +106,14 @@ class AdminAuthController extends Controller
         // Mentors are admitted because the support inbox lives in this panel and
         // the person who answers an escalated learner is the mentor already
         // connected to them — not an administrator. Admitting them here grants
-        // nothing on its own: every other page still sits behind the `admin`
-        // middleware, which refuses them, and the inbox itself scopes a mentor
-        // to their own assignments.
+        // nothing on its own: the review and project pages still sit behind the
+        // `admin` middleware, and the two pages a mentor can reach scope them to
+        // their own work ({@see PanelAccess}).
         $roles = $user->roles()->pluck('slug');
 
         $refusal = match (true) {
             $user->status !== 'active' => 'This account is not active, so it cannot use the admin panel.',
-            ! $user->hasRole('admin') && ! $this->hasMentorProfile($user) => 'This account is signed in as "'
+            ! PanelAccess::allows($user) => 'This account is signed in as "'
                 .($roles->implode(', ') ?: 'no role')
                 .'", but the admin panel requires the platform "admin" role or a mentor profile.',
             default => null,
@@ -139,7 +139,19 @@ class AdminAuthController extends Controller
         // New session id on privilege change, to defeat session fixation.
         $request->session()->regenerate();
 
-        return redirect()->intended(route('admin.organizations'));
+        // Land each audience on a page it can actually open. Sending a mentor to
+        // `admin.organizations` would meet the `admin` middleware and answer 403
+        // immediately after a successful sign-in, which reads as "my credentials
+        // are wrong" rather than "that page is not mine". The inbox is the
+        // mentor's actual job, so it is the honest landing page for them.
+        //
+        // `intended()` still wins when there is one, so a mentor who was heading
+        // for a specific page before signing in is taken there.
+        return redirect()->intended(
+            PanelAccess::isAdministrator($user)
+                ? route('admin.organizations')
+                : route('admin.support'),
+        );
     }
 
     public function logout(Request $request): RedirectResponse
@@ -150,22 +162,6 @@ class AdminAuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login');
-    }
-
-    /**
-     * Does this account hold a mentor profile?
-     *
-     * Mentor identity is a ProfessionalProfile attribute, not a role slug — see
-     * EnsureUserIsMentor. Any type='mentor' profile counts: an unverified
-     * mentor still has to answer the learner already routed to them, and the
-     * verification gate belongs on the routes that grant mentor powers.
-     */
-    private function hasMentorProfile(User $user): bool
-    {
-        return ProfessionalProfile::query()
-            ->where('user_id', $user->id)
-            ->where('type', 'mentor')
-            ->exists();
     }
 
     /**

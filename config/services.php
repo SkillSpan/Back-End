@@ -230,6 +230,33 @@ return [
         'notify_admins' => (bool) env('SUPPORT_NOTIFY_ADMINS', true),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin / mentor panel profile
+    |--------------------------------------------------------------------------
+    |
+    | The avatar is stored as a base64 blob inside the profile row rather than
+    | as a file path, because the deployed container's filesystem is ephemeral
+    | (no `storage:link`, `FILESYSTEM_DISK` unset) and a runtime-written file
+    | disappears on the next deploy. That trade-off only stays cheap while the
+    | image is small, so the size is a configuration value rather than a
+    | constant buried in the service.
+    |
+    */
+
+    'profile' => [
+        // The stored avatar is always a square of this many pixels. 256 keeps
+        // the blob in the tens of kilobytes while still looking sharp at the
+        // sizes the panel renders it (sidebar 36px, profile header 96px, and
+        // 2x/3x device pixel ratios).
+        'avatar_size' => (int) env('PROFILE_AVATAR_SIZE', 256),
+
+        // Upload ceiling, checked before the bytes are decoded. Generous for a
+        // phone photo (which is then downscaled) and small enough that a
+        // deliberate oversized upload cannot exhaust memory.
+        'avatar_max_upload_kb' => (int) env('PROFILE_AVATAR_MAX_KB', 4096),
+    ],
+
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
     // calculation from evidence. Configurable and versioned per the
     // "Configurability" algorithm design principle (Table 46).
