@@ -169,7 +169,9 @@ class EvidenceCareerRoleEndpoints
             .'When `specialization_id` is supplied, only the approved career roles linked to that '
             .'specialization (via the career_role_specialization pivot) are returned — this is the filter '
             .'the frontend uses to drive the specialization -> career role -> skills -> questions flow. '
-            .'Omitting it preserves the original "list every approved role" behaviour.',
+            .'The "Self-Learning / Free Track" specialization is the exception: it carries no pivot rows and '
+            .'returns EVERY approved career role, so a self-taught learner can pick any role. '
+            .'Omitting the filter preserves the original "list every approved role" behaviour.',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(
@@ -177,7 +179,8 @@ class EvidenceCareerRoleEndpoints
                 in: 'query',
                 required: false,
                 description: 'Optional filter. Must be a positive integer referencing an existing specialization. '
-                    .'When present, only approved career roles linked to that specialization are returned. '
+                    .'When present, only approved career roles linked to that specialization are returned — except '
+                    .'for the "Self-Learning / Free Track", which returns every approved role. '
                     .'When omitted, every approved career role is returned (unchanged behaviour).',
                 schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
             ),

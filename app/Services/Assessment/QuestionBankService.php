@@ -70,9 +70,12 @@ class QuestionBankService
     }
 
     /**
-     * Career roles reachable from a specialization (the pivot), for the
-     * second dropdown. All statuses are returned so an operator can see the
-     * full mapping; the assessment flow still only uses approved roles.
+     * Career roles reachable from a specialization, for the second
+     * dropdown. All statuses are returned so an operator can see the full
+     * mapping; the assessment flow still only uses approved roles.
+     *
+     * The "Self-Learning / Free Track" specialization returns EVERY role,
+     * because any role is valid under it.
      *
      * @return array<int, array{id:int,title:string,status:string}>
      */
@@ -84,7 +87,7 @@ class QuestionBankService
             return [];
         }
 
-        return $specialization->careerRoles()
+        return $specialization->availableCareerRolesQuery()
             ->orderBy('title')
             ->get(['career_roles.id', 'career_roles.title', 'career_roles.status'])
             ->map(fn ($role) => [
@@ -179,7 +182,13 @@ class QuestionBankService
         } elseif ($careerRoleId !== null) {
             $query->whereIn('skill_id', $this->skillIdsForCareerRole($careerRoleId));
         } elseif ($specializationId !== null) {
-            $query->whereIn('skill_id', $this->skillIdsForSpecialization($specializationId));
+            // The free track exposes every role, so every skill is in scope
+            // and no restriction is applied.
+            $specialization = Specialization::find($specializationId);
+
+            if ($specialization !== null && ! $specialization->isFreeTrack()) {
+                $query->whereIn('skill_id', $this->skillIdsForSpecialization($specializationId));
+            }
         }
 
         return $query->paginate($perPage)->withQueryString();

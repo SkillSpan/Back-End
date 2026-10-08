@@ -887,6 +887,687 @@ class BaselineAssessmentItemSeeder extends Seeder
                 ],
                 'It ensures that only trusted devices and users can access the system',
             ],
+
+            // ---- Languages ----
+            'php' => [
+                'What is PHP mainly used for?',
+                ['Building server-side web applications', 'Styling web pages', 'Editing images', 'Managing network routers'],
+                'Building server-side web applications',
+            ],
+            'csharp' => [
+                'What is C# primarily used for?',
+                ['Building applications on the .NET platform and in Unity', 'Writing database queries only', 'Styling web pages', 'Configuring networks'],
+                'Building applications on the .NET platform and in Unity',
+            ],
+
+            // ---- Programming fundamentals ----
+            'data-structures' => [
+                'What is a data structure?',
+                ['A way of organising data so it can be used efficiently', 'A type of database server', 'A network cable', 'A pattern for user interfaces'],
+                'A way of organising data so it can be used efficiently',
+            ],
+            'algorithms' => [
+                'What is an algorithm?',
+                ['A step-by-step procedure for solving a problem', 'A programming language', 'A type of database', 'A hardware component'],
+                'A step-by-step procedure for solving a problem',
+            ],
+            'object-oriented-programming' => [
+                'What is a class in object-oriented programming?',
+                ['A blueprint for creating objects', 'A running instance of a program', 'A database table', 'A network address'],
+                'A blueprint for creating objects',
+            ],
+            'software-design' => [
+                'What is software design mainly concerned with?',
+                ['Structuring a system so it is maintainable and meets its requirements', 'Choosing the colour scheme of an app', 'Installing an operating system', 'Configuring a router'],
+                'Structuring a system so it is maintainable and meets its requirements',
+            ],
+            'version-control-git' => [
+                'What is Git used for?',
+                ['Tracking changes to source code over time', 'Compressing images', 'Managing database indexes', 'Configuring firewalls'],
+                'Tracking changes to source code over time',
+            ],
+            'debugging' => [
+                'What is debugging?',
+                ['Finding and fixing defects in a program', 'Deleting unused files', 'Writing documentation', 'Deploying to production'],
+                'Finding and fixing defects in a program',
+            ],
+
+            // ---- Web ----
+            'laravel' => [
+                'What is Laravel?',
+                ['A PHP web application framework', 'A JavaScript runtime', 'A relational database', 'A CSS framework'],
+                'A PHP web application framework',
+            ],
+            'wordpress' => [
+                'What is WordPress?',
+                ['A content management system for building websites', 'A programming language', 'A relational database', 'A network protocol'],
+                'A content management system for building websites',
+            ],
+            'web-application-development' => [
+                'What is a web application?',
+                ['Software that runs in a browser and communicates with a server', 'A desktop-only program', 'A database engine', 'A network cable'],
+                'Software that runs in a browser and communicates with a server',
+            ],
+
+            // ---- Mobile ----
+            'ios-development' => [
+                'Which language is the primary choice for modern iOS development?',
+                ['Swift', 'Java', 'PHP', 'Go'],
+                'Swift',
+            ],
+            'swift' => [
+                'What is Swift?',
+                ['A programming language for Apple platforms', 'A database engine', 'A web server', 'A design tool'],
+                'A programming language for Apple platforms',
+            ],
+            'kotlin' => [
+                'What is Kotlin commonly used for?',
+                ['Android application development', 'Styling web pages', 'Managing servers', 'Querying data warehouses'],
+                'Android application development',
+            ],
+            'flutter' => [
+                'What is Flutter?',
+                ['A framework for building cross-platform mobile apps', 'A relational database', 'A CSS preprocessor', 'A network protocol'],
+                'A framework for building cross-platform mobile apps',
+            ],
+            'dart' => [
+                'Which language does Flutter use?',
+                ['Dart', 'Python', 'Ruby', 'Perl'],
+                'Dart',
+            ],
+            'react-native' => [
+                'What is React Native used for?',
+                ['Building mobile apps with JavaScript and React', 'Building relational databases', 'Configuring networks', 'Designing logos'],
+                'Building mobile apps with JavaScript and React',
+            ],
+            'cross-platform-development' => [
+                'What does cross-platform development mean?',
+                ['Building one app that runs on multiple platforms', 'Building an app for a single device only', 'Porting a database', 'Designing hardware'],
+                'Building one app that runs on multiple platforms',
+            ],
+
+            // ---- Data ----
+            'data-warehousing' => [
+                'What is a data warehouse?',
+                ['A central store optimised for analytics and reporting', 'A tool for editing images', 'A network device', 'A programming language'],
+                'A central store optimised for analytics and reporting',
+            ],
+            'etl' => [
+                'What does ETL stand for?',
+                ['Extract, Transform, Load', 'Evaluate, Test, Launch', 'Encode, Transfer, Log', 'Edit, Trace, Link'],
+                'Extract, Transform, Load',
+            ],
+            'apache-spark' => [
+                'What is Apache Spark used for?',
+                ['Large-scale distributed data processing', 'Styling web pages', 'Managing user accounts', 'Designing user interfaces'],
+                'Large-scale distributed data processing',
+            ],
+            'big-data' => [
+                'What characterises big data?',
+                ['Volume, velocity and variety beyond traditional tools', 'Small, well-structured spreadsheets', 'A single database row', 'A design pattern'],
+                'Volume, velocity and variety beyond traditional tools',
+            ],
+            'data-modeling' => [
+                'What is data modeling?',
+                ['Defining the structure and relationships of data', 'Rendering 3D graphics', 'Configuring a firewall', 'Writing marketing copy'],
+                'Defining the structure and relationships of data',
+            ],
+            'data-pipelines' => [
+                'What is a data pipeline?',
+                ['A series of steps that move and transform data', 'A network cable', 'A user interface component', 'A database index'],
+                'A series of steps that move and transform data',
+            ],
+            'power-bi' => [
+                'What is Power BI?',
+                ['A business analytics and reporting tool', 'A programming language', 'A relational database', 'A web server'],
+                'A business analytics and reporting tool',
+            ],
+            'tableau' => [
+                'What is Tableau used for?',
+                ['Data visualisation and business intelligence', 'Writing backend APIs', 'Managing servers', 'Designing mobile apps'],
+                'Data visualisation and business intelligence',
+            ],
+            'business-intelligence' => [
+                'What is business intelligence?',
+                ['Using data to support business decision-making', 'A hardware component', 'A network protocol', 'A design pattern'],
+                'Using data to support business decision-making',
+            ],
+            'kpis-and-metrics' => [
+                'What is a KPI?',
+                ['A measurable value that shows how well an objective is met', 'A programming language', 'A database engine', 'A network device'],
+                'A measurable value that shows how well an objective is met',
+            ],
+
+            // ---- AI / ML ----
+            'deep-learning' => [
+                'What is deep learning?',
+                ['Machine learning using multi-layered neural networks', 'A method of database indexing', 'A network routing technique', 'A UI design approach'],
+                'Machine learning using multi-layered neural networks',
+            ],
+            'tensorflow' => [
+                'What is TensorFlow?',
+                ['An open-source machine-learning framework', 'A relational database', 'A web server', 'A CSS library'],
+                'An open-source machine-learning framework',
+            ],
+            'pytorch' => [
+                'What is PyTorch?',
+                ['A machine-learning framework popular in research', 'A network protocol', 'A database engine', 'A design tool'],
+                'A machine-learning framework popular in research',
+            ],
+            'mlops' => [
+                'What is MLOps?',
+                ['Practices for deploying and operating machine-learning models reliably', 'A database backup strategy', 'A UI design system', 'A network topology'],
+                'Practices for deploying and operating machine-learning models reliably',
+            ],
+            'model-serving' => [
+                'What is model serving?',
+                ['Exposing a trained model so applications can call it', 'Labelling training data', 'Cleaning a dataset', 'Designing a database'],
+                'Exposing a trained model so applications can call it',
+            ],
+            'reinforcement-learning' => [
+                'What is reinforcement learning?',
+                ['Learning by interacting with an environment to maximise reward', 'Learning from fully labelled data', 'A database technique', 'A network protocol'],
+                'Learning by interacting with an environment to maximise reward',
+            ],
+            'computer-vision' => [
+                'What is computer vision?',
+                ['Teaching machines to interpret images and video', 'Managing databases', 'Designing user interfaces', 'Routing network traffic'],
+                'Teaching machines to interpret images and video',
+            ],
+            'opencv' => [
+                'What is OpenCV?',
+                ['A library for computer vision and image processing', 'A relational database', 'A web framework', 'A network protocol'],
+                'A library for computer vision and image processing',
+            ],
+            'image-processing' => [
+                'What is image processing?',
+                ['Manipulating and analysing images with algorithms', 'Storing images in a database only', 'Designing logos', 'Configuring servers'],
+                'Manipulating and analysing images with algorithms',
+            ],
+            'generative-ai' => [
+                'What is generative AI?',
+                ['AI that creates new content such as text or images', 'AI that only classifies existing data', 'A database engine', 'A network device'],
+                'AI that creates new content such as text or images',
+            ],
+            'large-language-models' => [
+                'What is a large language model?',
+                ['A model trained on large text corpora to generate language', 'A relational database', 'A UI framework', 'A network protocol'],
+                'A model trained on large text corpora to generate language',
+            ],
+            'prompt-engineering' => [
+                'What is prompt engineering?',
+                ['Designing inputs that guide a language model to a useful output', 'Writing SQL queries', 'Designing database schemas', 'Configuring firewalls'],
+                'Designing inputs that guide a language model to a useful output',
+            ],
+            'retrieval-augmented-generation' => [
+                'What does retrieval-augmented generation (RAG) combine?',
+                ['A language model with a retrieval step over external knowledge', 'A database with a firewall', 'Two neural networks only', 'A UI with a backend'],
+                'A language model with a retrieval step over external knowledge',
+            ],
+
+            // ---- IT ----
+            'windows-server' => [
+                'What is Windows Server?',
+                ['A Microsoft operating system for server workloads', 'A mobile application', 'A JavaScript framework', 'A network cable'],
+                'A Microsoft operating system for server workloads',
+            ],
+            'active-directory' => [
+                'What is Active Directory used for?',
+                ['Centralised identity and access management in Windows networks', 'Rendering web pages', 'Compressing images', 'Writing SQL queries'],
+                'Centralised identity and access management in Windows networks',
+            ],
+            'help-desk-operations' => [
+                'What is the main goal of help desk operations?',
+                ['Resolving user issues efficiently and tracking them', 'Designing databases', 'Building mobile apps', 'Writing marketing copy'],
+                'Resolving user issues efficiently and tracking them',
+            ],
+            'it-service-management' => [
+                'What is IT service management (ITSM)?',
+                ['Managing IT services to meet agreed levels of delivery', 'Designing user interfaces', 'Writing machine-learning models', 'Building games'],
+                'Managing IT services to meet agreed levels of delivery',
+            ],
+            'virtualization' => [
+                'What is virtualization?',
+                ['Running multiple virtual machines on one physical host', 'Compressing files', 'Encrypting network traffic', 'Designing databases'],
+                'Running multiple virtual machines on one physical host',
+            ],
+
+            // ---- Networking ----
+            'vlans' => [
+                'What is a VLAN?',
+                ['A logically segmented network within a physical one', 'A type of database', 'A programming language', 'A UI component'],
+                'A logically segmented network within a physical one',
+            ],
+            'ospf' => [
+                'What is OSPF?',
+                ['A routing protocol used within an autonomous system', 'A database engine', 'A UI framework', 'An image format'],
+                'A routing protocol used within an autonomous system',
+            ],
+            'bgp' => [
+                'What is BGP mainly used for?',
+                ['Exchanging routing information between autonomous systems', 'Styling web pages', 'Compressing images', 'Managing databases'],
+                'Exchanging routing information between autonomous systems',
+            ],
+            'network-design' => [
+                'What does network design involve?',
+                ['Planning the topology, addressing and capacity of a network', 'Writing SQL queries', 'Designing logos', 'Training ML models'],
+                'Planning the topology, addressing and capacity of a network',
+            ],
+            'wireless-networking' => [
+                'What is a key concern in wireless networking?',
+                ['Signal interference and coverage', 'Database normalisation', 'Image compression', 'Code compilation'],
+                'Signal interference and coverage',
+            ],
+
+            // ---- Cloud & DevOps ----
+            'cloud-computing-fundamentals' => [
+                'What is cloud computing?',
+                ['Delivering computing resources over the internet on demand', 'Storing files only on a local disk', 'A programming language', 'A network cable'],
+                'Delivering computing resources over the internet on demand',
+            ],
+            'aws' => [
+                'What is AWS?',
+                ['A cloud platform offering computing and storage services', 'A relational database', 'A JavaScript framework', 'A design tool'],
+                'A cloud platform offering computing and storage services',
+            ],
+            'microsoft-azure' => [
+                'What is Microsoft Azure?',
+                ['A cloud computing platform by Microsoft', 'A programming language', 'A database engine', 'A UI library'],
+                'A cloud computing platform by Microsoft',
+            ],
+            'docker' => [
+                'What is Docker mainly used for?',
+                ['Packaging applications into portable containers', 'Designing user interfaces', 'Managing DNS records', 'Training ML models'],
+                'Packaging applications into portable containers',
+            ],
+            'kubernetes' => [
+                'What is Kubernetes used for?',
+                ['Orchestrating containers across a cluster', 'Designing databases', 'Editing images', 'Writing marketing copy'],
+                'Orchestrating containers across a cluster',
+            ],
+            'linux-administration' => [
+                'What does Linux administration involve?',
+                ['Managing Linux servers, users and services', 'Designing user interfaces', 'Writing novels', 'Editing videos'],
+                'Managing Linux servers, users and services',
+            ],
+            'cicd' => [
+                'What is CI/CD?',
+                ['Automating building, testing and deploying software', 'A database design technique', 'A UI pattern', 'A network protocol'],
+                'Automating building, testing and deploying software',
+            ],
+            'infrastructure-as-code' => [
+                'What is infrastructure as code?',
+                ['Managing infrastructure through versioned configuration files', 'Writing application logic only', 'Designing logos', 'Compressing images'],
+                'Managing infrastructure through versioned configuration files',
+            ],
+            'terraform' => [
+                'What is Terraform used for?',
+                ['Provisioning infrastructure declaratively', 'Styling web pages', 'Querying databases', 'Training neural networks'],
+                'Provisioning infrastructure declaratively',
+            ],
+            'observability' => [
+                'What is observability in operations?',
+                ['Understanding system state from logs, metrics and traces', 'Encrypting files', 'Designing databases', 'Writing marketing copy'],
+                'Understanding system state from logs, metrics and traces',
+            ],
+
+            // ---- Databases ----
+            'database-design' => [
+                'What is database design concerned with?',
+                ['Structuring tables and relationships for correct, efficient storage', 'Designing logos', 'Configuring routers', 'Writing UI code'],
+                'Structuring tables and relationships for correct, efficient storage',
+            ],
+            'query-optimization' => [
+                'What is query optimisation?',
+                ['Improving a query so it runs faster and uses fewer resources', 'Renaming database columns', 'Encrypting the database', 'Backing up the database'],
+                'Improving a query so it runs faster and uses fewer resources',
+            ],
+            'nosql' => [
+                'What is a NoSQL database?',
+                ['A database that does not rely solely on relational tables', 'A database without any schema at all ever', 'A type of network', 'A UI framework'],
+                'A database that does not rely solely on relational tables',
+            ],
+            'database-indexing' => [
+                'Why is a database index used?',
+                ['To speed up lookups on a column', 'To encrypt the table', 'To back up the table', 'To design the UI'],
+                'To speed up lookups on a column',
+            ],
+
+            // ---- Business ----
+            'it-project-management' => [
+                'What does IT project management involve?',
+                ['Planning and delivering IT projects on time and within scope', 'Designing databases', 'Writing machine-learning models', 'Editing images'],
+                'Planning and delivering IT projects on time and within scope',
+            ],
+            'it-governance' => [
+                'What is IT governance?',
+                ['Directing and controlling IT to meet business objectives', 'A database engine', 'A network protocol', 'A UI framework'],
+                'Directing and controlling IT to meet business objectives',
+            ],
+            'erp-systems' => [
+                'What is an ERP system?',
+                ['Integrated software managing core business processes', 'A programming language', 'A network device', 'An image format'],
+                'Integrated software managing core business processes',
+            ],
+            'crm-systems' => [
+                'What is a CRM system used for?',
+                ['Managing interactions with customers and prospects', 'Designing databases', 'Compiling code', 'Routing packets'],
+                'Managing interactions with customers and prospects',
+            ],
+            'digital-transformation' => [
+                'What is digital transformation?',
+                ['Using technology to fundamentally change how an organisation works', 'Buying new printers', 'Rewriting a single web page', 'Replacing a network cable'],
+                'Using technology to fundamentally change how an organisation works',
+            ],
+            'process-automation' => [
+                'What is process automation?',
+                ['Using software to perform repetitive tasks without manual effort', 'Hiring more staff', 'Designing logos', 'Training models'],
+                'Using software to perform repetitive tasks without manual effort',
+            ],
+            'change-management' => [
+                'Why is change management important?',
+                ['It helps people adopt changes successfully', 'It encrypts data', 'It compiles code', 'It designs databases'],
+                'It helps people adopt changes successfully',
+            ],
+            'technology-consulting' => [
+                'What does a technology consultant do?',
+                ['Advises organisations on technology choices and strategy', 'Writes only database queries', 'Designs logos', 'Installs network cables'],
+                'Advises organisations on technology choices and strategy',
+            ],
+
+            // ---- Cybersecurity ----
+            'security-architecture' => [
+                'What is security architecture?',
+                ['Designing systems so security is built in from the start', 'Installing antivirus only', 'Writing marketing copy', 'Designing logos'],
+                'Designing systems so security is built in from the start',
+            ],
+            'secure-coding' => [
+                'What is secure coding?',
+                ['Writing code that avoids common vulnerabilities', 'Writing code as fast as possible', 'Writing documentation only', 'Designing databases'],
+                'Writing code that avoids common vulnerabilities',
+            ],
+            'identity-and-access-management' => [
+                'What is identity and access management?',
+                ['Managing who can access which systems and resources', 'Managing network cables', 'Designing user interfaces', 'Compressing images'],
+                'Managing who can access which systems and resources',
+            ],
+            'ethical-hacking' => [
+                'What is ethical hacking?',
+                ['Authorised testing of systems to find weaknesses', 'Attacking systems without permission', 'Designing databases', 'Writing documentation'],
+                'Authorised testing of systems to find weaknesses',
+            ],
+            'red-teaming' => [
+                'What is red teaming?',
+                ['Simulating a real adversary to test defences', 'A database design method', 'A UI framework', 'An image format'],
+                'Simulating a real adversary to test defences',
+            ],
+            'exploit-development' => [
+                'What is exploit development?',
+                ['Researching how to turn a vulnerability into an attack', 'Designing databases', 'Writing marketing copy', 'Editing images'],
+                'Researching how to turn a vulnerability into an attack',
+            ],
+            'digital-forensics' => [
+                'What is digital forensics?',
+                ['Collecting and analysing digital evidence after an incident', 'Designing databases', 'Building mobile apps', 'Routing packets'],
+                'Collecting and analysing digital evidence after an incident',
+            ],
+            'incident-handling' => [
+                'What does incident handling cover?',
+                ['Detecting, containing, eradicating and recovering from incidents', 'Designing logos', 'Writing SQL', 'Training models'],
+                'Detecting, containing, eradicating and recovering from incidents',
+            ],
+            'malware-analysis' => [
+                'What is malware analysis?',
+                ['Studying malicious software to understand its behaviour', 'Designing databases', 'Writing marketing copy', 'Building UIs'],
+                'Studying malicious software to understand its behaviour',
+            ],
+            'evidence-collection' => [
+                'Why is evidence collection done carefully in forensics?',
+                ['To preserve integrity so it remains admissible', 'To make files smaller', 'To speed up the network', 'To design a database'],
+                'To preserve integrity so it remains admissible',
+            ],
+            'cryptography' => [
+                'What is cryptography used for?',
+                ['Protecting information using mathematical techniques', 'Designing databases', 'Building UIs', 'Routing packets'],
+                'Protecting information using mathematical techniques',
+            ],
+
+            // ---- UI/UX ----
+            'ui-design' => [
+                'What does UI design focus on?',
+                ['The visual and interactive elements of an interface', 'Database schema', 'Network topology', 'Server provisioning'],
+                'The visual and interactive elements of an interface',
+            ],
+            'ux-research' => [
+                'What is UX research?',
+                ['Studying users to inform product design decisions', 'Designing databases', 'Writing backend code', 'Configuring servers'],
+                'Studying users to inform product design decisions',
+            ],
+            'wireframing' => [
+                'What is a wireframe?',
+                ['A low-fidelity layout of a screen', 'A finished visual design', 'A database table', 'A network diagram'],
+                'A low-fidelity layout of a screen',
+            ],
+            'prototyping' => [
+                'What is prototyping in design?',
+                ['Creating an early interactive version to test ideas', 'Writing production code', 'Designing databases', 'Routing packets'],
+                'Creating an early interactive version to test ideas',
+            ],
+            'figma' => [
+                'What is Figma?',
+                ['A collaborative interface design tool', 'A relational database', 'A JavaScript framework', 'A network protocol'],
+                'A collaborative interface design tool',
+            ],
+            'design-systems' => [
+                'What is a design system?',
+                ['A shared library of components and guidelines', 'A database engine', 'A network topology', 'A programming language'],
+                'A shared library of components and guidelines',
+            ],
+            'interaction-design' => [
+                'What is interaction design concerned with?',
+                ['How users interact with a product over time', 'Database normalisation', 'Network addressing', 'Server hardening'],
+                'How users interact with a product over time',
+            ],
+            'accessibility' => [
+                'Why is accessibility important in design?',
+                ['It lets people with disabilities use the product', 'It makes the app faster', 'It reduces database size', 'It encrypts data'],
+                'It lets people with disabilities use the product',
+            ],
+
+            // ---- Game Development ----
+            'unity' => [
+                'What is Unity?',
+                ['A game engine for building 2D and 3D games', 'A relational database', 'A web framework', 'A network protocol'],
+                'A game engine for building 2D and 3D games',
+            ],
+            'unreal-engine' => [
+                'What is Unreal Engine?',
+                ['A game engine known for high-fidelity graphics', 'A database engine', 'A CSS framework', 'A network protocol'],
+                'A game engine known for high-fidelity graphics',
+            ],
+            'game-design' => [
+                'What does game design cover?',
+                ['Rules, mechanics and player experience', 'Database schema', 'Network routing', 'Server provisioning'],
+                'Rules, mechanics and player experience',
+            ],
+            'gameplay-programming' => [
+                'What is gameplay programming?',
+                ['Implementing game mechanics and player interactions', 'Designing databases', 'Writing marketing copy', 'Configuring firewalls'],
+                'Implementing game mechanics and player interactions',
+            ],
+            '3d-mathematics' => [
+                'Why is 3D mathematics important in games?',
+                ['It underpins transforms, physics and rendering', 'It speeds up the database', 'It encrypts traffic', 'It designs the UI'],
+                'It underpins transforms, physics and rendering',
+            ],
+
+            // ---- Quality Assurance ----
+            'manual-testing' => [
+                'What is manual testing?',
+                ['A person executing test cases without automation', 'Automated regression only', 'Writing production code', 'Designing databases'],
+                'A person executing test cases without automation',
+            ],
+            'test-case-design' => [
+                'What is a test case?',
+                ['A set of steps and expected results for verifying behaviour', 'A database row', 'A network packet', 'A UI component'],
+                'A set of steps and expected results for verifying behaviour',
+            ],
+            'bug-reporting' => [
+                'What makes a good bug report?',
+                ['Clear steps to reproduce and the expected versus actual result', 'A vague description', 'Only a screenshot', 'Only the severity'],
+                'Clear steps to reproduce and the expected versus actual result',
+            ],
+            'test-automation' => [
+                'What is test automation?',
+                ['Using tools to run tests without manual effort', 'Writing production features', 'Designing databases', 'Editing images'],
+                'Using tools to run tests without manual effort',
+            ],
+            'selenium' => [
+                'What is Selenium used for?',
+                ['Automating web browser tests', 'Designing databases', 'Managing servers', 'Training models'],
+                'Automating web browser tests',
+            ],
+            'performance-testing' => [
+                'What is performance testing?',
+                ['Checking how a system behaves under load', 'Testing the colour scheme', 'Testing the database schema', 'Testing documentation'],
+                'Checking how a system behaves under load',
+            ],
+            'api-testing' => [
+                'What is API testing?',
+                ['Verifying that an API returns correct responses', 'Testing the UI colours', 'Testing the network cable', 'Testing the printer'],
+                'Verifying that an API returns correct responses',
+            ],
+
+            // ---- Blockchain ----
+            'blockchain-fundamentals' => [
+                'What is a blockchain?',
+                ['A distributed, append-only ledger', 'A relational database', 'A network protocol', 'A UI framework'],
+                'A distributed, append-only ledger',
+            ],
+            'solidity' => [
+                'What is Solidity used for?',
+                ['Writing smart contracts on Ethereum', 'Styling web pages', 'Querying relational databases', 'Designing logos'],
+                'Writing smart contracts on Ethereum',
+            ],
+            'smart-contracts' => [
+                'What is a smart contract?',
+                ['Self-executing code stored on a blockchain', 'A legal document only', 'A database index', 'A UI component'],
+                'Self-executing code stored on a blockchain',
+            ],
+            'ethereum' => [
+                'What is Ethereum?',
+                ['A blockchain platform supporting smart contracts', 'A relational database', 'A JavaScript framework', 'A design tool'],
+                'A blockchain platform supporting smart contracts',
+            ],
+            'web3-development' => [
+                'What is Web3 development?',
+                ['Building decentralised applications on blockchains', 'Building static HTML pages', 'Designing databases', 'Routing packets'],
+                'Building decentralised applications on blockchains',
+            ],
+
+            // ---- Embedded & Robotics ----
+            'embedded-c' => [
+                'What is embedded C used for?',
+                ['Programming microcontrollers and embedded devices', 'Building web frontends', 'Designing databases', 'Editing images'],
+                'Programming microcontrollers and embedded devices',
+            ],
+            'rtos' => [
+                'What is an RTOS?',
+                ['An operating system designed for real-time constraints', 'A relational database', 'A network protocol', 'A UI framework'],
+                'An operating system designed for real-time constraints',
+            ],
+            'firmware-development' => [
+                'What is firmware?',
+                ['Low-level software embedded in a hardware device', 'A web application', 'A database engine', 'A design tool'],
+                'Low-level software embedded in a hardware device',
+            ],
+            'hardware-software-integration' => [
+                'What does hardware-software integration involve?',
+                ['Making software work correctly with the underlying hardware', 'Designing logos', 'Writing marketing copy', 'Managing DNS'],
+                'Making software work correctly with the underlying hardware',
+            ],
+            'signal-processing' => [
+                'What is signal processing?',
+                ['Analysing and transforming signals such as audio or sensor data', 'Designing databases', 'Writing UI code', 'Routing packets'],
+                'Analysing and transforming signals such as audio or sensor data',
+            ],
+            'pcb-design' => [
+                'What is PCB design?',
+                ['Laying out the physical circuit board for electronics', 'Designing a database', 'Writing a web page', 'Training a model'],
+                'Laying out the physical circuit board for electronics',
+            ],
+            'robotics' => [
+                'What is robotics?',
+                ['Designing and programming machines that sense and act', 'A database technique', 'A UI pattern', 'A network protocol'],
+                'Designing and programming machines that sense and act',
+            ],
+            'ros' => [
+                'What is ROS?',
+                ['A framework for writing robot software', 'A relational database', 'A CSS library', 'A network cable'],
+                'A framework for writing robot software',
+            ],
+            'control-systems' => [
+                'What is a control system?',
+                ['A system that regulates behaviour using feedback', 'A database engine', 'A UI framework', 'A network protocol'],
+                'A system that regulates behaviour using feedback',
+            ],
+
+            // ---- Remaining taxonomy skills ----
+            'c' => [
+                'What is C++ commonly used for?',
+                ['High-performance systems and embedded software', 'Styling web pages', 'Managing databases', 'Designing logos'],
+                'High-performance systems and embedded software',
+            ],
+            'css-tailwind' => [
+                'What is Tailwind CSS?',
+                ['A utility-first CSS framework', 'A JavaScript runtime', 'A relational database', 'A network protocol'],
+                'A utility-first CSS framework',
+            ],
+            'graphql' => [
+                'What is GraphQL?',
+                ['A query language for APIs', 'A relational database', 'A CSS framework', 'A build tool'],
+                'A query language for APIs',
+            ],
+            'java' => [
+                'What is Java commonly used for?',
+                ['Building cross-platform enterprise applications', 'Styling web pages', 'Editing images', 'Routing packets'],
+                'Building cross-platform enterprise applications',
+            ],
+            'nextjs' => [
+                'What is Next.js?',
+                ['A React framework for production web applications', 'A relational database', 'A CSS preprocessor', 'A network protocol'],
+                'A React framework for production web applications',
+            ],
+            'nodejs' => [
+                'What is Node.js?',
+                ['A JavaScript runtime for building server-side applications', 'A relational database', 'A CSS framework', 'An image format'],
+                'A JavaScript runtime for building server-side applications',
+            ],
+            'numpy' => [
+                'What is NumPy used for?',
+                ['Numerical computing with arrays in Python', 'Designing user interfaces', 'Managing networks', 'Writing SQL'],
+                'Numerical computing with arrays in Python',
+            ],
+            'pandas' => [
+                'What is Pandas used for?',
+                ['Data analysis and manipulation in Python', 'Styling web pages', 'Configuring routers', 'Building games'],
+                'Data analysis and manipulation in Python',
+            ],
+            'react' => [
+                'What is React?',
+                ['A JavaScript library for building user interfaces', 'A relational database', 'A network protocol', 'A CSS framework'],
+                'A JavaScript library for building user interfaces',
+            ],
+            'rust' => [
+                'What is Rust known for?',
+                ['Memory safety without a garbage collector', 'Designing databases', 'Styling web pages', 'Managing DNS'],
+                'Memory safety without a garbage collector',
+            ],
+            'typescript' => [
+                'What is TypeScript?',
+                ['JavaScript with static types', 'A relational database', 'A CSS framework', 'A network protocol'],
+                'JavaScript with static types',
+            ],
         ];
 
         foreach ($items as $skillSlug => [$question, $options, $correctAnswer]) {

@@ -80,12 +80,14 @@ class DynamicBaselineAssessmentTest extends TestCase
     {
         $software = Specialization::where('name', 'Software Engineering')->firstOrFail();
 
-        $titles = $software->careerRoles()->pluck('title')->sort()->values()->all();
+        $titles = $software->careerRoles()->pluck('title')->all();
 
-        $this->assertSame(
-            ['Backend Developer', 'Frontend Developer', 'Mobile Developer'],
-            $titles,
-        );
+        // The pivot is the source of truth; the taxonomy grows, so assert
+        // membership rather than a frozen snapshot of the whole list.
+        $this->assertContains('Backend Developer', $titles);
+        $this->assertContains('Frontend Developer', $titles);
+        $this->assertContains('Mobile Developer', $titles);
+        $this->assertNotEmpty($titles);
     }
 
     public function test_filtering_by_specialization_returns_only_that_specializations_roles(): void
@@ -107,8 +109,18 @@ class DynamicBaselineAssessmentTest extends TestCase
         sort($softwareTitles);
         sort($cyberTitles);
 
-        $this->assertSame(['Backend Developer', 'Frontend Developer', 'Mobile Developer'], $softwareTitles);
-        $this->assertSame(['Penetration Tester', 'SOC Analyst', 'Security Analyst'], $cyberTitles);
+        // The endpoint must return exactly the pivot-linked roles, and the
+        // two specializations must not bleed into each other.
+        $this->assertSame(
+            $software->careerRoles()->pluck('title')->sort()->values()->all(),
+            $softwareTitles,
+        );
+        $this->assertSame(
+            $cyber->careerRoles()->pluck('title')->sort()->values()->all(),
+            $cyberTitles,
+        );
+        $this->assertNotContains('Security Analyst', $softwareTitles);
+        $this->assertNotContains('Backend Developer', $cyberTitles);
     }
 
     public function test_every_seeded_career_role_produces_a_covered_assessment(): void

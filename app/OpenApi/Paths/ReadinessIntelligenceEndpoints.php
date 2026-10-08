@@ -281,7 +281,8 @@ class ReadinessIntelligenceEndpoints
             .'(career role -> required skills -> mapped questions), so different roles yield different '
             .'questions. `specialization_id` is OPTIONAL: when supplied it must reference an existing '
             .'specialization and the career role must actually belong to it, otherwise the request is '
-            .'rejected as a validation error (the mismatch is never silently accepted). Omitting it keeps '
+            .'rejected as a validation error (the mismatch is never silently accepted). The "Self-Learning / '
+            .'Free Track" specialization accepts any existing career role. Omitting it keeps '
             .'the original `career_role_id`-only contract. Requires the `learner` role.',
         security: [['bearerAuth' => []]],
         requestBody: new OA\RequestBody(

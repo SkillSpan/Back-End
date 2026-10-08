@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListCareerRolesRequest;
 use App\Models\CareerRole;
+use App\Models\Specialization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,6 +18,10 @@ class CareerRoleController extends Controller
      *
      * Optional `?specialization_id={id}` narrows the list to the approved
      * roles linked to that specialization (via career_role_specialization).
+     * The "Self-Learning / Free Track" specialization is the exception: it
+     * carries no links and returns EVERY approved role, so a self-taught
+     * learner is not restricted to one academic track.
+     *
      * Without the filter the original behaviour is unchanged, so existing
      * consumers keep working.
      */
@@ -26,6 +31,10 @@ class CareerRoleController extends Controller
 
         // Present-and-valid, or null when the filter was omitted.
         $specializationId = $request->validated('specialization_id');
+
+        $specialization = $specializationId !== null
+            ? Specialization::find($specializationId)
+            : null;
 
         /*
          * `version` alone is not a total order. Most approved roles share
@@ -42,10 +51,10 @@ class CareerRoleController extends Controller
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
             ->when(
-                $specializationId !== null,
+                $specialization !== null && ! $specialization->isFreeTrack(),
                 fn ($query) => $query->whereHas(
                     'specializations',
-                    fn ($specializationQuery) => $specializationQuery->whereKey($specializationId),
+                    fn ($specializationQuery) => $specializationQuery->whereKey($specialization->id),
                 ),
             )
             ->latest('version')

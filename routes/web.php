@@ -5,6 +5,7 @@ use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProfileController;
 use App\Http\Controllers\Web\AdminProjectController;
 use App\Http\Controllers\Web\AdminQuestionController;
+use App\Http\Controllers\Web\AdminSpecializationController;
 use App\Http\Controllers\Web\AdminSupportController;
 use App\Http\Controllers\Web\SkillsReferenceController;
 use App\Http\Controllers\Web\TestController;
@@ -121,6 +122,37 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
         ->whereNumber('question');
     Route::delete('/api/questions/{question}', [AdminQuestionController::class, 'destroy'])
         ->whereNumber('question');
+
+    /*
+     * Specialization management — the admin "Specializations" page.
+     *
+     * The page lists specializations and lets an operator link each one to
+     * its career roles through the EXISTING career_role_specialization
+     * pivot. Deleting a specialization that is still in use is refused; the
+     * panel offers Deactivate instead.
+     */
+    Route::view('/specializations', 'admin.specializations')->name('admin.specializations');
+
+    Route::get('/api/specializations', [AdminSpecializationController::class, 'index']);
+
+    // Literal segments before the {specialization} routes so a literal can
+    // never be mistaken for a bound model id.
+    Route::get('/api/specializations/skills', [AdminSpecializationController::class, 'skills']);
+    Route::post('/api/specializations/career-roles', [AdminSpecializationController::class, 'storeCareerRole']);
+    Route::post('/api/specializations', [AdminSpecializationController::class, 'store']);
+
+    Route::get('/api/specializations/{specialization}/career-roles', [AdminSpecializationController::class, 'careerRoles'])
+        ->whereNumber('specialization');
+    Route::put('/api/specializations/{specialization}/career-roles', [AdminSpecializationController::class, 'syncCareerRoles'])
+        ->whereNumber('specialization');
+    Route::patch('/api/specializations/{specialization}', [AdminSpecializationController::class, 'update'])
+        ->whereNumber('specialization');
+    Route::post('/api/specializations/{specialization}/activate', [AdminSpecializationController::class, 'activate'])
+        ->whereNumber('specialization');
+    Route::post('/api/specializations/{specialization}/deactivate', [AdminSpecializationController::class, 'deactivate'])
+        ->whereNumber('specialization');
+    Route::delete('/api/specializations/{specialization}', [AdminSpecializationController::class, 'destroy'])
+        ->whereNumber('specialization');
 });
 
 /*

@@ -415,12 +415,6 @@
         </span>
         Projects
       </a>
-      <a class="nav-item" href="{{ route('admin.questions') }}">
-        <span class="ic">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.9c0 1.6-2.4 2-2.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>
-        </span>
-        Questions
-      </a>
       @endif
       <a class="nav-item active" href="{{ route('admin.support') }}" aria-current="page">
         <span class="ic">
@@ -435,6 +429,18 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 3a5 5 0 0 1 4 8.06V20l-3-2-3 2-3-2-3 2V11.06A5 5 0 0 1 8 3a5 5 0 0 1 8 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </span>
         Users
+      </a>
+      <a class="nav-item" href="{{ route('admin.specializations') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="19" cy="18" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
+        </span>
+        Specializations
+      </a>
+      <a class="nav-item" href="{{ route('admin.questions') }}">
+        <span class="ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.9c0 1.6-2.4 2-2.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>
+        </span>
+        Questions
       </a>
       @endif
       <a class="nav-item" href="{{ route('admin.profile') }}">

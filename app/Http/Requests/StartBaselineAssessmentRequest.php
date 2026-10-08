@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\CareerRole;
+use App\Models\Specialization;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -72,11 +73,14 @@ class StartBaselineAssessmentRequest extends FormRequest
                 return;
             }
 
-            $belongs = $careerRole->specializations()
-                ->whereKey($specializationId)
-                ->exists();
+            // A normal specialization accepts only the roles linked to it;
+            // the "Self-Learning / Free Track" accepts any existing role.
+            $specialization = Specialization::find($specializationId);
 
-            if (! $belongs) {
+            $allowed = $specialization !== null
+                && $specialization->allowsCareerRole((int) $careerRole->id);
+
+            if (! $allowed) {
                 $validator->errors()->add(
                     'career_role_id',
                     'The selected career role does not belong to the selected specialization.',
