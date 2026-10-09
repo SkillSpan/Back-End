@@ -3,6 +3,8 @@
 namespace App\Services\Projects;
 
 use App\Exceptions\ProjectException;
+use App\Models\CareerRole;
+use App\Models\CareerRoleSkill;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
@@ -86,9 +88,17 @@ class ProjectLifecycleService
      */
     private const WRITABLE_ATTRIBUTES = [
         'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes',
-        'difficulty', 'work_mode', 'role', 'schedule', 'capacity', 'min_team_size',
+        'difficulty', 'work_mode', 'career_role_id', 'schedule', 'capacity', 'min_team_size',
         'start_date', 'end_date', 'application_deadline', 'confidentiality',
     ];
+
+    /**
+     * Career role titles resolved during one request, so a create/update never
+     * issues the same lookup twice.
+     *
+     * @var array<int, string>
+     */
+    private array $careerRoleTitles = [];
 
     /**
      * Create a project. It always starts as a DRAFT — a project is never
@@ -118,11 +128,23 @@ class ProjectLifecycleService
             $project->organization_id = $ownership['organization_id'];
             $project->status = Project::STATUS_DRAFT;
             $project->version = 1;
+
+            // US-MATCH-DATA-03 — `role` is no longer an independent input; it
+            // is a projection of the career role title, kept so the frozen
+            // project-matching contract and the catalog role filter keep
+            // working.
+            $this->applyCareerRoleProjection($project, $data['career_role_id'] ?? null);
+
             $project->save();
 
             $this->syncRequiredSkills($project, $data['required_skills'] ?? []);
             $this->syncRoles($project, $data['roles'] ?? []);
             $this->syncEligibilityConstraints($project, $data['eligibility_constraints'] ?? []);
+
+            // Second line of defence: every required skill must belong to the
+            // selected career role. The FormRequest already rejects an unmapped
+            // skill with a 422; this guards any other caller of the service.
+            $this->assertRequiredSkillsBelongToCareerRole($project);
 
             $this->assertDateOrdering($project);
 
@@ -199,6 +221,13 @@ class ProjectLifecycleService
                 $project->owner_id = $ownership['owner_id'];
             }
 
+            // Re-derive the legacy `role` projection whenever the career role
+            // is supplied. `career_role_id` is the source of truth; `role` only
+            // mirrors its title.
+            if (array_key_exists('career_role_id', $data) && $data['career_role_id'] !== null) {
+                $this->applyCareerRoleProjection($project, $data['career_role_id']);
+            }
+
             $project->save();
 
             // The child sets are replaced wholesale, but only when the caller
@@ -215,6 +244,12 @@ class ProjectLifecycleService
             if (array_key_exists('eligibility_constraints', $data)) {
                 $this->syncEligibilityConstraints($project, $data['eligibility_constraints']);
             }
+
+            // A career-role change re-checks the skills that are actually
+            // attached, so a project can never end up with a required skill
+            // that is not part of its (possibly new) career role's mapping —
+            // even when the update changes only the role and not the skills.
+            $this->assertRequiredSkillsBelongToCareerRole($project);
 
             $this->assertDateOrdering($project);
         });
@@ -1010,15 +1045,97 @@ class ProjectLifecycleService
         $project->requiredSkills()->delete();
 
         foreach ($skills as $skill) {
+            // The API field is `minimum_required_level`; the storage column is
+            // `minimum_level`. The FormRequest normalises both names, and the
+            // fallback keeps a direct service call working either way.
+            $minimumLevel = $skill['minimum_required_level'] ?? $skill['minimum_level'] ?? 0;
+
             ProjectRequiredSkill::create([
                 'project_id' => $project->id,
                 'skill_id' => (int) $skill['skill_id'],
-                'minimum_level' => $skill['minimum_level'] ?? 0,
+                'minimum_level' => (float) $minimumLevel,
                 'is_critical_entry' => (bool) ($skill['is_critical_entry'] ?? false),
             ]);
         }
 
         $project->unsetRelation('requiredSkills');
+    }
+
+    /**
+     * US-MATCH-DATA-03 — mirror the career role title into the legacy `role`
+     * column.
+     *
+     * `career_role_id` is the single source of truth. `role` is retained only
+     * because the frozen project-matching contract and the catalog role filter
+     * still read it; deriving it here is what stops the two from ever
+     * disagreeing.
+     */
+    private function applyCareerRoleProjection(Project $project, mixed $careerRoleId): void
+    {
+        if ($careerRoleId === null || ! is_numeric($careerRoleId)) {
+            return;
+        }
+
+        $project->role = $this->careerRoleTitle((int) $careerRoleId);
+    }
+
+    private function careerRoleTitle(int $careerRoleId): ?string
+    {
+        if (! array_key_exists($careerRoleId, $this->careerRoleTitles)) {
+            $title = CareerRole::query()->whereKey($careerRoleId)->value('title');
+
+            $this->careerRoleTitles[$careerRoleId] = (string) $title;
+        }
+
+        return $this->careerRoleTitles[$careerRoleId];
+    }
+
+    /**
+     * Every required skill attached to the project must be part of its career
+     * role's approved mapping (`career_role_skills`). A skill that exists in
+     * the global `skills` table but is not mapped to the role is refused.
+     *
+     * Reads the FINAL state from the database, so it covers both "the caller
+     * submitted an unmapped skill" and "the career role changed while skills
+     * were left untouched".
+     */
+    private function assertRequiredSkillsBelongToCareerRole(Project $project): void
+    {
+        $careerRoleId = $project->career_role_id;
+
+        if ($careerRoleId === null) {
+            return;
+        }
+
+        $skillIds = $project->requiredSkills()->pluck('skill_id')->map(fn ($id) => (int) $id)->all();
+
+        if ($skillIds === []) {
+            return;
+        }
+
+        $mapped = CareerRoleSkill::query()
+            ->where('career_role_id', (int) $careerRoleId)
+            ->whereIn('skill_id', $skillIds)
+            ->pluck('skill_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $invalid = array_values(array_diff($skillIds, $mapped));
+
+        if ($invalid === []) {
+            return;
+        }
+
+        throw new ProjectException(
+            'One or more required skills are not part of the selected career role.',
+            422,
+            'PROJECT_SKILL_NOT_IN_CAREER_ROLE',
+            [
+                'project_id' => $project->id,
+                'career_role_id' => (int) $careerRoleId,
+                'skill_ids' => $invalid,
+            ],
+        );
     }
 
     /**
@@ -1076,6 +1193,6 @@ class ProjectLifecycleService
      */
     private function forResponse(Project $project): Project
     {
-        return $project->fresh(['organization:id,name', 'requiredSkills.skill:id,name', 'projectRoles', 'eligibilityConstraints']);
+        return $project->fresh(['organization:id,name', 'requiredSkills.skill:id,name', 'projectRoles', 'eligibilityConstraints', 'careerRole:id,title,slug,version']);
     }
 }

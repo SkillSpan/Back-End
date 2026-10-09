@@ -58,6 +58,7 @@ class ProjectController extends Controller
         'requiredSkills.skill:id,name',
         'projectRoles',
         'eligibilityConstraints',
+        'careerRole:id,title,slug,version',
     ];
 
     public function __construct(

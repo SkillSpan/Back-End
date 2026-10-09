@@ -23,6 +23,9 @@ class ProjectController extends Controller
         // US-MATCH-02 — the roles a learner may select when applying, surfaced
         // as `available_project_roles` on the details response.
         'projectRoles',
+        // US-MATCH-DATA-03 — the project's career role, surfaced as
+        // `career_role` on the project payload.
+        'careerRole:id,title,slug,version',
     ];
 
     public function __construct(

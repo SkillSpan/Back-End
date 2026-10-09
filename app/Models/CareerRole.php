@@ -23,6 +23,17 @@ class CareerRole extends Model
         return $this->hasMany(CareerRoleSkill::class);
     }
 
+    /**
+     * US-MATCH-DATA-03 — projects targeting this career role.
+     *
+     * Inverse of Project::careerRole(). A career role is the single source of
+     * truth for which skills a project may require.
+     */
+    public function projects()
+    {
+        return $this->hasMany(Project::class);
+    }
+
     public function marketFactors()
     {
         return $this->hasMany(MarketFactor::class);
