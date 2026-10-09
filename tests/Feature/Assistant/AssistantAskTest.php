@@ -5,13 +5,18 @@ namespace Tests\Feature\Assistant;
 use App\Models\AlgorithmConfiguration;
 use App\Models\AssistantInteraction;
 use App\Models\CareerRole;
+use App\Models\DecisionSnapshot;
+use App\Models\ReadinessResult;
 use App\Models\Role;
+use App\Models\Skill;
+use App\Models\SkillGapResult;
 use App\Models\StudentProfile;
 use App\Models\User;
 use App\Services\Assistant\AssistantAnswer;
 use App\Services\Assistant\AssistantClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -546,7 +551,15 @@ class AssistantAskTest extends TestCase
 
     public function test_a_grounded_answer_does_not_offer_the_handoff(): void
     {
-        [$user] = $this->createLearner();
+        /*
+         * The fixture learner must actually HAVE the data behind the
+         * question. The offer is driven by whether the snapshot could ground
+         * the intent, so a learner with no skill-gap rows is offered a human
+         * even when the service reports a clean, grounded answer — that is
+         * the intended behaviour and is pinned separately below.
+         */
+        [$user, $profile] = $this->createLearner();
+        $this->giveSkillGapGrounding($profile);
         Sanctum::actingAs($user);
 
         $this->approveGate();
@@ -565,6 +578,69 @@ class AssistantAskTest extends TestCase
             ->assertJsonPath('data.handoff_available', false);
     }
 
+    public function test_a_question_whose_source_is_empty_offers_the_handoff(): void
+    {
+        /*
+         * THE case this feature exists for, and the only one that occurs in
+         * practice. The service reports a perfectly good `answered` result —
+         * it explained, in prose, that no skill-gap analysis exists for this
+         * learner yet. That is a grounded answer to the service and a
+         * non-answer to the learner, so `answer_status` cannot carry the
+         * handoff. Laravel sent an empty `skill_gaps` source, so Laravel
+         * knows the question was unanswerable from the learner's own data.
+         */
+        [$user, $profile] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'reply' => 'No skill-gap analysis is available for you yet.',
+            'answer_status' => AssistantAnswer::STATUS_ANSWERED,
+            'grounded' => true,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'What are my skill gaps?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.answer_status', AssistantAnswer::STATUS_ANSWERED)
+            ->assertJsonPath('data.handoff_available', true);
+    }
+
+    public function test_the_offer_follows_the_intent_not_the_learners_data_richness(): void
+    {
+        /*
+         * A learner with readiness data but no skill-gap decision. The same
+         * learner, asked two questions, must get two different answers to
+         * "can the assistant help with this?" — the rule is per-intent, not
+         * a blanket "this learner is empty".
+         */
+        [$user, $profile] = $this->createLearner();
+        $this->giveReadinessGrounding($profile);
+        Sanctum::actingAs($user);
+
+        $this->approveGate();
+        $this->fakeClientReturning($this->assistantResponse([
+            'answer_status' => AssistantAnswer::STATUS_ANSWERED,
+            'grounded' => true,
+        ]));
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_readiness',
+            'question' => 'Why is my readiness score 72?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.handoff_available', false);
+
+        $this->postJson('/api/v1/assistant/ask', [
+            'intent' => 'explain_skill_gap',
+            'question' => 'What are my skill gaps?',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.handoff_available', true);
+    }
+
     public function test_a_provider_outage_does_not_offer_the_handoff(): void
     {
         /*
@@ -572,6 +648,10 @@ class AssistantAskTest extends TestCase
          * infrastructure, not "the assistant has no answer" — offering
          * "talk to technical support" there would send learners to a human for
          * a question the assistant never actually considered.
+         *
+         * The learner is left with an empty context on purpose: that would
+         * normally raise the offer, so this pins the ordering — the outage
+         * guard has to win over the empty snapshot.
          */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
@@ -599,8 +679,13 @@ class AssistantAskTest extends TestCase
          * predates it (or a partial rollout) simply will not send one. Treating
          * an absent field as "insufficient_context" would offer a human on
          * every single question.
+         *
+         * The learner is given real skill-gap data so the missing status is
+         * the only variable: with grounding present, the handoff must stay
+         * off no matter what the service does or does not report.
          */
-        [$user] = $this->createLearner();
+        [$user, $profile] = $this->createLearner();
+        $this->giveSkillGapGrounding($profile);
         Sanctum::actingAs($user);
 
         $this->approveGate();
@@ -701,6 +786,66 @@ class AssistantAskTest extends TestCase
     /**
      * @return array{0: User, 1: StudentProfile}
      */
+    /**
+     * Give the learner a stored readiness result.
+     *
+     * The context builder reports a source as `available => true` only when
+     * a row exists, and the handoff offer is driven by exactly that, so a
+     * test about "grounded" needs the row to be there.
+     */
+    private function giveReadinessGrounding(StudentProfile $profile): void
+    {
+        ReadinessResult::forceCreate([
+            'student_profile_id' => $profile->id,
+            'career_role_id' => $profile->primary_career_role_id,
+            'career_role_version' => 1,
+            'score' => 72.5,
+            'band' => 'near_ready',
+            'critical_cap_applied' => false,
+            'algorithm_version' => 'readiness-v1',
+            'configuration_version' => 'config-v1',
+            'calculated_at' => now(),
+        ]);
+    }
+
+    /**
+     * Give the learner a successful decision snapshot with one skill gap.
+     *
+     * Both rows are needed: the builder reads gaps from the latest
+     * `succeeded` snapshot and reports `available => false` if either the
+     * snapshot or its gap rows are missing.
+     */
+    private function giveSkillGapGrounding(StudentProfile $profile): void
+    {
+        $skill = Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid()]);
+
+        $snapshot = DecisionSnapshot::forceCreate([
+            'decision_uuid' => (string) Str::uuid(),
+            'student_profile_id' => $profile->id,
+            'career_role_id' => $profile->primary_career_role_id,
+            'career_role_version' => 1,
+            'algorithm_version' => 'skill-gap-v1',
+            'configuration_version' => 'config-v1',
+            'request_id' => 'req-'.uniqid(),
+            'snapshot' => [],
+            'status' => 'succeeded',
+            'calculated_at' => now(),
+        ]);
+
+        SkillGapResult::forceCreate([
+            'decision_snapshot_id' => $snapshot->id,
+            'skill_id' => $skill->id,
+            'current_level' => 2.0,
+            'required_level' => 4.0,
+            'gap' => 2.0,
+            'match_score' => 50.0,
+            'importance_weight' => 0.45,
+            'is_critical' => true,
+            'status' => 'gap',
+            'explanation' => 'Stored explanation.',
+        ]);
+    }
+
     private function createLearner(): array
     {
         $user = $this->createUserWithRole($this->learnerRole);
