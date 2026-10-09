@@ -223,4 +223,114 @@ class AdminProjectPanelTest extends TestCase
             ->assertJsonFragment(['id' => $laravel->id, 'name' => 'Laravel'])
             ->assertJsonMissing(['id' => $python->id, 'name' => 'Python']);
     }
+
+    /**
+     * A project with the child rows the lifecycle transitions require.
+     *
+     * `submit` and `approve` both run assertComplete(), which counts required
+     * skills and project roles - a bare row is not enough to move.
+     */
+    private function completeProject(string $status): Project
+    {
+        $project = $this->project([
+            'status' => $status,
+            'description' => 'Described.',
+            'objectives' => 'Scoped.',
+            'start_date' => now()->addDays(20)->toDateString(),
+            'end_date' => now()->addDays(50)->toDateString(),
+            'application_deadline' => now()->addDays(10)->toDateString(),
+        ]);
+
+        $project->requiredSkills()->create([
+            'skill_id' => Skill::create([
+                'name' => 'PHP',
+                'slug' => 'php-'.uniqid(),
+                'category' => 'backend',
+                'status' => 'active',
+            ])->id,
+            'minimum_level' => 3,
+            'is_critical_entry' => true,
+        ]);
+
+        $project->projectRoles()->create(['title' => 'Backend Developer', 'is_active' => true]);
+
+        return $project->fresh();
+    }
+
+    public function test_the_lifecycle_actions_answer_on_the_session_not_a_bearer_token(): void
+    {
+        // Regression: the panel used to POST these to
+        // /api/v1/projects/{id}/{action}, which sits behind `auth:sanctum` and
+        // therefore wants a BEARER TOKEN. The panel holds a session cookie, so
+        // every press of Submit / Approve / Request changes / Reject / Open came
+        // back 401, and api() answers a 401 by navigating to /admin/login - the
+        // operator was thrown out of the page instead of moving the project.
+        //
+        // Each action is driven through to its SUCCESSFUL transition, because
+        // "not 401" on its own would also be satisfied by the 404 of a route
+        // that does not exist.
+        $admin = $this->admin();
+
+        $draft = $this->completeProject(Project::STATUS_DRAFT);
+        $this->actingAs($admin)
+            ->postJson("/admin/api/projects/{$draft->id}/submit")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_SUBMITTED);
+
+        $submitted = $this->completeProject(Project::STATUS_SUBMITTED);
+        $this->actingAs($admin)
+            ->postJson("/admin/api/projects/{$submitted->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        $review = $this->completeProject(Project::STATUS_SUBMITTED);
+        $this->actingAs($admin)
+            ->postJson("/admin/api/projects/{$review->id}/request-changes", ['reason' => 'Needs a budget.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_CHANGES_REQUESTED);
+
+        $rejectable = $this->completeProject(Project::STATUS_SUBMITTED);
+        $this->actingAs($admin)
+            ->postJson("/admin/api/projects/{$rejectable->id}/reject")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_REJECTED);
+
+        $approved = $this->completeProject(Project::STATUS_APPROVED);
+        $this->actingAs($admin)
+            ->postJson("/admin/api/projects/{$approved->id}/open")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_OPEN);
+    }
+
+    public function test_the_lifecycle_actions_still_refuse_a_project_that_is_not_ready(): void
+    {
+        // Reaching the endpoint must not have loosened the rules. A bare draft
+        // is not submittable, and the refusal has to come from the lifecycle
+        // service rather than from the guard.
+        $bare = $this->project(['status' => Project::STATUS_DRAFT]);
+
+        $this->actingAs($this->admin())
+            ->postJson("/admin/api/projects/{$bare->id}/submit")
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_INCOMPLETE');
+    }
+
+    public function test_the_lifecycle_actions_are_not_public(): void
+    {
+        $project = $this->completeProject(Project::STATUS_DRAFT);
+
+        $this->postJson("/admin/api/projects/{$project->id}/submit")->assertStatus(401);
+    }
+
+    public function test_the_panel_posts_lifecycle_actions_to_its_own_session_prefix(): void
+    {
+        // The endpoint tests above cannot catch a regression in the BLADE, and
+        // that is precisely how this shipped: the routes were never the problem,
+        // the page called the wrong prefix. Pin the call site itself.
+        $this->actingAs($this->admin())
+            ->get('/admin/projects')
+            ->assertOk()
+            ->assertSee('/admin/api/projects/${id}/${meta.path}', false)
+            ->assertDontSee('api(`/api/v1/projects', false);
+    }
 }
