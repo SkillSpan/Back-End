@@ -607,6 +607,47 @@ class AdminProjectTest extends TestCase
         $this->assertSame(Project::STATUS_APPROVED, $project->fresh()->status);
     }
 
+    public function test_any_admin_can_review_not_just_one_designated_admin(): void
+    {
+        // The rule, stated plainly: reviewing is a permission of EVERY admin,
+        // not of one designated admin and not only of a non-owner. So two
+        // DIFFERENT admins must each be able to review, and the second must be
+        // able to review a project owned by the first - a case that is neither
+        // "the owner" nor "a company owner".
+        $first = $this->admin('first-admin@example.com');
+        $second = $this->admin('second-admin@example.com');
+
+        // 1. The first admin reviews a project they own themselves.
+        $own = $this->completeProject(Project::STATUS_SUBMITTED);
+        $own->forceFill(['owner_id' => $first->id])->save();
+
+        Sanctum::actingAs($first);
+
+        $this->postJson("/api/v1/projects/{$own->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        // 2. The second admin reviews a DIFFERENT project, owned by the first.
+        $theirs = $this->completeProject(Project::STATUS_SUBMITTED);
+        $theirs->forceFill(['owner_id' => $first->id])->save();
+
+        Sanctum::actingAs($second);
+
+        $this->postJson("/api/v1/projects/{$theirs->id}/reject", ['reason' => 'Out of scope.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_REJECTED);
+
+        // 3. "Any project on planet Earth" also means any admin can SEE it: the
+        //    panel list is not scoped by ownership or organization.
+        Sanctum::actingAs($this->admin('third-admin@example.com'));
+
+        $this->getJson('/api/v1/admin/projects')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonFragment(['id' => $own->id])
+            ->assertJsonFragment(['id' => $theirs->id]);
+    }
+
     public function test_an_invalid_transition_is_refused_by_the_service(): void
     {
         Sanctum::actingAs($this->admin());
