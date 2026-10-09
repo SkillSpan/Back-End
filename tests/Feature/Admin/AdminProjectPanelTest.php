@@ -322,6 +322,39 @@ class AdminProjectPanelTest extends TestCase
         $this->postJson("/admin/api/projects/{$project->id}/submit")->assertStatus(401);
     }
 
+    public function test_an_incomplete_project_is_reported_as_a_field_problem_not_a_dead_end(): void
+    {
+        // The refusal must NAME the fields. Without `details.missing` the page
+        // has nothing to highlight, and "not complete enough to be submitted"
+        // reads as "the Submit button is broken".
+        $bare = $this->project(['status' => Project::STATUS_DRAFT]);
+
+        $this->actingAs($this->admin())
+            ->postJson("/admin/api/projects/{$bare->id}/submit")
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_INCOMPLETE')
+            ->assertJsonPath('details.missing', fn ($missing) => is_array($missing) && $missing !== []);
+    }
+
+    public function test_the_panel_turns_an_incomplete_refusal_into_marked_fields(): void
+    {
+        // Pin the BLADE, which is where this class of bug lives. The refusal has
+        // to open the edit form and mark the named fields, and every container
+        // showFormErrors() looks up has to exist - a missing `wrap-*` is skipped
+        // SILENTLY, so the toast would claim "marked in red" with nothing marked.
+        $page = $this->actingAs($this->admin())->get('/admin/projects');
+
+        $page->assertOk()
+            ->assertSee('PROJECT_INCOMPLETE', false)
+            ->assertSee('showFormErrors(completenessErrors(missing))', false)
+            ->assertSee('focusFirstInvalidField();', false)
+            ->assertSee('id="wrap-start_date"', false)
+            ->assertSee('id="wrap-end_date"', false)
+            ->assertSee('id="wrap-application_deadline"', false)
+            ->assertSee('id="wrap-required_skills"', false)
+            ->assertSee('id="wrap-roles"', false);
+    }
+
     public function test_the_panel_posts_lifecycle_actions_to_its_own_session_prefix(): void
     {
         // The endpoint tests above cannot catch a regression in the BLADE, and

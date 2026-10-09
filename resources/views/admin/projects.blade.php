@@ -735,12 +735,18 @@
 
         <div class="section-title">Required Skills</div>
         <p class="hint" style="margin:0 0 10px;">At least one skill is required before the project can be submitted.</p>
-        <div id="skills-list"></div>
+        <!-- Wrapped in a `.field` so the submit refusal can mark it the same way
+             a validation error marks a plain input (see showFormErrors). -->
+        <div class="field" id="wrap-required_skills">
+          <div id="skills-list"></div>
+        </div>
         <button type="button" class="btn-ghost" id="add-skill" style="margin-top:8px;">+ Add skill</button>
 
         <div class="section-title">Required Roles</div>
         <p class="hint" style="margin:0 0 10px;">At least one role is required before the project can be submitted.</p>
-        <div id="roles-list"></div>
+        <div class="field" id="wrap-roles">
+          <div id="roles-list"></div>
+        </div>
         <button type="button" class="btn-ghost" id="add-role" style="margin-top:8px;">+ Add role</button>
 
         <div class="section-title">Eligibility</div>
@@ -1533,6 +1539,7 @@ async function submitForm(event){
   } catch (e){
     if (e.status === 422 && e.errors){
       showFormErrors(e.errors);
+      focusFirstInvalidField();
       toast('Please fix the highlighted fields.', 'err');
     } else if (e.status === 403){
       toast('You are not allowed to do that.', 'err');
@@ -1553,6 +1560,60 @@ const ACTION_META = {
   reject: { path: 'reject', label: 'Rejecting…', done: 'Project rejected.' },
   open: { path: 'open', label: 'Opening…', done: 'Project opened.' },
 };
+
+/*
+ * An incomplete project is a FIELD problem, not a dead end.
+ *
+ * The lifecycle service refuses it with 422 PROJECT_INCOMPLETE and lists what is
+ * missing in `details.missing`. Reporting that as a toast on its own leaves the
+ * operator stuck: the project DETAIL panel has no fields to fix, so "not
+ * complete enough to be submitted" reads as "the Submit button is broken". The
+ * refusal therefore opens the edit form and marks each missing field the same
+ * way a validation error does, so the red outline and the message say what to
+ * do and where.
+ */
+
+// Most completeness keys are already the form's own field name and have a
+// `wrap-<key>` container. These are the ones that have to point somewhere else.
+const COMPLETENESS_FIELD = {
+  required_skills: 'required_skills',
+  roles: 'roles',
+  end_date_before_start_date: 'end_date',
+  application_deadline_after_start_date: 'application_deadline',
+};
+
+function completenessErrors(missing){
+  const errors = {};
+
+  missing.forEach((key) => {
+    const field = COMPLETENESS_FIELD[key] || key;
+    if (errors[field]) return;
+
+    // The two ordering rules are not empty-field problems, so they state the
+    // rule instead of "required".
+    const message =
+      key === 'end_date_before_start_date'
+        ? 'The end date must be on or after the start date.'
+        : key === 'application_deadline_after_start_date'
+          ? 'The application deadline must be on or before the start date.'
+          : 'Required before the project can be submitted.';
+
+    errors[field] = [message];
+  });
+
+  return errors;
+}
+
+/** Bring the first marked field into view and put the cursor in it. */
+function focusFirstInvalidField(){
+  const wrap = document.querySelector('#project-form .field.invalid');
+  if (!wrap) return;
+
+  wrap.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+  const input = wrap.querySelector('input, select, textarea');
+  if (input) input.focus({ preventScroll: true });
+}
 
 async function runAction(key, id){
   const meta = ACTION_META[key];
@@ -1582,7 +1643,24 @@ async function runAction(key, id){
     document.getElementById('detail-overlay').classList.remove('open');
     await reload();
   } catch (e){
-    // The backend's refusal is the source of truth - show it verbatim.
+    const details = e.body && e.body.details ? e.body.details : {};
+    const missing = Array.isArray(details.missing) ? details.missing : [];
+
+    if (e.code === 'PROJECT_INCOMPLETE' && missing.length){
+      toast(e.message + ' The missing fields are marked in red.', 'err');
+
+      // openEditForm() already switches the detail overlay for the form one.
+      await openEditForm(id);
+
+      if (document.getElementById('form-overlay').classList.contains('open')){
+        showFormErrors(completenessErrors(missing));
+        focusFirstInvalidField();
+      }
+
+      return;
+    }
+
+    // Anything else: the backend's refusal is the source of truth - show it verbatim.
     toast(e.message, 'err');
   }
 }
