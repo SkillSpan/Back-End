@@ -75,7 +75,7 @@ class AdminProjectController extends ApiProjectController
 
         return response()->json([
             'success' => true,
-             'message' => 'Career role skills retrieved successfully.',
+            'message' => 'Career role skills retrieved successfully.',
             'data' => $skills,
             'request_id' => $requestId,
         ], 200, ['X-Request-ID' => $requestId]);

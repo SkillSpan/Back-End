@@ -207,19 +207,20 @@ class AdminProjectPanelTest extends TestCase
             'is_critical' => true,
         ]);
 
-        $this->actingAs($this->admin())
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
             ->getJson('/admin/api/projects/career-roles')
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonFragment(['id' => $approved->id, 'title' => 'Backend Developer'])
             ->assertJsonMissing(['id' => $pending->id, 'title' => 'Pending Role']);
 
-        $this->actingAs($this->admin())
+        $this->actingAs($admin)
             ->getJson("/admin/api/projects/career-roles/{$approved->id}/skills")
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonFragment(['id' => $laravel->id, 'name' => 'Laravel'])
             ->assertJsonMissing(['id' => $python->id, 'name' => 'Python']);
     }
-
 }
