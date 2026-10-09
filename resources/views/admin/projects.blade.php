@@ -1569,7 +1569,12 @@ async function runAction(key, id){
 
   toast(meta.label);
   try {
-    await api(`/api/v1/projects/${id}/${meta.path}`, {
+    // Session-backed twin. The canonical endpoint is
+    // /api/v1/projects/{id}/{action}, but that sits behind `auth:sanctum` and
+    // expects a BEARER TOKEN — the panel has a session cookie, so calling it
+    // returned 401 and api() bounced the operator to /admin/login. Every other
+    // call on this page already uses the /admin/api prefix.
+    await api(`/admin/api/projects/${id}/${meta.path}`, {
       method: 'POST',
       body: JSON.stringify(reason ? { reason } : {}),
     });
