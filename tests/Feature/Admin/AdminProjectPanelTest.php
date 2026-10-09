@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\CareerRole;
 use App\Models\Project;
 use App\Models\Role;
 use App\Models\Skill;
@@ -158,4 +159,67 @@ class AdminProjectPanelTest extends TestCase
         // the authenticated admin group.
         $this->getJson('/admin/api/skills/taxonomy')->assertStatus(401);
     }
+
+    public function test_the_project_form_uses_career_role_as_the_source_of_truth(): void
+    {
+        $this->actingAs($this->admin())
+            ->get('/admin/projects')
+            ->assertOk()
+            ->assertSee('id="p-career-role"', false)
+            ->assertSee('name="career_role_id"', false)
+            ->assertDontSee('id="p-role"', false);
+    }
+
+    public function test_project_reference_endpoints_return_only_approved_roles_and_mapped_skills(): void
+    {
+        $laravel = Skill::create([
+            'name' => 'Laravel',
+            'slug' => 'laravel-panel-'.uniqid(),
+            'category' => 'backend',
+            'status' => 'active',
+        ]);
+
+        $python = Skill::create([
+            'name' => 'Python',
+            'slug' => 'python-panel-'.uniqid(),
+            'category' => 'data',
+            'status' => 'active',
+        ]);
+
+        $approved = CareerRole::create([
+            'title' => 'Backend Developer',
+            'slug' => 'backend-developer-panel-'.uniqid(),
+            'version' => 1,
+            'status' => 'approved',
+        ]);
+
+        $pending = CareerRole::create([
+            'title' => 'Pending Role',
+            'slug' => 'pending-role-panel-'.uniqid(),
+            'version' => 1,
+            'status' => 'draft',
+        ]);
+
+        $approved->roleSkills()->create([
+            'skill_id' => $laravel->id,
+            'required_level' => 3,
+            'importance_weight' => 1,
+            'is_critical' => true,
+        ]);
+
+        $this->actingAs($this->admin())
+            ->getJson('/admin/api/projects/career-roles')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonFragment(['id' => $approved->id, 'title' => 'Backend Developer'])
+            ->assertJsonMissing(['id' => $pending->id, 'title' => 'Pending Role']);
+
+        $this->actingAs($this->admin())
+            ->getJson("/admin/api/projects/career-roles/{$approved->id}/skills")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonFragment(['id' => $laravel->id, 'name' => 'Laravel'])
+            ->assertJsonMissing(['id' => $python->id, 'name' => 'Python']);
+    }
+
 }

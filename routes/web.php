@@ -76,6 +76,11 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
 
     Route::get('/api/projects', [AdminProjectController::class, 'index']);
     Route::post('/api/projects', [AdminProjectController::class, 'store']);
+
+    // Session-backed reference data for the Project form.
+    Route::get('/api/projects/career-roles', [AdminProjectController::class, 'careerRoles']);
+    Route::get('/api/projects/career-roles/{careerRole}/skills', [AdminProjectController::class, 'careerRoleSkills'])
+        ->whereNumber('careerRole');
     Route::get('/api/projects/{project}', [AdminProjectController::class, 'show'])
         ->whereNumber('project');
     Route::patch('/api/projects/{project}', [AdminProjectController::class, 'update'])

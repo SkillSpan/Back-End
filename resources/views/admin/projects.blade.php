@@ -681,9 +681,12 @@
             <label for="p-work-mode">Work mode</label>
             <input type="text" id="p-work-mode" name="work_mode" maxlength="50" placeholder="e.g. remote">
           </div>
-          <div class="field" id="wrap-role">
-            <label for="p-role">Role</label>
-            <input type="text" id="p-role" name="role" maxlength="255" placeholder="e.g. Backend Developer">
+          <div class="field" id="wrap-career_role_id">
+            <label for="p-career-role">Career Role <span class="req">*</span></label>
+            <select id="p-career-role" name="career_role_id" required>
+              <option value="">Select a career role…</option>
+            </select>
+            <span class="hint">Required Skills are limited to the selected Career Role.</span>
           </div>
         </div>
 
@@ -823,6 +826,7 @@ let state = {
   total: 0,
   filters: { q: '', type: '', status: '', difficulty: '' },
   editingId: null,
+  careerRoles: [],
   skills: [],
   detail: null,
 };
@@ -1347,8 +1351,9 @@ function openCreateForm(){
   document.getElementById('skills-list').innerHTML = '';
   document.getElementById('roles-list').innerHTML = '';
   document.getElementById('eligibility-list').innerHTML = '';
+  state.skills = [];
+  document.getElementById('add-skill').disabled = true;
   clearFormErrors();
-  addSkillRow();
   addRoleRow();
   document.getElementById('form-overlay').classList.add('open');
 }
@@ -1377,7 +1382,8 @@ async function openEditForm(id){
     set('p-objectives', p.objectives);
     set('p-difficulty', p.difficulty);
     set('p-work-mode', p.work_mode);
-    set('p-role', p.role);
+    set('p-career-role', p.career_role_id);
+    await loadCareerRoleSkills(p.career_role_id, false);
     set('p-schedule', p.schedule);
     set('p-capacity', p.capacity);
     set('p-min-team-size', p.min_team_size);
@@ -1435,7 +1441,7 @@ function collectPayload(){
     objectives: orNull(value('p-objectives')),
     difficulty: num('p-difficulty'),
     work_mode: orNull(value('p-work-mode')),
-    role: orNull(value('p-role')),
+    career_role_id: num('p-career-role'),
     schedule: orNull(value('p-schedule')),
     capacity: num('p-capacity'),
     min_team_size: num('p-min-team-size'),
@@ -1615,23 +1621,58 @@ async function reload(){
   await loadProjects();
 }
 
-function loadSkills(){
-  // Reference data comes from the real API; the form never hard-codes a list.
-  // Returns { success, message, data: [ { id, name, ... } ] } - a flat
-  // collection of active skills.
-  //
-  // NOTE: this is the SESSION-backed twin (/admin/api/skills/taxonomy), not the
-  // canonical /api/v1/skills/taxonomy. The latter sits behind auth:sanctum and
-  // needs a bearer token, which a browser session cannot provide - calling it
-  // directly returned 401 and left the picker empty.
-  return api('/admin/api/skills/taxonomy')
+function loadCareerRoles(){
+  return api('/admin/api/projects/career-roles')
     .then(body => {
       const list = Array.isArray(body.data) ? body.data : [];
-      state.skills = list
-        .filter(s => s && s.id && s.name)
-        .map(s => ({ id: s.id, name: s.name }));
+      state.careerRoles = list.filter(r => r && r.id && r.title);
+
+      const select = document.getElementById('p-career-role');
+      select.innerHTML = '<option value="">Select a career role…</option>' +
+        state.careerRoles.map(r =>
+          `<option value="${r.id}">${escapeHtml(r.title)}</option>`
+        ).join('');
     })
-    .catch(() => { state.skills = []; });
+    .catch(() => {
+      state.careerRoles = [];
+      document.getElementById('p-career-role').innerHTML =
+        '<option value="">Career roles unavailable</option>';
+    });
+}
+
+async function loadCareerRoleSkills(careerRoleId, clearRows = true){
+  state.skills = [];
+
+  if (clearRows){
+    document.getElementById('skills-list').innerHTML = '';
+  }
+
+  const addButton = document.getElementById('add-skill');
+
+  if (!careerRoleId){
+    addButton.disabled = true;
+    return;
+  }
+
+  try {
+    const body = await api(`/admin/api/projects/career-roles/${careerRoleId}/skills`);
+    const list = Array.isArray(body.data) ? body.data : [];
+
+    state.skills = list
+      .filter(s => s && s.id && s.name)
+      .map(s => ({ id: s.id, name: s.name }));
+
+    addButton.disabled = state.skills.length === 0;
+
+    if (clearRows && state.skills.length){
+      addSkillRow();
+    }
+  } catch (e){
+    state.skills = [];
+    addButton.disabled = true;
+    if (clearRows) document.getElementById('skills-list').innerHTML = '';
+    toast('Could not load skills for the selected Career Role.', 'err');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1644,7 +1685,7 @@ document.addEventListener('DOMContentLoaded', () => {
     statusSelect.appendChild(opt);
   }
 
-  loadSkills().then(loadProjects);
+  loadCareerRoles().then(loadProjects);
 
   // Filters
   document.getElementById('f-q').addEventListener('input', (e) => {
@@ -1657,6 +1698,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('f-status').addEventListener('change', (e) => {
     state.filters.status = e.target.value; state.page = 1; loadProjects();
   });
+  document.getElementById('p-career-role').addEventListener('change', async (e) => {
+    await loadCareerRoleSkills(e.target.value, true);
+  });
+
   document.getElementById('f-difficulty').addEventListener('change', (e) => {
     state.filters.difficulty = e.target.value; state.page = 1; loadProjects();
   });
