@@ -8972,7 +8972,7 @@
                     "Projects"
                 ],
                 "summary": "Approve a submitted project (platform administrator only)",
-                "description": "Moves a project from submitted to approved. The project becomes `approved`, not `active`, and is not opened automatically. An optional `reason` is recorded in the audit trail. The caller must be a platform administrator who is not the project owner. Protected by auth:sanctum + account.active + admin, with the review separation re-checked by ProjectLifecycleService.",
+                "description": "Moves a project from submitted to approved. The project becomes `approved`, not `active`, and is not opened automatically. An optional `reason` is recorded in the audit trail. The caller must be a platform administrator. Ownership is NOT a barrier: an administrator may approve a project they own. Protected by auth:sanctum + account.active + admin.",
                 "operationId": "projectsApprove",
                 "parameters": [
                     {
@@ -9044,7 +9044,7 @@
                         }
                     },
                     "403": {
-                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is the project owner reviewing their own project (code PROJECT_REVIEW_SELF_FORBIDDEN).",
+                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -9107,7 +9107,7 @@
                     "Projects"
                 ],
                 "summary": "Send a submitted project back for changes (platform administrator only)",
-                "description": "Moves a project from submitted to changes_requested. A `reason` is mandatory for this decision; when it is missing or blank the service returns 422 with code PROJECT_REASON_REQUIRED. The caller must be a platform administrator who is not the project owner. Protected by auth:sanctum + account.active + admin.",
+                "description": "Moves a project from submitted to changes_requested. A `reason` is mandatory for this decision; when it is missing or blank the service returns 422 with code PROJECT_REASON_REQUIRED. The caller must be a platform administrator (ownership is not a barrier). Protected by auth:sanctum + account.active + admin.",
                 "operationId": "projectsRequestChanges",
                 "parameters": [
                     {
@@ -9181,7 +9181,7 @@
                         }
                     },
                     "403": {
-                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is the project owner (code PROJECT_REVIEW_SELF_FORBIDDEN).",
+                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -9244,7 +9244,7 @@
                     "Projects"
                 ],
                 "summary": "Reject a submitted project (platform administrator only)",
-                "description": "Moves a project from submitted to rejected. An optional `reason` is recorded in the audit trail. The caller must be a platform administrator who is not the project owner. Protected by auth:sanctum + account.active + admin.",
+                "description": "Moves a project from submitted to rejected. An optional `reason` is recorded in the audit trail. The caller must be a platform administrator (ownership is not a barrier). Protected by auth:sanctum + account.active + admin.",
                 "operationId": "projectsReject",
                 "parameters": [
                     {
@@ -9316,7 +9316,7 @@
                         }
                     },
                     "403": {
-                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is the project owner (code PROJECT_REVIEW_SELF_FORBIDDEN).",
+                        "description": "The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -12758,7 +12758,30 @@
                         "type": "string",
                         "nullable": true
                     },
+                    "career_role_id": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "career_role": {
+                        "properties": {
+                            "id": {
+                                "type": "integer"
+                            },
+                            "title": {
+                                "type": "string"
+                            },
+                            "slug": {
+                                "type": "string"
+                            },
+                            "version": {
+                                "type": "integer"
+                            }
+                        },
+                        "type": "object",
+                        "nullable": true
+                    },
                     "role": {
+                        "description": "Derived from the career role title (legacy projection).",
                         "type": "string",
                         "nullable": true
                     },
@@ -12831,6 +12854,10 @@
                                     "nullable": true
                                 },
                                 "minimum_level": {
+                                    "type": "number",
+                                    "format": "float"
+                                },
+                                "minimum_required_level": {
                                     "type": "number",
                                     "format": "float"
                                 },

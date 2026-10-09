@@ -588,21 +588,23 @@ class AdminProjectTest extends TestCase
         $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
     }
 
-    public function test_an_admin_cannot_approve_their_own_project(): void
+    public function test_an_admin_can_approve_their_own_project(): void
     {
         $admin = $this->admin();
         Sanctum::actingAs($admin);
 
-        // An admin can also own a project (an internal simulation), and must
-        // not be able to review it themselves.
-        $project = $this->project([
-            'owner_id' => $admin->id,
-            'status' => Project::STATUS_SUBMITTED,
-        ]);
+        // Review separation was removed by product decision. An admin can own a
+        // project (an internal simulation), and is now allowed to approve it;
+        // this call used to answer 403 PROJECT_REVIEW_SELF_FORBIDDEN. The
+        // project has to be COMPLETE, otherwise PROJECT_INCOMPLETE masks it.
+        $project = $this->completeProject(Project::STATUS_SUBMITTED);
+        $project->forceFill(['owner_id' => $admin->id])->save();
 
         $this->postJson("/api/v1/projects/{$project->id}/approve")
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'PROJECT_REVIEW_SELF_FORBIDDEN');
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        $this->assertSame(Project::STATUS_APPROVED, $project->fresh()->status);
     }
 
     public function test_an_invalid_transition_is_refused_by_the_service(): void

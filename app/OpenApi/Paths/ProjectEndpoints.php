@@ -599,8 +599,8 @@ class ProjectEndpoints
         summary: 'Approve a submitted project (platform administrator only)',
         description: 'Moves a project from submitted to approved. The project becomes `approved`, not `active`, '
             .'and is not opened automatically. An optional `reason` is recorded in the audit trail. The caller '
-            .'must be a platform administrator who is not the project owner. Protected by auth:sanctum + '
-            .'account.active + admin, with the review separation re-checked by ProjectLifecycleService.',
+            .'must be a platform administrator. Ownership is NOT a barrier: an administrator may approve a '
+            .'project they own. Protected by auth:sanctum + account.active + admin.',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(
@@ -635,8 +635,7 @@ class ProjectEndpoints
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(
                 response: 403,
-                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is '
-                    .'the project owner reviewing their own project (code PROJECT_REVIEW_SELF_FORBIDDEN).',
+                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse'),
             ),
             new OA\Response(
@@ -671,7 +670,7 @@ class ProjectEndpoints
         summary: 'Send a submitted project back for changes (platform administrator only)',
         description: 'Moves a project from submitted to changes_requested. A `reason` is mandatory for this '
             .'decision; when it is missing or blank the service returns 422 with code PROJECT_REASON_REQUIRED. '
-            .'The caller must be a platform administrator who is not the project owner. Protected by '
+            .'The caller must be a platform administrator (ownership is not a barrier). Protected by '
             .'auth:sanctum + account.active + admin.',
         security: [['bearerAuth' => []]],
         parameters: [
@@ -708,8 +707,7 @@ class ProjectEndpoints
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(
                 response: 403,
-                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is '
-                    .'the project owner (code PROJECT_REVIEW_SELF_FORBIDDEN).',
+                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse'),
             ),
             new OA\Response(
@@ -743,7 +741,7 @@ class ProjectEndpoints
         tags: ['Projects'],
         summary: 'Reject a submitted project (platform administrator only)',
         description: 'Moves a project from submitted to rejected. An optional `reason` is recorded in the audit '
-            .'trail. The caller must be a platform administrator who is not the project owner. Protected by '
+            .'trail. The caller must be a platform administrator (ownership is not a barrier). Protected by '
             .'auth:sanctum + account.active + admin.',
         security: [['bearerAuth' => []]],
         parameters: [
@@ -779,8 +777,7 @@ class ProjectEndpoints
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(
                 response: 403,
-                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN) or is '
-                    .'the project owner (code PROJECT_REVIEW_SELF_FORBIDDEN).',
+                description: 'The caller is not a platform administrator (code PROJECT_REVIEW_FORBIDDEN).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse'),
             ),
             new OA\Response(

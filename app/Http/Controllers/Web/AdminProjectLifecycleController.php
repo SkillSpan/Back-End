@@ -32,7 +32,8 @@ use Illuminate\Http\Request;
  * actor's roles (`assertMayManage` / `assertMayReview`) rather than from the
  * guard. Reusing it verbatim is therefore safe: a session admin gets exactly
  * the authority a token-holding admin gets, and a project owned by someone
- * else still answers 403 PROJECT_NOT_OWNED / PROJECT_REVIEW_SELF_FORBIDDEN.
+ * else still answers 403 PROJECT_NOT_OWNED. Review no longer carries an
+ * ownership rule — any platform admin may approve, including the owner.
  *
  * The transitions stay defined in exactly one place — these methods only
  * re-declare the parent's on the session, mirroring the `Web\Admin* extends

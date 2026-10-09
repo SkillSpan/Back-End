@@ -1074,20 +1074,33 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($company->id, $fresh->organization_id);
     }
 
-    public function test_an_administrator_cannot_review_a_project_they_own(): void
+    public function test_an_administrator_can_review_a_project_they_own(): void
     {
         $admin = $this->user('admin@test.com', 'admin');
 
-        // An internal simulation owned by the administrator themselves.
-        $project = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
-
         Sanctum::actingAs($admin);
 
-        $this->postJson("/api/v1/projects/{$project->id}/approve")
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'PROJECT_REVIEW_SELF_FORBIDDEN');
+        // Review separation was removed by product decision: an internal
+        // simulation owned by the administrator is reviewable by that same
+        // administrator. All three decisions used to answer 403
+        // PROJECT_REVIEW_SELF_FORBIDDEN.
+        $approved = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
 
-        $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
+        $this->postJson("/api/v1/projects/{$approved->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        $changes = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
+
+        $this->postJson("/api/v1/projects/{$changes->id}/request-changes", ['reason' => 'Tighten the scope.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_CHANGES_REQUESTED);
+
+        $rejected = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
+
+        $this->postJson("/api/v1/projects/{$rejected->id}/reject", ['reason' => 'Out of scope.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_REJECTED);
     }
 
     // -----------------------------------------------------------------
