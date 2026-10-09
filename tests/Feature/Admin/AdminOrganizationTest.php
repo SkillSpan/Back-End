@@ -159,6 +159,47 @@ class AdminOrganizationTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_the_index_clamps_per_page_to_a_safe_maximum(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $this->organization();
+        $this->organization();
+        $this->organization();
+
+        // A huge per_page must not become an unbounded query — this list used
+        // to hand the value straight to paginate().
+        $this->getJson('/api/v1/admin/organizations?per_page=1000000')
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 100);
+
+        // Absent → the documented default.
+        $this->getJson('/api/v1/admin/organizations')
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 15);
+
+        // A sane request is still honoured.
+        $this->getJson('/api/v1/admin/organizations?per_page=2')
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 2)
+            ->assertJsonPath('data.total', 3);
+    }
+
+    public function test_a_non_positive_per_page_falls_back_to_the_floor(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $this->organization();
+
+        // 0 and negatives used to reach paginate() as-is (MySQL rejects
+        // `LIMIT -5` outright, and 0 fell through to the model default).
+        foreach (['0', '-5'] as $value) {
+            $this->getJson("/api/v1/admin/organizations?per_page={$value}")
+                ->assertOk()
+                ->assertJsonPath('data.per_page', 1);
+        }
+    }
+
     public function test_show_returns_the_organization_with_verifier_and_proof_file(): void
     {
         $adminUser = $this->admin();

@@ -118,7 +118,8 @@ Route::prefix('v1')->group(function () {
         // DATA_SCIENCE_PROJECT_MATCHING_ENABLED; disabled ⇒ 503.
         Route::post('/projects/{project}/match', [ProjectMatchingController::class, 'match'])
             ->name('projects.match')
-            ->whereNumber('project');
+            ->whereNumber('project')
+            ->middleware('throttle:project-matching');
 
         // Task 11 — the learner's own stored project matching
         // recommendations. Scoped to the authenticated learner.
@@ -140,13 +141,22 @@ Route::prefix('v1')->group(function () {
             ->name('recommendations.feedback')
             ->whereNumber('recommendation');
 
-        Route::post('/readiness/calculate', [ReadinessController::class, 'calculate']);
+        // Costly: a synchronous Data Science round trip. Throttled per user so
+        // one account cannot loop it, while a learner recalculating a few times
+        // never notices.
+        Route::post('/readiness/calculate', [ReadinessController::class, 'calculate'])
+            ->middleware('throttle:readiness-calculate');
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
-        Route::post('/skill-match', [SkillMatchController::class, 'store']);
+
+        // Same synchronous Data Science call as /readiness/calculate, so it
+        // shares that limiter rather than inventing a second budget.
+        Route::post('/skill-match', [SkillMatchController::class, 'store'])
+            ->middleware('throttle:readiness-calculate');
 
         // US-INT-01 — intelligence decision endpoints (skill gap +
         // readiness + roadmap in one atomic decision).
-        Route::post('/intelligence/calculate', [IntelligenceController::class, 'calculate']);
+        Route::post('/intelligence/calculate', [IntelligenceController::class, 'calculate'])
+            ->middleware('throttle:intelligence-calculate');
         Route::get('/intelligence/latest', [IntelligenceController::class, 'latest']);
     });
 
@@ -226,7 +236,10 @@ Route::prefix('v1')->group(function () {
     // authoritative records, and it never generates prose — that is
     // FastAPI's responsibility exclusively.
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('assistant')->group(function () {
-        Route::post('/ask', [AssistantController::class, 'ask']);
+        // The most expensive route on the API: a billed LLM round trip that can
+        // take up to a minute. Throttled per learner.
+        Route::post('/ask', [AssistantController::class, 'ask'])
+            ->middleware('throttle:assistant-ask');
 
         // §12.6 incident flow / REC-08 — report a response as unsafe,
         // irrelevant, unfair or incorrect.
@@ -239,21 +252,28 @@ Route::prefix('v1')->group(function () {
     // `conversations.mentor_student_connection_id` is NOT nullable, so a
     // learner with no mentor could never have one.
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
-        ->prefix('support')
-        ->group(function () {
-            Route::post('/requests', [SupportRequestController::class, 'store']);
-            Route::get('/requests', [SupportRequestController::class, 'index']);
-            Route::get('/requests/{supportRequest}', [SupportRequestController::class, 'show'])
-                ->whereNumber('supportRequest');
-            Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
-                ->whereNumber('supportRequest');
+    ->prefix('support')
+    ->group(function () {
+        // Both writes notify the mentor and the admins, so they share one
+        // per-learner budget — generous, because a thread is a conversation.
+        Route::post('/requests', [SupportRequestController::class, 'store'])
+            ->middleware('throttle:support-write');
 
-            // The face of whoever answered. Its own route rather than a field on
-            // the message payload: the avatar is a blob, and a thread with ten
-            // replies would re-send the same photo ten times.
-            Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
-                ->whereNumber('user');
-        });
+        Route::get('/requests', [SupportRequestController::class, 'index']);
+
+        Route::get('/requests/{supportRequest}', [SupportRequestController::class, 'show'])
+            ->whereNumber('supportRequest');
+
+        Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
+            ->whereNumber('supportRequest')
+            ->middleware('throttle:support-write');
+
+        // The face of whoever answered. Its own route rather than a field on
+        // the message payload: the avatar is a blob, and a thread with ten
+        // replies would re-send the same photo ten times.
+        Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
+            ->whereNumber('user');
+    });
 
     // Public reference data for onboarding dropdowns (no auth needed).
     Route::prefix('reference')->group(function () {
@@ -273,8 +293,10 @@ Route::prefix('v1')->group(function () {
 
     // Evidence Submission API
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('evidence')->group(function () {
+        // Uploading stores a file and triggers a skill recalculation, so it is
+        // throttled per learner.
         Route::post('/', [EvidenceController::class, 'store'])
-            ->middleware('role:learner');
+            ->middleware(['role:learner', 'throttle:evidence-upload']);
         Route::get('/', [EvidenceController::class, 'index'])
             ->middleware('role:learner');
         Route::get('/{id}', [EvidenceController::class, 'show']);

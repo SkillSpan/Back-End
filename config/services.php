@@ -255,6 +255,25 @@ return [
         // phone photo (which is then downscaled) and small enough that a
         // deliberate oversized upload cannot exhaust memory.
         'avatar_max_upload_kb' => (int) env('PROFILE_AVATAR_MAX_KB', 4096),
+
+        // Decompression-bomb ceilings, checked after the header is read but
+        // before any bitmap is allocated.
+        //
+        // `avatar_max_upload_kb` bounds the bytes on the wire, which is a
+        // different thing from the memory the decode needs: an image header can
+        // declare 40000x40000 pixels in ~30 bytes, and `imagecreatefromstring`
+        // then allocates width * height * 4 bytes for the bitmap (~6 GB for
+        // that file). Both numbers below are deliberately generous so that
+        // every normal avatar or phone photo still passes.
+        //
+        // Largest single side, in pixels. 8000 covers a phone photo and a
+        // panorama; a side beyond that is not an avatar.
+        'avatar_max_dimension' => (int) env('PROFILE_AVATAR_MAX_DIMENSION', 8000),
+
+        // Largest total pixel count. 25 MP is ~100 MB of GD memory, which
+        // stays inside PHP's default 128 MB memory_limit while still accepting
+        // a 24 MP camera photo. Raise it on a host with more headroom.
+        'avatar_max_pixels' => (int) env('PROFILE_AVATAR_MAX_PIXELS', 25000000),
     ],
 
     // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
@@ -352,10 +371,21 @@ return [
 
     'admin_setup' => [
         'secret' => env('ADMIN_SETUP_SECRET', ''),
+
+        // Kill switch for the bootstrap endpoint. Defaults to enabled so an
+        // existing deployment is unaffected; set ADMIN_SETUP_ENABLED=false once
+        // the admin account exists to close the route entirely — a stronger
+        // position than relying on the secret staying secret forever.
+        'enabled' => (bool) env('ADMIN_SETUP_ENABLED', true),
     ],
 
     'mentor_setup' => [
         'secret' => env('MENTOR_SETUP_SECRET', ''),
+
+        // Same kill switch for the mentor bootstrap. Set
+        // MENTOR_SETUP_ENABLED=false when mentors are onboarded through
+        // another path and this route should stop accepting the secret.
+        'enabled' => (bool) env('MENTOR_SETUP_ENABLED', true),
     ],
 
     // Shared secret for server-to-server calls from the Data Science
