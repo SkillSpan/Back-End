@@ -677,6 +677,27 @@ class AuthService
 
     public function sendPasswordResetOtp(User $user): void
     {
+        /*
+         * A suspended or deleted account must not be able to run the reset
+         * flow at all — otherwise "forgot password" is a way to keep acting on
+         * an account the platform has already shut down.
+         *
+         * The refusal is silent on purpose. Both callers answer with the same
+         * neutral 200 they use for an unknown address, so this endpoint never
+         * becomes a way to probe account standing.
+         *
+         * Pending accounts are NOT blocked: `isAccountBlocked()` deliberately
+         * excludes them, because they still have to be able to finish
+         * activation, and a reset grants nothing until they verify.
+         */
+        if ($this->isAccountBlocked($user)) {
+            Log::info('Password reset refused for a blocked account.', [
+                'user_id' => $user->id,
+            ]);
+
+            return;
+        }
+
         $digits = (int) config('password_reset.otp_digits', 6);
         $max = (10 ** $digits) - 1;
         $otp = str_pad((string) random_int(0, $max), $digits, '0', STR_PAD_LEFT);
@@ -746,6 +767,12 @@ class AuthService
             return false;
         }
 
+        // Same standing gate as resetPassword(): the pre-check screen must not
+        // report success for an account that can no longer use the flow.
+        if ($this->isAccountBlocked($user)) {
+            return false;
+        }
+
         $record = DB::table('password_reset_tokens')
             ->where('user_id', $user->id)
             ->whereNull('consumed_at')
@@ -803,10 +830,40 @@ class AuthService
                 return false;
             }
 
+            // Account standing, checked before the token is even read. A
+            // suspended or deleted account must not be able to complete a reset
+            // — the flow would otherwise succeed (and rotate the password) on an
+            // account the platform has already shut down. The failure is the
+            // same `false` a wrong code produces, so it is indistinguishable
+            // from a normal rejection. Pending accounts are allowed through:
+            // `isAccountBlocked()` excludes them, and a reset grants nothing
+            // until they finish activation.
+            if ($this->isAccountBlocked($user)) {
+                Log::info('Password reset refused for a blocked account.', [
+                    'user_id' => $user->id,
+                ]);
+
+                DB::rollBack();
+
+                return false;
+            }
+
+            /*
+             * `lockForUpdate()` serialises the read-modify-write on MySQL /
+             * PostgreSQL: a second concurrent reset blocks on this row until the
+             * first commits, then re-reads it — already consumed, so the
+             * `whereNull('consumed_at')` filter no longer matches and it bails
+             * out early.
+             *
+             * SQLite (the test driver) ignores the clause, so this is not the
+             * guarantee on its own — the conditional UPDATE further down is, and
+             * that one holds on every driver.
+             */
             $record = DB::table('password_reset_tokens')
                 ->where('user_id', $user->id)
                 ->whereNull('consumed_at')
                 ->latest('created_at')
+                ->lockForUpdate()
                 ->first();
 
             if (! $record) {
@@ -839,6 +896,35 @@ class AuthService
                 return false;
             }
 
+            /*
+             * Consume the token with a compare-and-swap, and do it BEFORE the
+             * password is written.
+             *
+             * This single `UPDATE ... WHERE consumed_at IS NULL` is what makes a
+             * token usable exactly once: the row can only move from
+             * "unconsumed" to "consumed" a single time, and the affected-row
+             * count tells each caller whether it was the one that won. Two
+             * requests that both passed the checks above therefore cannot both
+             * proceed — the loser is refused with 0 rows.
+             *
+             * The ordering is the point. Validating, writing the password and
+             * only then marking the row consumed is exactly the race this
+             * closes: both requests read the row as unconsumed, both write a new
+             * password, and the "consume" is a formality neither can lose.
+             * Claiming the row first leaves no window at all. If anything after
+             * this throws, the transaction rolls back and the claim with it.
+             */
+            $consumed = DB::table('password_reset_tokens')
+                ->where('id', $record->id)
+                ->whereNull('consumed_at')
+                ->update(['consumed_at' => now()]);
+
+            if ($consumed !== 1) {
+                DB::rollBack();
+
+                return false;
+            }
+
             $user->update(['password' => $newPassword]);
 
             // AUTH-SEC: changing the password must invalidate every existing
@@ -853,10 +939,6 @@ class AuthService
             AuthSession::where('user_id', $user->id)
                 ->whereNull('revoked_at')
                 ->update(['revoked_at' => now()]);
-
-            DB::table('password_reset_tokens')
-                ->where('id', $record->id)
-                ->update(['consumed_at' => now()]);
 
             DB::commit();
 

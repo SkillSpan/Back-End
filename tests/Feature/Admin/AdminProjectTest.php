@@ -351,6 +351,37 @@ class AdminProjectTest extends TestCase
         $this->assertTrue($ids->contains($target->id));
     }
 
+    public function test_a_hostile_search_term_is_treated_as_a_literal(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $this->project(['title' => 'Atlas Migration']);
+        $this->project(['title' => 'Unrelated Work']);
+
+        /*
+         * The search term reaches the query builder as a bound parameter, so
+         * each of these is just a string that matches nothing: the query still
+         * runs, the table survives and the envelope is unchanged.
+         *
+         * `stats` is asserted on every pass because it is produced by the ONE
+         * raw-SQL fragment in the codebase — selectRaw('status, COUNT(*) as
+         * aggregate'), a static string with no interpolation. If it ever grew
+         * user input, this would be where it blows up.
+         */
+        foreach ([
+            "'; DROP TABLE projects; --",
+            "' OR 1=1 --",
+            "Atlas%' UNION SELECT 1 --",
+        ] as $term) {
+            $response = $this->getJson('/api/v1/admin/projects?q='.urlencode($term))->assertOk();
+
+            $this->assertSame([], $response->json('data.data'));
+            $this->assertSame(2, $response->json('stats.total'));
+        }
+
+        // Nothing was dropped, nothing was widened.
+        $this->assertSame(2, Project::count());
+    }
+
     public function test_projects_can_be_filtered_by_status(): void
     {
         Sanctum::actingAs($this->admin());
