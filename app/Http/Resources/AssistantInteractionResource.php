@@ -61,9 +61,17 @@ class AssistantInteractionResource extends JsonResource
          * branch on response_status; the UI should render the reply.
          *
          * `handoff_available` is the UI's cue to offer "talk to technical
-         * support". It is true only when the assistant replied but had nothing
-         * to ground an answer in — never on a provider outage, where a human
-         * would be handed a question the assistant never actually considered.
+         * support". It is true when the assistant replied but nothing in the
+         * snapshot could ground an answer to the question — either because
+         * the service said so (`insufficient_context`), or because Laravel
+         * knows the source behind that intent was `available => false` when
+         * it built the snapshot. The second condition is the one that fires
+         * in practice: the service reports `answered` on every call it
+         * receives, so the first has never occurred in production.
+         * {@see AssistantContextBuilder::groundsIntent()}
+         *
+         * It is never true on a provider outage, where a human would be
+         * handed a question the assistant never actually considered.
          */
         if ($this->answer !== null) {
             $payload['reply'] = $this->answer->reply;

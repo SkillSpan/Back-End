@@ -133,6 +133,18 @@ class AssistantService
 
         $context = $this->contextBuilder->build($studentProfile);
 
+        /*
+         * Whether what we are about to send can ground the question at all.
+         *
+         * This is the handoff trigger that actually works. The service
+         * answers every call it receives, so its own `insufficient_context`
+         * signal has never fired (0 rows in production, verified) and the
+         * offer would otherwise be unreachable. Laravel built the snapshot,
+         * so Laravel is the only party that knows the learner's data is not
+         * in it. See AssistantContextBuilder::groundsIntent().
+         */
+        $contextGroundsIntent = $this->contextBuilder->groundsIntent($context['snapshot'], $intent);
+
         // Resolved from configuration, never fabricated (REC-01, §8.6).
         $configurationVersion = 'config-v'.$this->snapshotService->resolveConfiguration()->version;
 
@@ -213,6 +225,7 @@ class AssistantService
                 'prompt_version' => $response['prompt_version'] ?? null,
                 'answer_status' => $answerStatus,
                 'grounded' => $grounded,
+                'context_grounds_intent' => $contextGroundsIntent,
             ]);
 
             return new AssistantAnswer(
@@ -222,6 +235,7 @@ class AssistantService
                 promptVersion: $response['prompt_version'] ?? null,
                 answerStatus: $answerStatus,
                 grounded: $grounded,
+                contextGroundsIntent: $contextGroundsIntent,
             );
         } catch (AssistantException $e) {
             // The attempt is recorded as failed with a stable code. No

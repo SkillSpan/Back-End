@@ -30,6 +30,9 @@ use App\Models\AssistantInteraction;
  *   * `answerStatus === 'insufficient_context'` → a model answered, and said it
  *     does not have the information. The service reports this explicitly, and it
  *     is what the human-handoff offer is built on.
+ *
+ * `contextGroundsIntent` is the second, and in practice the **only working**,
+ * input to the handoff decision — see {@see needsHumanHandoff()}.
  */
 final readonly class AssistantAnswer
 {
@@ -46,6 +49,7 @@ final readonly class AssistantAnswer
         public ?string $promptVersion,
         public ?string $answerStatus = null,
         public bool $grounded = false,
+        public bool $contextGroundsIntent = true,
     ) {}
 
     /**
@@ -62,17 +66,33 @@ final readonly class AssistantAnswer
     }
 
     /**
-     * True when the service replied but could not ground the answer — the case
-     * that should offer the learner a human.
+     * True when the learner should be offered a human.
      *
-     * Requires `providerUsed` to be non-null as well: a total provider outage
-     * leaves `answerStatus` absent, and offering "talk to support" during an
-     * infrastructure failure would send learners to a human for a problem the
-     * assistant never actually looked at.
+     * Two independent routes, both requiring a provider to have actually
+     * answered:
+     *
+     *  1. The service reported `insufficient_context` — the designed signal.
+     *  2. The snapshot Laravel sent had nothing to ground *this question*
+     *     in, so `contextGroundsIntent` is false.
+     *
+     * (2) is not a workaround for a bug in (1) — it is the only route that
+     * fires. The service answers every call it receives, so (1) has never
+     * occurred in production (0 rows, verified). Laravel knows which
+     * sources it sent; that fact is what the offer is built on.
+     * {@see AssistantContextBuilder::groundsIntent()}
+     *
+     * A total provider outage still returns false: the learner is reading
+     * the service's own fallback text and the interaction is recorded as
+     * failed. Offering "talk to support" there would hand a human a
+     * question the assistant never actually considered.
      */
     public function needsHumanHandoff(): bool
     {
+        if (! $this->wasAnsweredByAProvider()) {
+            return false;
+        }
+
         return $this->answerStatus === self::STATUS_INSUFFICIENT_CONTEXT
-            && $this->wasAnsweredByAProvider();
+            || ! $this->contextGroundsIntent;
     }
 }

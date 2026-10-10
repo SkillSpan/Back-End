@@ -4,6 +4,7 @@ use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProfileController;
 use App\Http\Controllers\Web\AdminProjectController;
+use App\Http\Controllers\Web\AdminProjectLifecycleController;
 use App\Http\Controllers\Web\AdminQuestionController;
 use App\Http\Controllers\Web\AdminSpecializationController;
 use App\Http\Controllers\Web\AdminSupportController;
@@ -66,11 +67,6 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
     /*
      * Project management. The page plus the session-authenticated JSON
      * endpoints its JavaScript calls, mirroring the organizations panel above.
-     *
-     * The lifecycle actions (submit / approve / request-changes / reject /
-     * open) are deliberately NOT duplicated here: the panel calls the
-     * existing /api/v1/projects/* endpoints, so the allowed transitions stay
-     * defined in exactly one place.
      */
     Route::view('/projects', 'admin.projects')->name('admin.projects');
 
@@ -86,6 +82,34 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
     Route::patch('/api/projects/{project}', [AdminProjectController::class, 'update'])
         ->whereNumber('project');
     Route::post('/api/projects/{project}/cancel', [AdminProjectController::class, 'cancel'])
+        ->whereNumber('project');
+
+    /*
+     * Project lifecycle actions for the panel's detail overlay.
+     *
+     * These used to be called straight on /api/v1/projects/{id}/{action} on the
+     * theory that the transitions would then stay defined in exactly one place.
+     * The theory was wrong about the guard: /api/v1 sits behind `auth:sanctum`,
+     * which reads a bearer token, while the panel holds a session cookie — so
+     * every press of Submit / Approve / Request changes / Reject / Open came
+     * back 401, and the panel's api() helper answered a 401 by navigating to
+     * /admin/login. The operator was thrown out of the page instead of moving
+     * the project.
+     *
+     * The transitions still live in exactly one place: these routes point at a
+     * session twin that only re-declares ProjectManagementController on the web
+     * guard, and all authorization remains in ProjectLifecycleService, which
+     * reads the stored owner_id and the actor's roles rather than the guard.
+     */
+    Route::post('/api/projects/{project}/submit', [AdminProjectLifecycleController::class, 'submit'])
+        ->whereNumber('project');
+    Route::post('/api/projects/{project}/approve', [AdminProjectLifecycleController::class, 'approve'])
+        ->whereNumber('project');
+    Route::post('/api/projects/{project}/request-changes', [AdminProjectLifecycleController::class, 'requestChanges'])
+        ->whereNumber('project');
+    Route::post('/api/projects/{project}/reject', [AdminProjectLifecycleController::class, 'reject'])
+        ->whereNumber('project');
+    Route::post('/api/projects/{project}/open', [AdminProjectLifecycleController::class, 'open'])
         ->whereNumber('project');
 
     /*
@@ -199,6 +223,20 @@ Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function (
         ->whereNumber('supportRequest');
 
     Route::post('/api/support/{supportRequest}/resolve', [AdminSupportController::class, 'resolve'])
+        ->whereNumber('supportRequest');
+
+    // A face to go with a name in the thread. Its own route, like the profile
+    // avatar, so the browser can cache the bytes instead of the JSON carrying
+    // a base64 blob that would be re-sent on every open of the thread.
+    Route::get('/support/avatar/{user}', [AdminSupportController::class, 'avatar'])
+        ->whereNumber('user')
+        ->name('admin.support.avatar');
+
+    Route::delete('/api/support/{supportRequest}/messages/{message}', [AdminSupportController::class, 'destroyMessage'])
+        ->whereNumber('supportRequest')
+        ->whereNumber('message');
+
+    Route::delete('/api/support/{supportRequest}', [AdminSupportController::class, 'destroy'])
         ->whereNumber('supportRequest');
 });
 

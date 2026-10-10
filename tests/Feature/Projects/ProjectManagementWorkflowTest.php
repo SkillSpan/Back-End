@@ -495,14 +495,22 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertNotSame(Project::STATUS_OPEN, $fresh->status);
     }
 
-    public function test_the_project_owner_cannot_approve_their_own_project(): void
+    public function test_a_project_owner_who_is_not_an_admin_cannot_approve_their_own_project(): void
     {
+        // The default fixture owner is a company_admin, NOT a platform admin, so
+        // the refusal here is "you are not an admin" - and NOT the self-review
+        // rule, which was removed. It comes from the `admin` ROUTE MIDDLEWARE,
+        // which runs first and checks the same `hasRole('admin')` predicate as
+        // the service, so the service's PROJECT_REVIEW_FORBIDDEN is the second
+        // line of defence and is never reached over HTTP. Assert the middleware's
+        // shape, not a service code.
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
 
         Sanctum::actingAs($project->owner);
 
         $this->postJson("/api/v1/projects/{$project->id}/approve")
-            ->assertStatus(403);
+            ->assertStatus(403)
+            ->assertJsonPath('success', false);
 
         $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
     }
@@ -614,8 +622,12 @@ class ProjectManagementWorkflowTest extends TestCase
 
         Sanctum::actingAs($project->owner);
 
+        // The `admin` middleware's shape, not a service code: it runs first and
+        // checks the same predicate, so PROJECT_REVIEW_FORBIDDEN never fires
+        // over HTTP. This is the other half of the review gate.
         $this->postJson("/api/v1/projects/{$project->id}/reject")
-            ->assertStatus(403);
+            ->assertStatus(403)
+            ->assertJsonPath('success', false);
 
         $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
     }
@@ -1074,20 +1086,33 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($company->id, $fresh->organization_id);
     }
 
-    public function test_an_administrator_cannot_review_a_project_they_own(): void
+    public function test_an_administrator_can_review_a_project_they_own(): void
     {
         $admin = $this->user('admin@test.com', 'admin');
 
-        // An internal simulation owned by the administrator themselves.
-        $project = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
-
         Sanctum::actingAs($admin);
 
-        $this->postJson("/api/v1/projects/{$project->id}/approve")
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'PROJECT_REVIEW_SELF_FORBIDDEN');
+        // Review separation was removed by product decision: an internal
+        // simulation owned by the administrator is reviewable by that same
+        // administrator. All three decisions used to answer 403
+        // PROJECT_REVIEW_SELF_FORBIDDEN.
+        $approved = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
 
-        $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
+        $this->postJson("/api/v1/projects/{$approved->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_APPROVED);
+
+        $changes = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
+
+        $this->postJson("/api/v1/projects/{$changes->id}/request-changes", ['reason' => 'Tighten the scope.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_CHANGES_REQUESTED);
+
+        $rejected = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
+
+        $this->postJson("/api/v1/projects/{$rejected->id}/reject", ['reason' => 'Out of scope.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', Project::STATUS_REJECTED);
     }
 
     // -----------------------------------------------------------------

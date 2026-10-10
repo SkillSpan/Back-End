@@ -247,6 +247,12 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('supportRequest');
             Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
                 ->whereNumber('supportRequest');
+
+            // The face of whoever answered. Its own route rather than a field on
+            // the message payload: the avatar is a blob, and a thread with ten
+            // replies would re-send the same photo ten times.
+            Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
+                ->whereNumber('user');
         });
 
     // Public reference data for onboarding dropdowns (no auth needed).

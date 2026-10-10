@@ -40,7 +40,8 @@ use Illuminate\Support\Facades\DB;
  *
  *   - create            → platform admin, company_admin or university_admin
  *   - update/submit/open→ platform admin OR the project's own owner
- *   - approve/request changes/reject → platform admin who is NOT the owner
+ *   - approve/request changes/reject → any platform admin, owner included
+ *     (review separation was removed by product decision — see assertMayReview)
  *
  * The approval routes additionally carry the `admin` middleware, so the
  * service check is the second line of defence, not the only one.
@@ -597,12 +598,19 @@ class ProjectLifecycleService
     }
 
     /**
-     * Moderation only: a platform administrator who is NOT the project's owner.
+     * Moderation only: any platform administrator, including one who owns the
+     * project.
      *
-     * Review separation is enforced here rather than left to the `admin`
-     * middleware, because an administrator can also be a project owner (an
-     * internal simulation, for instance) and must not be able to approve their
-     * own project.
+     * Review SEPARATION used to be enforced here as well — an administrator who
+     * owned a project was refused with `PROJECT_REVIEW_SELF_FORBIDDEN`, on the
+     * grounds that an internal simulation must not be self-approved. That rule
+     * was removed by product decision: the administrator team is small, and
+     * blocking self-review meant an administrator-authored project could stall
+     * with no second administrator available to unblock it.
+     *
+     * `$project` is kept in the signature (as in assertMayManage) so the
+     * ownership test can be reinstated here in one place if the policy ever
+     * reverses. It is deliberately NOT part of the predicate today.
      */
     private function assertMayReview(Project $project, User $actor): void
     {
@@ -611,15 +619,6 @@ class ProjectLifecycleService
                 'Only a platform administrator may review a project.',
                 403,
                 'PROJECT_REVIEW_FORBIDDEN',
-            );
-        }
-
-        if ((int) $project->owner_id === (int) $actor->id) {
-            throw new ProjectException(
-                'A project owner cannot review their own project.',
-                403,
-                'PROJECT_REVIEW_SELF_FORBIDDEN',
-                ['project_id' => $project->id],
             );
         }
     }

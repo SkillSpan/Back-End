@@ -37,6 +37,28 @@ use App\Services\Intelligence\IntelligencePayloadBuilder;
 class AssistantContextBuilder
 {
     /**
+     * Which context sources can ground an answer to each permitted intent.
+     *
+     * Declared here, beside the snapshot keys it names, rather than on the
+     * service: a renamed snapshot key breaks at the point that produces it
+     * instead of silently degrading the handoff to "always offer".
+     *
+     * `project_bounded_help` accepts either source — a learner may be
+     * discussing a project they applied to, or one that was recommended to
+     * them, and either one is real grounding.
+     *
+     * @var array<string, list<string>>
+     */
+    private const INTENT_GROUNDING = [
+        'explain_readiness' => ['readiness'],
+        'explain_skill_gap' => ['skill_gaps'],
+        'explain_roadmap' => ['roadmap'],
+        'explain_next_best_action' => ['next_best_action'],
+        'explain_project_recommendation' => ['project_recommendations'],
+        'project_bounded_help' => ['project_recommendations', 'project_applications'],
+    ];
+
+    /**
      * Build the snapshot plus its reproducibility reference.
      *
      * @return array{snapshot: array<string, mixed>, reference: string}
@@ -69,6 +91,46 @@ class AssistantContextBuilder
             // content (SRS v1.1 §9.5, §12.5).
             'reference' => 'ctx-'.substr(hash('sha256', (string) json_encode($snapshot)), 0, 32),
         ];
+    }
+
+    /**
+     * Can the snapshot we are about to send ground an answer to this intent?
+     *
+     * ⚠️ This exists because the assistant service never reports that it
+     * cannot answer. Its `status` field is `answered` on every call it has
+     * ever made: verified against production, `insufficient_context` has
+     * been recorded **zero** times — including for learners with no stored
+     * data whatsoever. A refusal comes back as a *well-formed answer about
+     * the missing data* ("no skill-gap analysis is available for you yet"),
+     * which is grounded to the service and a non-answer to the learner. So
+     * `answer_status` alone can never drive the handoff offer.
+     *
+     * Laravel is the only party that knows what it actually sent. When the
+     * source behind the question is `available => false`, the learner's own
+     * data cannot answer it — the model is working from general
+     * documentation at best. That is precisely "the chat does not have the
+     * answer", which is what the offer is for.
+     *
+     * An unknown intent returns true: never offer a human on a rule we do
+     * not have.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    public function groundsIntent(array $snapshot, string $intent): bool
+    {
+        $sources = self::INTENT_GROUNDING[$intent] ?? null;
+
+        if ($sources === null) {
+            return true;
+        }
+
+        foreach ($sources as $key) {
+            if (($snapshot[$key]['available'] ?? false) === true) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
