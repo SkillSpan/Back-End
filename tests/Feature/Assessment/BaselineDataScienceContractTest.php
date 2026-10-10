@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -274,6 +275,73 @@ class BaselineDataScienceContractTest extends TestCase
         // whatever id the service echoed back.
         $this->assertSame((int) $profile->id, (int) $evaluation->student_profile_id);
         $this->assertNotSame($victimProfileId, (int) $evaluation->student_profile_id);
+    }
+
+    /**
+     * STEP 18 — a failing upstream response must not put its body in our log.
+     *
+     * The body belongs to another service, so it is untrusted text: on a 5xx it
+     * can be a debug page or a traceback that echoes the request it received —
+     * which here is the learner's own record.
+     */
+    public function test_a_5xx_does_not_copy_the_upstream_body_into_the_log(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->start(['sql', 'python'], ['sql-001', 'python-001']);
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response(
+                "Traceback (most recent call last):\n  payload = {'email': 'LEAK-PROBE-VALUE-9f3a'}",
+                500,
+            ),
+        ]);
+
+        Log::spy();
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => [
+                ['question_id' => 'sql-001', 'answer' => 'A'],
+                ['question_id' => 'python-001', 'answer' => 'A'],
+            ],
+        ])->assertStatus(503);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'Baseline intelligence request failed')
+                && ! str_contains($context['failure_reason'] ?? '', 'LEAK-PROBE-VALUE-9f3a')
+                && str_contains($context['failure_reason'] ?? '', 'upstream body omitted'))
+            ->once();
+    }
+
+    /**
+     * The counterpart: the documented `{"detail": "..."}` explanation IS kept,
+     * because that string is what actually diagnoses the failure.
+     */
+    public function test_a_5xx_keeps_the_documented_detail_message_in_the_log(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->start(['sql', 'python'], ['sql-001', 'python-001']);
+
+        Http::fake([
+            '*/api/v1/baseline' => Http::response(['detail' => 'unknown assessment_version'], 503),
+        ]);
+
+        Log::spy();
+
+        $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
+            'responses' => [
+                ['question_id' => 'sql-001', 'answer' => 'A'],
+                ['question_id' => 'python-001', 'answer' => 'A'],
+            ],
+        ])->assertStatus(503);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'Baseline intelligence request failed')
+                && str_contains($context['failure_reason'] ?? '', 'unknown assessment_version'))
+            ->once();
     }
 
     /*

@@ -8,6 +8,7 @@ use App\Http\Requests\CalculateIntelligenceRequest;
 use App\Http\Resources\IntelligenceResultResource;
 use App\Models\DecisionSnapshot;
 use App\Services\Intelligence\IntelligenceService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -66,7 +67,7 @@ class IntelligenceController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'career_role_id' => $request->input('career_role_id'),
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(

@@ -7,6 +7,7 @@ use App\Models\AssistantInteraction;
 use App\Models\StudentProfile;
 use App\Services\Intelligence\DecisionSnapshotService;
 use App\Services\Intelligence\IntelligenceService;
+use App\Support\SafeLog;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -265,7 +266,7 @@ class AssistantService
                 'interaction_id' => $interaction->id,
                 'student_profile_id' => $studentProfile->id,
                 'intent' => $intent,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             throw new AssistantException(

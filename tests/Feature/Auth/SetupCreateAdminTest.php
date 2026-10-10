@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\AuditEvent;
 use App\Models\AuthSession;
 use App\Models\Role;
 use App\Models\User;
@@ -133,5 +134,53 @@ class SetupCreateAdminTest extends TestCase
             ->assertStatus(429);
 
         $this->assertSame(0, AuthSession::count());
+    }
+
+    // =============================================== the kill switch
+
+    public function test_is_disabled_by_the_kill_switch_even_with_the_correct_secret(): void
+    {
+        // The bootstrap is done; the operator closes the route without having
+        // to remove (or rotate) the secret. A correct secret must not reopen it.
+        config(['services.admin_setup.enabled' => false]);
+
+        $this->postJson('/api/v1/setup/create-admin', $this->payload())
+            ->assertStatus(403)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'disabled'));
+
+        $this->assertSame(0, User::count());
+    }
+
+    // =============================================== audit trail
+
+    public function test_a_successful_bootstrap_is_audited(): void
+    {
+        $response = $this->postJson('/api/v1/setup/create-admin', $this->payload())
+            ->assertStatus(201);
+
+        $admin = User::where('email', $response->json('data.email'))->firstOrFail();
+
+        // The actor is null by design: this route has no authenticated user,
+        // the shared secret is the authorisation. The action and purpose are
+        // what make the row reviewable afterwards.
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => null,
+            'action' => 'setup.admin_created',
+            'entity_type' => User::class,
+            'entity_id' => $admin->id,
+            'purpose' => 'shared_secret_bootstrap',
+        ]);
+
+        $event = AuditEvent::where('action', 'setup.admin_created')->firstOrFail();
+        $this->assertSame('admin', $event->after['role']);
+    }
+
+    public function test_a_refused_attempt_writes_no_audit_row(): void
+    {
+        $this->postJson('/api/v1/setup/create-admin', $this->payload(['secret' => 'wrong-guess']))
+            ->assertStatus(403);
+
+        $this->assertSame(0, AuditEvent::count());
     }
 }

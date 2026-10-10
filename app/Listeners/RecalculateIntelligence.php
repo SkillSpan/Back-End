@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\SkillDataChanged;
 use App\Services\Intelligence\IntelligenceService;
+use App\Support\SafeLog;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -56,7 +57,7 @@ class RecalculateIntelligence implements ShouldQueue
             Log::warning('Queued intelligence recalculation failed.', [
                 'source' => $event->source,
                 'student_profile_id' => $profile->id,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
         }
     }

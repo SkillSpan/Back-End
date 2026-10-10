@@ -12,6 +12,7 @@ use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Profile\AdminProfileService;
 use App\Support\PanelAccess;
+use App\Support\SafeLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -376,7 +377,7 @@ class ProfileController extends Controller
     {
         Log::error('Admin profile request failed.', array_merge([
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ], $context));
 
         return $this->errorResponse(

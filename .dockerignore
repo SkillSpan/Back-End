@@ -17,3 +17,39 @@ INTEGRATION_README.md
 postman_collection.json
 .opencode/
 .continue/
+
+# ---------------------------------------------------------------------------
+# The image is built with `COPY . .`, so everything tracked in the repo and not
+# listed here ends up in the deployed artifact. The entries below are the ones
+# that must never ship. This file is a blocklist by nature, so when something
+# new is added to the repo, ask whether it belongs in production before it
+# becomes part of the image.
+# ---------------------------------------------------------------------------
+
+# A second, unrelated Laravel application living inside this repository
+# (it requires PHP ^8.3 / laravel/framework ^13 — this app runs PHP 8.2 /
+# Laravel 12). Nothing serves it, nothing tests it, and nothing patches it,
+# yet `COPY . .` would ship its whole source tree — and its dependency
+# manifests — inside our production image.
+TaskFlow/
+
+# Working notes / session memory. Internal, and not part of the application.
+.workbuddy-ai/
+
+# Postman collections and environment files carry dev credentials
+# (`learner_password`, seeded tokens) and the live base_url. They are fixtures
+# for manual testing, never runtime config. `*postman*` (not `postman_*`) so it
+# also catches `SkillSpan_API_Collection.postman_collection.json`.
+*postman*.json
+
+# Handoff / review / incident reports. Documentation for humans, not assets.
+# `**/` because a bare `*.md` only matches at the context root.
+**/*.md
+**/*.pdf
+**/*.patch
+
+# Standalone HTML handoff / preview documents (EVIDENCE_ADD_API.html,
+# FRONTEND_API_HANDOFF.html, PREVIEW_admin_profile.html). Root-anchored with a
+# leading `/` on purpose: the only runtime HTML is Blade (`.blade.php`), so this
+# must never reach into `public/` or `resources/`.
+/*.html

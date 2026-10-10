@@ -12,6 +12,7 @@ use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
 use App\Services\Baseline\BaselineAssessmentService;
 use App\Services\Baseline\BaselineQuestionSelectionService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -277,7 +278,7 @@ class BaselineAssessmentController extends Controller
         Log::error($message, [
             'request_id' => $requestId,
             'user_id' => $userId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ]);
 
         return $this->errorResponse(

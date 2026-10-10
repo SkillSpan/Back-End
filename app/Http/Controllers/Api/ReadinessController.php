@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CalculateReadinessRequest;
 use App\Http\Resources\ReadinessResultResource;
 use App\Services\Readiness\ReadinessService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -58,7 +59,7 @@ class ReadinessController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'career_role_id' => $request->input('career_role_id'),
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(
@@ -107,7 +108,7 @@ class ReadinessController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'career_role_id' => $request->input('career_role_id'),
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(

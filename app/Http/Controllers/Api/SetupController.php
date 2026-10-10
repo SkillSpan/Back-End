@@ -7,6 +7,7 @@ use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AuthService;
+use App\Traits\AuditsActions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -16,6 +17,8 @@ use Illuminate\Support\Str;
 
 class SetupController extends Controller
 {
+    use AuditsActions;
+
     public function __construct(protected AuthService $authService) {}
 
     /**
@@ -27,24 +30,8 @@ class SetupController extends Controller
      */
     public function createAdmin(Request $request): JsonResponse
     {
-        $configuredSecret = (string) config('services.admin_setup.secret', '');
-
-        if ($configuredSecret === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Admin setup is disabled. Set ADMIN_SETUP_SECRET in the environment first.',
-            ], 403);
-        }
-
-        if (! hash_equals($configuredSecret, (string) $request->input('secret'))) {
-            Log::warning('Admin setup rejected: invalid secret.', [
-                'ip' => $request->ip(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid setup secret.',
-            ], 403);
+        if ($refusal = $this->refuseUnlessAuthorised($request, 'Admin', 'admin_setup', 'ADMIN_SETUP_SECRET')) {
+            return $refusal;
         }
 
         $validator = Validator::make($request->all(), [
@@ -81,6 +68,25 @@ class SetupController extends Controller
         $tokenResult = $admin->createToken('auth_token');
         $this->authService->recordAuthSession($admin, $tokenResult, $request);
 
+        // Privileged provisioning is audited. The actor is deliberately null:
+        // this endpoint has no authenticated user — the shared secret is the
+        // authorisation — so the IP and User-Agent are the only attributable
+        // facts, and the action/purpose are what make the row meaningful later.
+        $this->audit(
+            actorId: null,
+            action: 'setup.admin_created',
+            entityType: User::class,
+            entityId: $admin->id,
+            after: [
+                'email' => $admin->email,
+                'role' => 'admin',
+                'status' => $admin->status,
+            ],
+            purpose: 'shared_secret_bootstrap',
+            ipAddress: $request->ip(),
+            userAgent: $request->userAgent(),
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Admin account created successfully. Save this token now, or log in normally afterwards via /api/v1/auth/login.',
@@ -114,24 +120,8 @@ class SetupController extends Controller
      */
     public function createMentor(Request $request): JsonResponse
     {
-        $configuredSecret = (string) config('services.mentor_setup.secret', '');
-
-        if ($configuredSecret === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Mentor setup is disabled. Set MENTOR_SETUP_SECRET in the environment first.',
-            ], 403);
-        }
-
-        if (! hash_equals($configuredSecret, (string) $request->input('secret'))) {
-            Log::warning('Mentor setup rejected: invalid secret.', [
-                'ip' => $request->ip(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid setup secret.',
-            ], 403);
+        if ($refusal = $this->refuseUnlessAuthorised($request, 'Mentor', 'mentor_setup', 'MENTOR_SETUP_SECRET')) {
+            return $refusal;
         }
 
         $validator = Validator::make($request->all(), [
@@ -166,6 +156,29 @@ class SetupController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => "An account with this email already exists and its status is {$reason}. Restore or reactivate it before promoting it to mentor.",
+            ], 422);
+        }
+
+        /*
+         * Privilege boundary: the mentor secret must never be able to touch a
+         * platform administrator.
+         *
+         * Without this, the mentor secret was a back door into the admin
+         * account. Re-calling this endpoint with an admin's email and a new
+         * `password` reset it — that is the documented recovery path — so a
+         * secret scoped to mentors could take over the highest-privileged
+         * account on the platform. The same call would also have attached a
+         * verified mentor profile to an administrator. Both are refused here.
+         */
+        if ($user && $user->hasRole('admin')) {
+            Log::warning('Mentor setup refused: the target account is a platform administrator.', [
+                'ip' => $request->ip(),
+                'user_id' => $user->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An account with this email is a platform administrator. The mentor setup secret cannot modify administrator accounts.',
             ], 422);
         }
 
@@ -240,6 +253,26 @@ class SetupController extends Controller
         $profile->verification_status = 'verified';
         $profile->save();
 
+        // Recorded even when nothing but the profile changed: `password_reset`
+        // in particular is the one fact that answers "did the mentor secret
+        // ever touch this account's credentials", which is exactly the question
+        // an incident review asks. Actor is null — see createAdmin().
+        $this->audit(
+            actorId: null,
+            action: 'setup.mentor_provisioned',
+            entityType: User::class,
+            entityId: $user->id,
+            after: [
+                'email' => $user->email,
+                'registered' => $registered,
+                'password_reset' => $passwordReset,
+                'verification_status' => $profile->verification_status,
+            ],
+            purpose: 'shared_secret_bootstrap',
+            ipAddress: $request->ip(),
+            userAgent: $request->userAgent(),
+        );
+
         return response()->json([
             'success' => true,
             'message' => $registered
@@ -259,5 +292,67 @@ class SetupController extends Controller
                 'verification_status' => $profile->verification_status,
             ],
         ], 201);
+    }
+
+    /**
+     * Shared gate for both setup endpoints.
+     *
+     * Three checks, in this order:
+     *
+     *  1. The kill switch. `enabled` is a config flag that defaults to true so
+     *     existing deployments keep working; setting ADMIN_SETUP_ENABLED=false
+     *     (or the mentor equivalent) closes the endpoint outright once the
+     *     bootstrap is done — without having to hunt down and remove the
+     *     secret, and without a redeploy of anything else.
+     *  2. "No secret configured", which is how these endpoints have always been
+     *     switched off. A disabled endpoint never compares anything.
+     *  3. The secret itself, with `hash_equals` rather than `===`.
+     *
+     * `hash_equals` is what makes the comparison constant-time. With `===` the
+     * comparison short-circuits on the first differing byte, and that timing
+     * difference is enough to recover a secret one byte at a time — which is
+     * exactly the attack the route throttle only slows down. `hash_equals`
+     * also makes a wrong-length guess cost the same as a right-length one.
+     *
+     * @return JsonResponse|null the refusal response, or null to proceed
+     */
+    private function refuseUnlessAuthorised(
+        Request $request,
+        string $label,
+        string $configKey,
+        string $envName,
+    ): ?JsonResponse {
+        if (! (bool) config("services.{$configKey}.enabled", true)) {
+            Log::warning("{$label} setup rejected: disabled by configuration.", [
+                'ip' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => "{$label} setup is disabled.",
+            ], 403);
+        }
+
+        $configuredSecret = (string) config("services.{$configKey}.secret", '');
+
+        if ($configuredSecret === '') {
+            return response()->json([
+                'success' => false,
+                'message' => "{$label} setup is disabled. Set {$envName} in the environment first.",
+            ], 403);
+        }
+
+        if (! hash_equals($configuredSecret, (string) $request->input('secret'))) {
+            Log::warning("{$label} setup rejected: invalid secret.", [
+                'ip' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid setup secret.',
+            ], 403);
+        }
+
+        return null;
     }
 }

@@ -31,7 +31,7 @@ class EvidenceCareerRoleEndpoints
                     properties: [
                         new OA\Property(property: 'skill_id', type: 'integer', description: 'Must reference an existing skill whose status is `active`.', example: 15),
                         new OA\Property(property: 'evidence_url', type: 'string', format: 'uri', nullable: true, description: 'Required when `evidence_file` is not sent.', example: 'https://example.com/certs/php-advanced.pdf'),
-                        new OA\Property(property: 'evidence_file', type: 'string', format: 'binary', nullable: true, description: 'Required when `evidence_url` is not sent. Maximum 10000 KB.', example: 'certificate.pdf'),
+                        new OA\Property(property: 'evidence_file', type: 'string', format: 'binary', nullable: true, description: 'Required when `evidence_url` is not sent. Allowed types: pdf, jpg, jpeg, png, webp. Maximum 10000 KB.', example: 'certificate.pdf'),
                         new OA\Property(property: 'description', type: 'string', nullable: true, maxLength: 500, example: 'Completed the advanced PHP certification.'),
                         new OA\Property(property: 'evidence_date', type: 'string', format: 'date', nullable: true, description: 'Defaults to today when omitted.', example: '2026-01-15'),
                     ],
