@@ -253,28 +253,28 @@ Route::prefix('v1')->group(function () {
     // `conversations.mentor_student_connection_id` is NOT nullable, so a
     // learner with no mentor could never have one.
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
-    ->prefix('support')
-    ->group(function () {
-        // Both writes notify the mentor and the admins, so they share one
-        // per-learner budget — generous, because a thread is a conversation.
-        Route::post('/requests', [SupportRequestController::class, 'store'])
-            ->middleware('throttle:support-write');
+        ->prefix('support')
+        ->group(function () {
+            // Both writes notify the mentor and the admins, so they share one
+            // per-learner budget — generous, because a thread is a conversation.
+            Route::post('/requests', [SupportRequestController::class, 'store'])
+                ->middleware('throttle:support-write');
 
-        Route::get('/requests', [SupportRequestController::class, 'index']);
+            Route::get('/requests', [SupportRequestController::class, 'index']);
 
-        Route::get('/requests/{supportRequest}', [SupportRequestController::class, 'show'])
-            ->whereNumber('supportRequest');
+            Route::get('/requests/{supportRequest}', [SupportRequestController::class, 'show'])
+                ->whereNumber('supportRequest');
 
-        Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
-            ->whereNumber('supportRequest')
-            ->middleware('throttle:support-write');
+            Route::post('/requests/{supportRequest}/messages', [SupportRequestController::class, 'message'])
+                ->whereNumber('supportRequest')
+                ->middleware('throttle:support-write');
 
-        // The face of whoever answered. Its own route rather than a field on
-        // the message payload: the avatar is a blob, and a thread with ten
-        // replies would re-send the same photo ten times.
-        Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
-            ->whereNumber('user');
-    });
+            // The face of whoever answered. Its own route rather than a field on
+            // the message payload: the avatar is a blob, and a thread with ten
+            // replies would re-send the same photo ten times.
+            Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
+                ->whereNumber('user');
+        });
 
     // Public reference data for onboarding dropdowns (no auth needed).
     Route::prefix('reference')->group(function () {
