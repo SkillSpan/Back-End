@@ -236,6 +236,114 @@ class SupportController extends Controller
         return $this->requestResponse($model->fresh(), 'Support request resolved successfully.', $requestId);
     }
 
+    /**
+     * DELETE /admin/api/support/{supportRequest}/messages/{message}
+     *
+     * Remove one message from a thread.
+     *
+     * The message is looked up **through the request**, never by its own id
+     * alone. A bare `SupportMessage::find()` would let anyone who can reach one
+     * thread delete a line out of somebody else's conversation by posting the
+     * other message's id — the scope has to be applied to the message too, not
+     * just to its parent.
+     *
+     * This is a hard delete, unlike the request itself: a single mistaken or
+     * duplicated line has no audit value once removed, and leaving a tombstone
+     * inside the conversation would be visible to the learner as a gap.
+     */
+    public function destroyMessage(Request $request, int $supportRequest, int $message): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        if ($denied = $this->guard($request)) {
+            return $denied;
+        }
+
+        $model = $this->scopedQuery($request)->find($supportRequest);
+
+        if ($model === null) {
+            return $this->notFound($supportRequest, $requestId);
+        }
+
+        $target = $model->messages()->find($message);
+
+        if ($target === null) {
+            return $this->errorResponse(
+                'SUPPORT_MESSAGE_NOT_FOUND',
+                'The message is not available.',
+                404,
+                $requestId,
+            );
+        }
+
+        Log::info('Support message deleted.', [
+            'request_id' => $requestId,
+            'support_request_id' => $model->id,
+            'support_message_id' => $target->id,
+            'message_type' => $target->message_type,
+            'deleted_by' => $request->user()->id,
+        ]);
+
+        $target->delete();
+
+        /*
+         * The inbox sorts and labels rows by `last_message_at`, and the deleted
+         * message may have been the one that set it. Leaving the old timestamp
+         * would keep a row at the top of the queue showing a time that no longer
+         * corresponds to anything in the thread.
+         */
+        $model->forceFill(['last_message_at' => $model->messages()->max('created_at')])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Support message deleted successfully.',
+            'data' => ['id' => (int) $message],
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
+     * DELETE /admin/api/support/{supportRequest}
+     *
+     * Remove a whole request from the inbox.
+     *
+     * A SOFT delete, because the model already uses `SoftDeletes`: the thread
+     * leaves the queue and every scoped query, while the record of what a
+     * learner was told survives. Support conversations are evidence — an
+     * operator clearing their queue should not be able to destroy it.
+     */
+    public function destroy(Request $request, int $supportRequest): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        if ($denied = $this->guard($request)) {
+            return $denied;
+        }
+
+        $model = $this->scopedQuery($request)->find($supportRequest);
+
+        if ($model === null) {
+            return $this->notFound($supportRequest, $requestId);
+        }
+
+        Log::info('Support request deleted.', [
+            'request_id' => $requestId,
+            'support_request_id' => $model->id,
+            'status' => $model->status,
+            'assigned_to' => $model->assigned_to,
+            'deleted_by' => $request->user()->id,
+        ]);
+
+        $model->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Support request deleted successfully.',
+            'data' => ['id' => (int) $supportRequest],
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
     // ── Visibility ────────────────────────────────────────────────────────
 
     /**

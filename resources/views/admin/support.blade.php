@@ -280,6 +280,9 @@
   }
   .row-btn:hover:not(:disabled){border-color:var(--teal);color:var(--teal-deep);}
   .row-btn:disabled{opacity:.45;cursor:default;}
+  /* Destructive actions get the brick, not the brand colour — the one button
+     here that cannot be undone should not look like the two that can. */
+  .row-btn.danger:hover:not(:disabled){border-color:var(--brick);color:var(--brick);}
 
   .thread-scroll{overflow-y:auto;flex:1;padding:18px;background:#FBFBF9;}
 
@@ -292,14 +295,37 @@
   .turn{display:flex;margin-bottom:12px;gap:9px;align-items:flex-end;}
   .turn.out{flex-direction:row-reverse;}
   .turn .av{
-    width:28px;height:28px;border-radius:50%;flex-shrink:0;
+    width:28px;height:28px;border-radius:50%;flex-shrink:0;position:relative;
+    overflow:hidden;
     display:flex;align-items:center;justify-content:center;
     font-size:11px;font-weight:600;color:#fff;
+  }
+  /* The photo sits on top of the initials rather than replacing them: it is
+     absolutely positioned, and `onerror` removes it, so a colleague with no
+     upload — or a request that fails — falls back to the initials already
+     rendered underneath. Nothing here needs to know which case it is. */
+  .turn .av img{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:cover;display:block;
   }
   .turn .av.learner{background:linear-gradient(135deg,#7C8AA8,#4A5878);}
   .turn .av.assistant{background:linear-gradient(135deg,#5EEAD4,#2F6F5E);}
   .turn .av.support{background:linear-gradient(135deg,#8C7BE0,#5B4B9E);}
   .turn .bub{max-width:74%;}
+  /* Delete sits with the timestamp, revealed on hover so a thread of twenty
+     messages is not a wall of buttons. Touch devices get it always — see the
+     `(hover: none)` rule below — because a hover-only control is unreachable
+     without a pointer. */
+  .turn .bub .at{display:flex;align-items:center;gap:8px;}
+  .turn.out .bub .at{justify-content:flex-end;}
+  .msg-del{
+    border:0;background:none;cursor:pointer;padding:0 2px;
+    font-size:13px;line-height:1;color:var(--ink-faint);
+    opacity:0;transition:opacity .12s ease,color .12s ease;
+  }
+  .turn:hover .msg-del,.msg-del:focus-visible{opacity:1;}
+  .msg-del:hover{color:var(--brick);}
+  @media (hover:none){ .msg-del{opacity:1;} }
   .turn .bub .txt{
     padding:10px 13px;border-radius:13px;font-size:13.5px;
     white-space:pre-wrap;word-break:break-word;
@@ -585,6 +611,7 @@
               <div class="acts">
                 <button class="row-btn" id="btn-claim">Claim</button>
                 <button class="row-btn" id="btn-resolve">Mark resolved</button>
+                <button class="row-btn danger" id="btn-delete">Delete</button>
               </div>
             </div>
 
@@ -1028,12 +1055,32 @@ function buildThread(d){
       // sees, so a screenshot of either view reads the same way.
       const fromLearner = m.sender_id === d.user_id;
 
+      /*
+       * The face, when the sender has one.
+       *
+       * Built here from `sender_id` rather than carried on the payload: the same
+       * resource serves the learner's API, where a panel URL would be a dead
+       * link, so route knowledge stays out of it.
+       *
+       * Only the support side is asked for a photo. A learner has no
+       * `admin_profile`, so every learner message would be a wasted request
+       * answering 404 — and the initials underneath already say who it is.
+       * `onerror` removes the element, which is what makes "no photo" fall back
+       * to those initials with no extra state to track.
+       */
+      const avImg = fromLearner
+        ? ''
+        : `<img src="/admin/support/avatar/${encodeURIComponent(m.sender_id)}" alt="" loading="lazy" onerror="this.remove()">`;
+
       parts.push(`<div class="turn${fromLearner ? ' out' : ''}">
-        <div class="av ${fromLearner ? 'learner' : 'support'}">${escapeHtml(initials(m.sender_name || (fromLearner ? d.user_name : 'S')))}</div>
+        <div class="av ${fromLearner ? 'learner' : 'support'}">${escapeHtml(initials(m.sender_name || (fromLearner ? d.user_name : 'S')))}${avImg}</div>
         <div class="bub">
           <div class="who">${escapeHtml(m.sender_name || (fromLearner ? 'Learner' : 'Support'))}</div>
           <div class="txt">${escapeHtml(m.body)}</div>
-          <div class="at">${escapeHtml(fmtTime(m.created_at))}</div>
+          <div class="at">
+            <span>${escapeHtml(fmtTime(m.created_at))}</span>
+            <button class="msg-del" data-msg-id="${m.id}" title="Delete this message" aria-label="Delete this message">✕</button>
+          </div>
         </div>
       </div>`);
     });
@@ -1098,6 +1145,63 @@ async function resolve(){
   }
 }
 
+/**
+ * Delete one message, then re-open the thread so what is on screen is what the
+ * server actually holds. Re-rendering rather than splicing the node out of the
+ * DOM is deliberate: `last_message_at` is recomputed server-side, and the queue
+ * behind the thread has to move with it.
+ */
+async function deleteMessage(id, btn){
+  if (!id || state.selectedId === null) return;
+  if (!window.confirm('Delete this message? This cannot be undone.')) return;
+
+  btn.disabled = true;
+
+  try {
+    await api(`/admin/api/support/${state.selectedId}/messages/${id}`, { method: 'DELETE' });
+    toast('Message deleted.', 'ok');
+    await openRequest(state.selectedId);
+  } catch (e){
+    btn.disabled = false;
+    toast('Could not delete the message: ' + e.message, 'err');
+  }
+}
+
+/**
+ * Delete the whole request.
+ *
+ * It leaves the queue and the open thread is cleared, because the id the page
+ * is holding no longer resolves — staying on it would leave every subsequent
+ * action answering 404.
+ */
+async function deleteRequest(){
+  if (state.selectedId === null) return;
+
+  const name = document.getElementById('t-name').textContent || 'this learner';
+
+  if (!window.confirm(`Delete the whole request from ${name}? It will disappear from the queue.`)) return;
+
+  const btn = document.getElementById('btn-delete');
+  btn.disabled = true;
+
+  try {
+    await api(`/admin/api/support/${state.selectedId}`, { method: 'DELETE' });
+    toast('Request deleted.', 'ok');
+
+    state.selectedId = null;
+    state.detail = null;
+
+    document.getElementById('thread-body').style.display = 'none';
+    document.getElementById('thread-empty').style.display = '';
+
+    await loadQueue();
+  } catch (e){
+    toast('Could not delete the request: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ── Wiring ────────────────────────────────────────────────────────────────
 function readFilters(){
   state.filters.q = document.getElementById('f-q').value.trim();
@@ -1139,6 +1243,17 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
 document.getElementById('btn-send').addEventListener('click', sendReply);
 document.getElementById('btn-claim').addEventListener('click', claim);
 document.getElementById('btn-resolve').addEventListener('click', resolve);
+document.getElementById('btn-delete').addEventListener('click', deleteRequest);
+
+/*
+ * Delegated, not bound per button: `renderThread()` replaces the whole scroll
+ * container's HTML on every open, so a listener attached to each delete control
+ * would be attached to nodes that have already been discarded.
+ */
+document.getElementById('thread-scroll').addEventListener('click', (e) => {
+  const btn = e.target.closest('.msg-del');
+  if (btn) deleteMessage(Number(btn.dataset.msgId), btn);
+});
 
 // Enter sends, Shift+Enter adds a line — the convention for a chat composer.
 document.getElementById('reply-body').addEventListener('keydown', (e) => {

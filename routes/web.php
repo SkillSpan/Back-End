@@ -224,6 +224,20 @@ Route::middleware(['auth', 'account.active'])->prefix('admin')->group(function (
 
     Route::post('/api/support/{supportRequest}/resolve', [AdminSupportController::class, 'resolve'])
         ->whereNumber('supportRequest');
+
+    // A face to go with a name in the thread. Its own route, like the profile
+    // avatar, so the browser can cache the bytes instead of the JSON carrying
+    // a base64 blob that would be re-sent on every open of the thread.
+    Route::get('/support/avatar/{user}', [AdminSupportController::class, 'avatar'])
+        ->whereNumber('user')
+        ->name('admin.support.avatar');
+
+    Route::delete('/api/support/{supportRequest}/messages/{message}', [AdminSupportController::class, 'destroyMessage'])
+        ->whereNumber('supportRequest')
+        ->whereNumber('message');
+
+    Route::delete('/api/support/{supportRequest}', [AdminSupportController::class, 'destroy'])
+        ->whereNumber('supportRequest');
 });
 
 /*

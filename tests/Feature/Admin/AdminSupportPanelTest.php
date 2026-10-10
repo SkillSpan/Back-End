@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\AdminProfile;
 use App\Models\CareerRole;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
@@ -444,7 +445,225 @@ class AdminSupportPanelTest extends TestCase
             ->assertJsonPath('stats.pending', 0);
     }
 
+    // --------------------------------------------------------------- deleting
+
+    public function test_an_administrator_can_delete_a_message(): void
+    {
+        $admin = $this->administrator();
+        $request = $this->supportRequest($this->learner());
+
+        $message = $this->message($request, 'A line that should not stay.');
+
+        $this->actingAs($admin)
+            ->deleteJson("/admin/api/support/{$request->id}/messages/{$message->id}")
+            ->assertOk()
+            ->assertJsonPath('data.id', $message->id);
+
+        $this->assertDatabaseMissing('support_messages', ['id' => $message->id]);
+
+        // Deleting a line is not deleting the conversation.
+        $this->assertDatabaseHas('support_requests', ['id' => $request->id, 'deleted_at' => null]);
+    }
+
+    public function test_deleting_the_newest_message_recomputes_the_queue_timestamp(): void
+    {
+        $admin = $this->administrator();
+        $request = $this->supportRequest($this->learner());
+
+        /*
+         * The fixture's handoff marker is created at `now()`, the same second as
+         * the message about to be deleted — which would make the assertion pass
+         * or fail for a reason that has nothing to do with the recompute. Push
+         * the marker well back so the surviving message is unambiguously the
+         * newest thing left in the thread.
+         */
+        SupportMessage::query()
+            ->where('support_request_id', $request->id)
+            ->update(['created_at' => now()->subMinutes(30)]);
+
+        $older = $this->message($request, 'The one that stays.');
+        $older->forceFill(['created_at' => now()->subMinutes(10)])->save();
+
+        $newest = $this->message($request, 'The one that goes.');
+        $request->forceFill(['last_message_at' => now()])->save();
+
+        $this->actingAs($admin)
+            ->deleteJson("/admin/api/support/{$request->id}/messages/{$newest->id}")
+            ->assertOk();
+
+        // The inbox sorts and labels rows by this column, so leaving the deleted
+        // message's time behind would keep the row showing a moment that is no
+        // longer in the thread.
+        //
+        // Compared at second precision on purpose: the column is a DATETIME, so
+        // the recomputed value comes back without the microseconds the fixture
+        // put on the row, and `equalTo` on two Carbon instances would fail on a
+        // difference the database cannot even store.
+        $this->assertSame(
+            $older->fresh()->created_at->toDateTimeString(),
+            $request->fresh()->last_message_at->toDateTimeString(),
+        );
+    }
+
+    public function test_a_message_from_another_thread_cannot_be_deleted_through_this_one(): void
+    {
+        /*
+         * The scope has to apply to the message as well as to its parent. A bare
+         * `SupportMessage::find()` would let anyone who can reach one thread
+         * delete a line out of somebody else's conversation by posting that
+         * other message's id.
+         */
+        $admin = $this->administrator();
+        $mine = $this->supportRequest($this->learner('First Learner'));
+        $theirs = $this->supportRequest($this->learner('Second Learner'));
+
+        $victim = $this->message($theirs, 'Belongs to the other conversation.');
+
+        $this->actingAs($admin)
+            ->deleteJson("/admin/api/support/{$mine->id}/messages/{$victim->id}")
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'SUPPORT_MESSAGE_NOT_FOUND');
+
+        $this->assertDatabaseHas('support_messages', ['id' => $victim->id]);
+    }
+
+    public function test_a_mentor_cannot_delete_a_message_in_a_thread_they_do_not_own(): void
+    {
+        $owner = $this->mentor();
+        $other = $this->mentor();
+        $request = $this->supportRequest($this->learner(), $owner);
+
+        $message = $this->message($request, 'Not yours to remove.');
+
+        $this->actingAs($other)
+            ->deleteJson("/admin/api/support/{$request->id}/messages/{$message->id}")
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'SUPPORT_REQUEST_NOT_FOUND');
+
+        $this->assertDatabaseHas('support_messages', ['id' => $message->id]);
+    }
+
+    public function test_an_administrator_can_delete_a_whole_request(): void
+    {
+        $admin = $this->administrator();
+        $request = $this->supportRequest($this->learner());
+
+        $this->actingAs($admin)
+            ->deleteJson("/admin/api/support/{$request->id}")
+            ->assertOk()
+            ->assertJsonPath('data.id', $request->id);
+
+        /*
+         * Soft delete. The row is still there — a support conversation is the
+         * record of what a learner was told, and an operator clearing a queue
+         * must not be able to destroy it.
+         */
+        $this->assertSoftDeleted('support_requests', ['id' => $request->id]);
+    }
+
+    public function test_a_deleted_request_leaves_the_queue(): void
+    {
+        $admin = $this->administrator();
+        $kept = $this->supportRequest($this->learner('Stays In The Queue'));
+        $gone = $this->supportRequest($this->learner('Leaves The Queue'));
+
+        $this->actingAs($admin)->deleteJson("/admin/api/support/{$gone->id}")->assertOk();
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/support')
+            ->assertOk()
+            ->assertJsonPath('stats.total', 1)
+            ->assertJsonFragment(['id' => $kept->id])
+            ->assertJsonMissing(['id' => $gone->id]);
+    }
+
+    public function test_a_learner_cannot_reach_the_delete_endpoints(): void
+    {
+        $learner = $this->learner();
+        $request = $this->supportRequest($learner);
+        $message = $this->message($request, 'Still here.');
+
+        $this->actingAs($learner)
+            ->deleteJson("/admin/api/support/{$request->id}/messages/{$message->id}")
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'SUPPORT_FORBIDDEN');
+
+        $this->actingAs($learner)
+            ->deleteJson("/admin/api/support/{$request->id}")
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'SUPPORT_FORBIDDEN');
+
+        $this->assertDatabaseHas('support_messages', ['id' => $message->id]);
+        $this->assertDatabaseHas('support_requests', ['id' => $request->id, 'deleted_at' => null]);
+    }
+
+    // ---------------------------------------------------------------- avatars
+
+    public function test_a_colleagues_photo_is_served_to_a_panel_user(): void
+    {
+        $admin = $this->administrator();
+        $colleague = $this->mentor();
+        $bytes = 'not-a-real-png-but-the-route-does-not-care';
+
+        $this->photo($colleague, $bytes);
+
+        $response = $this->actingAs($admin)
+            ->get("/admin/support/avatar/{$colleague->id}")
+            ->assertOk();
+
+        $this->assertSame($bytes, $response->getContent());
+        $this->assertSame('image/png', $response->headers->get('Content-Type'));
+        // Private: a colleague's face is not a public asset.
+        $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function test_the_avatar_route_is_refused_to_a_learner(): void
+    {
+        $learner = $this->learner();
+        $admin = $this->administrator();
+
+        $this->photo($admin, 'bytes');
+
+        $this->actingAs($learner)
+            ->get("/admin/support/avatar/{$admin->id}")
+            ->assertStatus(403);
+    }
+
+    public function test_a_colleague_without_a_photo_answers_404(): void
+    {
+        // A miss, not a placeholder: the panel renders their initials instead,
+        // and the image's `onerror` is what falls back to them.
+        $admin = $this->administrator();
+        $colleague = $this->mentor();
+
+        $this->actingAs($admin)
+            ->get("/admin/support/avatar/{$colleague->id}")
+            ->assertStatus(404);
+    }
+
     // --------------------------------------------------------------- helpers
+
+    private function message(SupportRequest $request, string $body): SupportMessage
+    {
+        return SupportMessage::create([
+            'support_request_id' => $request->id,
+            'sender_id' => $request->user_id,
+            'body' => $body,
+            'message_type' => SupportMessage::TYPE_TEXT,
+        ]);
+    }
+
+    private function photo(User $user, string $bytes): void
+    {
+        // Written directly rather than through the upload endpoint: these tests
+        // are about who may read a photo, not about how one is stored.
+        AdminProfile::forceCreate([
+            'user_id' => $user->id,
+            'avatar_data' => base64_encode($bytes),
+            'avatar_mime' => 'image/png',
+            'avatar_updated_at' => now(),
+        ]);
+    }
 
     private function administrator(): User
     {
