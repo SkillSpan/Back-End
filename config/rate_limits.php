@@ -37,6 +37,15 @@ return [
     // stored snapshot and a persisted recommendation.
     'project_matching' => (int) env('RATE_LIMIT_PROJECT_MATCHING', 10),
 
+    // POST /api/v1/baseline-assessments/{assessment}/submit — scores the whole
+    // attempt through a synchronous Data Science call, so it belongs to the
+    // same class as readiness/intelligence and was simply missed when those
+    // were covered. The completion write itself is already an atomic
+    // compare-and-swap, so a race cannot corrupt data — but it can still burn
+    // one upstream round trip per losing request, which is exactly what this
+    // ceiling bounds.
+    'baseline_submit' => (int) env('RATE_LIMIT_BASELINE_SUBMIT', 10),
+
     // POST /api/v1/evidence — stores a file and triggers a skill
     // recalculation.
     'evidence_upload' => (int) env('RATE_LIMIT_EVIDENCE_UPLOAD', 20),

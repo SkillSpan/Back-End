@@ -244,6 +244,21 @@ class ExpensiveEndpointRateLimitTest extends TestCase
         );
     }
 
+    public function test_baseline_submit_is_rate_limited(): void
+    {
+        // Submitting a baseline scores the whole attempt through a synchronous
+        // Data Science call — the same class of cost as readiness/intelligence.
+        // It was the one such route left uncovered.
+        Sanctum::actingAs($this->learnerWithProfile());
+
+        $this->assertThrottled(
+            fn () => $this->postJson('/api/v1/baseline-assessments/1/submit', [
+                'responses' => [['question_id' => 'sql-001', 'answer' => 'A']],
+            ]),
+            'rate_limits.baseline_submit',
+        );
+    }
+
     public function test_ordinary_usage_stays_well_inside_the_default_limits(): void
     {
         // No config override: this is the shipped ceiling. A learner asking a

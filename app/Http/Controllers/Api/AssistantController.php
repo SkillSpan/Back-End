@@ -8,6 +8,7 @@ use App\Http\Requests\AskAssistantRequest;
 use App\Http\Requests\ReportAssistantInteractionRequest;
 use App\Http\Resources\AssistantInteractionResource;
 use App\Services\Assistant\AssistantService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -92,7 +93,7 @@ class AssistantController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'intent' => $request->input('intent'),
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(
@@ -144,7 +145,7 @@ class AssistantController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'interaction_id' => $interaction,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(

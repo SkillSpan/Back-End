@@ -12,6 +12,7 @@ use App\Models\UploadedFile;
 use App\Models\User;
 use App\Notifications\AccountVerificationNotification;
 use App\Notifications\PasswordResetNotification;
+use App\Support\SafeLog;
 use Google_Client;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
@@ -47,7 +48,7 @@ class AuthService
             return $user->fresh(['roles', 'studentProfile']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Individual registration failed: '.$e->getMessage(), [
+            Log::error('Individual registration failed: '.SafeLog::reason($e), [
                 'email' => $validatedData['email'] ?? 'unknown',
             ]);
             throw $e;
@@ -113,7 +114,7 @@ class AuthService
             return $user->fresh(['roles', 'organizations']);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Organization registration failed: '.$e->getMessage(), [
+            Log::error('Organization registration failed: '.SafeLog::reason($e), [
                 'email' => $validatedData['email'] ?? 'unknown',
             ]);
             throw $e;
@@ -320,7 +321,7 @@ class AuthService
         } catch (Throwable $e) {
             DB::rollBack();
 
-            Log::error('Google login failed: '.$e->getMessage());
+            Log::error('Google login failed: '.SafeLog::reason($e));
 
             throw $e;
         }
@@ -353,7 +354,7 @@ class AuthService
         } catch (Throwable $e) {
             Log::error('Google verifyIdToken threw an exception', [
                 'exception_class' => get_class($e),
-                'message' => $e->getMessage(),
+                'message' => SafeLog::reason($e),
             ]);
 
             return false;
@@ -649,7 +650,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Verification failed: '.$e->getMessage(), ['email' => $email]);
+            Log::error('Verification failed: '.SafeLog::reason($e), ['email' => $email]);
             throw $e;
         }
     }
@@ -945,7 +946,7 @@ class AuthService
             return true;
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Password reset failed: '.$e->getMessage());
+            Log::error('Password reset failed: '.SafeLog::reason($e));
             throw $e;
         }
     }

@@ -227,7 +227,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/baseline-assessments', [BaselineAssessmentController::class, 'start']);
         Route::get('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'show']);
         Route::patch('/baseline-assessments/{assessment}', [BaselineAssessmentController::class, 'progress']);
-        Route::post('/baseline-assessments/{assessment}/submit', [BaselineAssessmentController::class, 'submit']);
+        Route::post('/baseline-assessments/{assessment}/submit', [BaselineAssessmentController::class, 'submit'])
+            ->middleware('throttle:baseline-submit');
     });
 
     // US-REC-01 — intelligent assistant. Read-only explanation of the

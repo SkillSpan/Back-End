@@ -4,6 +4,7 @@ namespace App\Services\Profile;
 
 use App\Exceptions\ReadinessException;
 use App\Models\AdminProfile;
+use App\Models\AuthSession;
 use App\Models\User;
 use GdImage;
 use Illuminate\Http\UploadedFile;
@@ -209,6 +210,25 @@ class AdminProfileService
         // reaches the column and no explicit Hash::make() is needed here.
         $user->password = $newPassword;
         $user->save();
+
+        /*
+         * A password change must end the sessions the OLD password could still
+         * be riding on. Otherwise an administrator who changes their password
+         * precisely BECAUSE a token leaked leaves the attacker signed in for
+         * the token's full 14-day lifetime — the change looks like it worked
+         * and does nothing. These are the same two steps
+         * AuthService::resetPassword() already performs; doing them here too is
+         * what stops the two password-change paths from drifting apart.
+         *
+         * Sanctum tokens only. The panel is a `web` session, so the person
+         * making the change stays signed in where they are; what dies is every
+         * API token issued to this account.
+         */
+        $user->tokens()->delete();
+
+        AuthSession::where('user_id', $user->id)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now()]);
 
         Log::info('Panel password changed.', ['user_id' => $user->id]);
     }
