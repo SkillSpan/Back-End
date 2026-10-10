@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Support;
 
+use App\Models\AdminProfile;
 use App\Models\AssistantInteraction;
 use App\Models\CareerRole;
 use App\Models\MentorStudentConnection;
@@ -525,6 +526,129 @@ class SupportHandoffTest extends TestCase
     // ------------------------------------------------------------- helpers
 
     /** @return array{0: User, 1: StudentProfile} */
+    // ------------------------------------------------------- the helper's face
+
+    public function test_a_learner_can_fetch_the_photo_of_whoever_answered_them(): void
+    {
+        [$learner] = $this->learner();
+        $mentor = $this->mentor();
+
+        $this->photo($mentor, 'mentor-photo-bytes');
+        $this->threadAnsweredBy($learner, $mentor);
+
+        Sanctum::actingAs($learner);
+
+        $response = $this->get("/api/v1/support/avatar/{$mentor->id}")->assertOk();
+
+        $this->assertSame('mentor-photo-bytes', $response->getContent());
+        $this->assertSame('image/png', $response->headers->get('Content-Type'));
+    }
+
+    public function test_a_staff_photo_is_not_served_to_a_learner_they_never_answered(): void
+    {
+        /*
+         * The endpoint is scoped to the caller's OWN conversations. Without
+         * that, any learner could walk the user id space and collect the staff
+         * directory one id at a time.
+         */
+        [$learner] = $this->learner();
+        $mentor = $this->mentor();
+        $stranger = $this->mentor();
+
+        $this->photo($mentor, 'mentor-photo-bytes');
+        $this->photo($stranger, 'stranger-photo-bytes');
+
+        // The stranger has a photo, but has never answered this learner.
+        $this->threadAnsweredBy($learner, $mentor);
+
+        Sanctum::actingAs($learner);
+
+        $this->get("/api/v1/support/avatar/{$stranger->id}")->assertStatus(404);
+
+        // The one who did answer is still served, so the 404 is the scope and
+        // not a broken route.
+        $this->get("/api/v1/support/avatar/{$mentor->id}")->assertOk();
+    }
+
+    public function test_a_staff_photo_is_not_served_across_learners(): void
+    {
+        [$mine] = $this->learner();
+        [$theirs] = $this->learner();
+        $mentor = $this->mentor();
+
+        $this->photo($mentor, 'mentor-photo-bytes');
+        $this->threadAnsweredBy($theirs, $mentor);
+
+        // Same mentor, different learner: nothing in MY conversations came from
+        // them, so there is nothing for me to see.
+        Sanctum::actingAs($mine);
+
+        $this->get("/api/v1/support/avatar/{$mentor->id}")->assertStatus(404);
+    }
+
+    public function test_a_staff_member_without_a_photo_answers_404(): void
+    {
+        // A miss, not a placeholder — the client falls back to an icon.
+        [$learner] = $this->learner();
+        $mentor = $this->mentor();
+
+        $this->threadAnsweredBy($learner, $mentor);
+
+        Sanctum::actingAs($learner);
+
+        $this->get("/api/v1/support/avatar/{$mentor->id}")->assertStatus(404);
+    }
+
+    public function test_the_avatar_route_needs_a_session(): void
+    {
+        $mentor = $this->mentor();
+
+        $this->getJson("/api/v1/support/avatar/{$mentor->id}")->assertStatus(401);
+    }
+
+    // --------------------------------------------------------------- helpers
+
+    /**
+     * A request from $learner that $staff has replied to.
+     *
+     * Built through the real endpoints and the real service rather than by
+     * writing rows: the reply is what grants the photo, so the test has to
+     * produce one the way production does.
+     */
+    private function threadAnsweredBy(User $learner, User $staff): SupportRequest
+    {
+        Sanctum::actingAs($learner);
+
+        $id = $this->postJson('/api/v1/support/requests', [
+            'reason' => 'learner_requested',
+            'transcript' => [
+                ['role' => 'learner', 'body' => 'How do I publish my project?'],
+            ],
+        ])->assertStatus(201)->json('data.id');
+
+        $request = SupportRequest::findOrFail($id);
+
+        app(SupportRequestService::class)->postSupportMessage(
+            request: $request,
+            support: $staff,
+            body: 'Here is how.',
+        );
+
+        return $request;
+    }
+
+    private function photo(User $user, string $bytes): void
+    {
+        // Written directly rather than through the upload endpoint: these tests
+        // are about who may read a photo, not about how one is stored.
+        AdminProfile::forceCreate([
+            'user_id' => $user->id,
+            'avatar_data' => base64_encode($bytes),
+            'avatar_mime' => 'image/png',
+            'avatar_updated_at' => now(),
+        ]);
+    }
+
     private function learner(): array
     {
         $user = $this->userWithRole($this->learnerRole);

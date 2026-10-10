@@ -9,13 +9,18 @@ use App\Http\Requests\SendSupportMessageRequest;
 use App\Http\Resources\SupportMessageResource;
 use App\Http\Resources\SupportRequestResource;
 use App\Models\AssistantInteraction;
+use App\Models\SupportMessage;
 use App\Models\SupportRequest;
+use App\Models\User;
+use App\Services\Profile\AdminProfileService;
 use App\Services\Support\SupportRequestService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 /**
@@ -31,7 +36,10 @@ use Throwable;
  */
 class SupportRequestController extends Controller
 {
-    public function __construct(private readonly SupportRequestService $supportService) {}
+    public function __construct(
+        private readonly SupportRequestService $supportService,
+        private readonly AdminProfileService $profileService,
+    ) {}
 
     /**
      * Ask for a human.
@@ -156,6 +164,58 @@ class SupportRequestController extends Controller
         } catch (ReadinessException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         }
+    }
+
+    /**
+     * GET /api/v1/support/avatar/{user}
+     *
+     * The face of whoever answered the caller in one of their own requests.
+     *
+     * WHY IT IS NOT A FIELD ON THE MESSAGE PAYLOAD
+     * --------------------------------------------
+     * `avatar_data` is a blob, and the project deliberately keeps it out of
+     * JSON (see the `admin_profiles` migration): a thread with ten replies would
+     * re-send the same photo ten times. The message payload already carries
+     * `sender_id`, so the client builds this URL from it.
+     *
+     * SCOPED, and 404 for every miss — a stranger, a learner's own id, a person
+     * with no photo, a user that does not exist. The endpoint therefore cannot
+     * be walked to collect staff photos or to confirm which ids are real.
+     */
+    public function avatar(Request $request, User $user): Response
+    {
+        $learner = $request->user();
+
+        $answeredThisLearner = SupportMessage::query()
+            ->where('sender_id', $user->id)
+            ->where('message_type', SupportMessage::TYPE_TEXT)
+            ->whereHas('request', fn (Builder $query) => $query->where('user_id', $learner->id))
+            ->exists();
+
+        if (! $answeredThisLearner) {
+            abort(404);
+        }
+
+        $profile = $user->adminProfile;
+
+        if ($profile === null) {
+            abort(404);
+        }
+
+        $binary = $this->profileService->avatarBinary($profile);
+
+        if ($binary === null) {
+            abort(404);
+        }
+
+        return response($binary, 200, [
+            'Content-Type' => (string) $profile->avatar_mime,
+            'Content-Length' => (string) strlen($binary),
+            // Private: a learner's browser may cache the face of the person
+            // helping them, but no shared proxy may.
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     /**
