@@ -56,7 +56,13 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: 'reference', type: 'string', nullable: true, description: 'A URL, or the stored path of the uploaded file.'),
         new OA\Property(property: 'description', type: 'string', nullable: true),
         new OA\Property(property: 'evidence_date', type: 'string', format: 'date', nullable: true),
-        new OA\Property(property: 'verification_status', type: 'string', enum: ['pending', 'verified', 'rejected'], example: 'pending'),
+        new OA\Property(
+            property: 'verification_status',
+            type: 'string',
+            enum: ['pending', 'verified', 'rejected', 'expired', 'revision'],
+            description: 'BA-02: `pending` (awaiting review), `verified` (approved, the only state that raises skill level), `rejected` (denied), `expired` (no longer valid), `revision` (reviewer requested clarification — SRS SKL-05).',
+            example: 'pending'
+        ),
         new OA\Property(property: 'recency_factor', type: 'number', format: 'float', example: 1.0),
         new OA\Property(property: 'reviewer_id', type: 'integer', nullable: true),
         new OA\Property(property: 'reviewer_notes', type: 'string', nullable: true),

@@ -263,18 +263,21 @@ class EvidenceController extends Controller
      * PUT /api/v1/evidence/{id}/review
      *
      * Admin reviews evidence and marks it as:
-     * - verified
-     * - rejected
+     * - verified  → approved
+     * - rejected  → denied
+     * - revision  → clarification requested (SRS SKL-05 / UC-03)
+     *
+     * Only evidence that is still awaiting a decision (`pending` or
+     * `revision`) may be reviewed. Terminal states are never silently
+     * rewritten — SRS BR-EVA-06 requires a correction to supersede or revise,
+     * not to overwrite history.
      */
     public function review(Request $request, $id)
     {
         $request->validate([
             'verification_status' => [
                 'required',
-                Rule::in([
-                    'verified',
-                    'rejected',
-                ]),
+                Rule::in(SkillEvidence::REVIEW_OUTCOMES),
             ],
 
             'reviewer_notes' => [
@@ -297,10 +300,29 @@ class EvidenceController extends Controller
         $evidence = SkillEvidence::findOrFail($id);
 
         /*
+         * Guard the transition.
+         *
+         * A review is a decision on evidence that is still waiting for one.
+         * `verified`, `rejected` and `expired` are terminal for this endpoint,
+         * so re-reviewing them is refused with an explicit error rather than
+         * silently flipping the status.
+         */
+        if (! in_array($evidence->verification_status, SkillEvidence::REVIEWABLE_STATUSES, true)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'INVALID_EVIDENCE_TRANSITION',
+                'message' => 'Evidence in status "'.$evidence->verification_status
+                    .'" cannot be reviewed again. Only pending or revision evidence can be reviewed.',
+            ], 422);
+        }
+
+        $status = $request->verification_status;
+
+        /*
          * Update verification information.
          */
         $evidence->update([
-            'verification_status' => $request->verification_status,
+            'verification_status' => $status,
             'reviewer_id' => $request->user()->id,
             'reviewer_notes' => $request->reviewer_notes,
         ]);
@@ -330,10 +352,25 @@ class EvidenceController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Evidence '
-                .strtolower($request->verification_status)
-                .' successfully.',
+            'message' => $this->reviewMessage($status),
             'data' => $evidence,
         ]);
+    }
+
+    /**
+     * Human-readable confirmation for a review outcome.
+     *
+     * Kept as an explicit map rather than the previous
+     * "Evidence {$status} successfully" string, because that produced the
+     * ungrammatical "Evidence revision successfully." for the new state.
+     */
+    private function reviewMessage(string $status): string
+    {
+        return match ($status) {
+            SkillEvidence::STATUS_VERIFIED => 'Evidence verified successfully.',
+            SkillEvidence::STATUS_REJECTED => 'Evidence rejected successfully.',
+            SkillEvidence::STATUS_REVISION => 'Revision requested for the evidence successfully.',
+            default => 'Evidence reviewed successfully.',
+        };
     }
 }

@@ -121,9 +121,12 @@ class EvidenceCareerRoleEndpoints
         operationId: 'evidenceReview',
         tags: ['Evidence'],
         summary: 'Review evidence (administrator only)',
-        description: 'Marks an evidence record as `verified` or `rejected`, records the reviewer and optional '
-            .'notes, recalculates the learner\'s skill level and confidence synchronously, and dispatches a '
-            .'queued intelligence recalculation for the learner.',
+        description: 'Marks an evidence record as `verified`, `rejected` or `revision` (the reviewer\'s "request '
+            .'clarification" outcome required by SRS SKL-05 / UC-03), records the reviewer and optional notes, '
+            .'recalculates the learner\'s skill level and confidence synchronously, and dispatches a queued '
+            .'intelligence recalculation for the learner. Only evidence still awaiting a decision (`pending` or '
+            .'`revision`) can be reviewed; a terminal record (`verified`, `rejected`, `expired`) is refused with '
+            .'`422 INVALID_EVIDENCE_TRANSITION` rather than silently rewritten (SRS BR-EVA-06).',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(name: 'id', in: 'path', required: true, description: 'Evidence record id.', schema: new OA\Schema(type: 'integer'), example: 301),
@@ -133,7 +136,7 @@ class EvidenceCareerRoleEndpoints
             content: new OA\JsonContent(
                 required: ['verification_status'],
                 properties: [
-                    new OA\Property(property: 'verification_status', type: 'string', enum: ['verified', 'rejected'], example: 'verified'),
+                    new OA\Property(property: 'verification_status', type: 'string', enum: ['verified', 'rejected', 'revision'], description: '`revision` = request clarification from the learner.', example: 'verified'),
                     new OA\Property(property: 'reviewer_notes', type: 'string', nullable: true, maxLength: 500, example: 'Certificate verified against the issuer registry.'),
                 ],
             ),
@@ -153,7 +156,7 @@ class EvidenceCareerRoleEndpoints
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not an administrator.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 404, description: 'Evidence record not found.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'Validation error (invalid or missing `verification_status`).', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
+            new OA\Response(response: 422, description: 'Validation error (invalid or missing `verification_status`), or `INVALID_EVIDENCE_TRANSITION` when the record is no longer awaiting a decision.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
         ],
     )]
     public function evidenceReview(): void {}

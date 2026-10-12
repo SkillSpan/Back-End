@@ -24,12 +24,8 @@
 |---|---|---|---|
 | `skill_id` | ✅ | integer | لازم يكون موجود في جدول `skills` و `status = active`. هاته من `GET /api/v1/skills/taxonomy` |
 | `evidence_url` | ⚠️ | string (url) | **واحد من الاتنين إلزامي**: `evidence_url` أو `evidence_file` |
-| `evidence_file` | ⚠️ | file | أقصى حجم **10MB** (10,000 كيلوبايت). مفيش قيد على نوع الملف |
-<<<<<<< HEAD
+| `evidence_file` | ⚠️ | file | أقصى حجم **10MB** (10,000 كيلوبايت). الأنواع المسموحة: `pdf, jpg, jpeg, png, webp` |
 | `description` | ❌ (اختياري) | string (max 500) | ✅ بيتخزّن وبيترجّع — اتصحّح |
-=======
-| `description` | ❌ | string (max 500) | **⚠️ بيتقبل بس مش بيتخزّن — اقرا الملاحظات تحت** |
->>>>>>> 5dfd98696b51fb3f0f6dbfbc88d2244960b36712
 | `evidence_date` | ❌ | date | افتراضيًا تاريخ النهاردة |
 
 لو بعتّ الاتنين (`evidence_url` و `evidence_file`) → الـ `evidence_url` هو اللي بيكسب، والملف بيتجاهل.
@@ -81,19 +77,12 @@
 
 ## ⚠️ ملاحظات مهمة — لازم الفرونت ياخد باله
 
-<<<<<<< HEAD
 1. **`description` — اتصحّح ✅ (كان بيتقبل ومش بيتخزّن).**
    كان الحقل موجود في `validate()` بس مش موجود في `SkillEvidence::create()` ولا في أعمدة الجدول،
    يعني أي وصف كان بيروح في الهوا بدون أي إيرور. **اتصلّح:** ضفنا عمود `description` (nullable،
    الحد 500) وربطناه في الموديل والكونترولّر. دلوقتي الوصف بيتخزّن فعليًا وبيترجّع في
    `POST` و`GET /api/v1/evidence/{id}` و`GET /api/v1/evidence`.
    ⚠️ لو السيرفر لسا على نسخة قديمة، لازم deploy الأول.
-=======
-1. **`description` بيتقبل في الفاليديشن بس مش بيتخزّن أبدًا.**
-   الحقل موجود في `validate()` لكن مش موجود في `SkillEvidence::create()` ولا في أعمدة الجدول.
-   يعني لو الفرونت بعت وصف، بيروح في الهوا بدون أي إيرور. **لو محتاجينه، ده باگ من ناحيتنا —
-   قولوا ونصلّحه.**
->>>>>>> 5dfd98696b51fb3f0f6dbfbc88d2244960b36712
 
 2. **القيم العشرية بترجع كـ strings على الإنتاج، مش numbers.**
    `"value": "0.00"` و `"normalized_value": "0.00"` و `"recency_factor": "1.00"`.
@@ -115,6 +104,55 @@
 
 ---
 
+## ✅ حالات الدليل الرسمية والـ transitions (BA-02 — مرجع الفرونت)
+
+> **دي الحالات الوحيدة المسموح بيها. مفيش حالة اسمها `revision` قديمة — بس دلوقتي اتضافت رسميًا.**
+
+### الحالات الرسمية النهائية (`verification_status`)
+
+| الحالة | المعنى | بتزود الـSkill Level؟ |
+|---|---|---|
+| `pending` | اتسلّم ومستني مراجعة الأدمن (دي الحالة اللي `POST /evidence` بيرجّعها) | ❌ |
+| `verified` | اتقبل ✅ | ✅ **بس هي** |
+| `rejected` | اترفض ❌ | ❌ |
+| `expired` | بقى غير صالح (مثلاً شهادة عدّت مدة صلاحيتها) | ❌ |
+| `revision` | **الأدمن طلب توضيح/تعديل** (SRS SKL-05: "request clarification") | ❌ |
+
+- `pending` و `revision` هما الحالتين الوحيدتين اللي لسه "مستنيين قرار".
+- `verified` / `rejected` / `expired` حالات **نهائية** — مينفعش تتراجع تاني من نفس الـendpoint.
+- **مفيش** أي حالة تانية زي `approved` أو `clarification` أو `changes_requested` — أي واحدة غير الخمسة دول هترجع `422`.
+- ⚠️ **`revision` ≠ `rejected`.** الاتنين مش بيزودوا الـscore، بس `revision` معناها «لسه فيه أمل — عدّل وابعت تاني»، و`rejected` معناها «مرفوض». اتعاملوا معاهم كحالتين مختلفتين في الـUI.
+
+### الـ transitions المسموحة (على `PUT /api/v1/evidence/{id}/review`)
+
+```
+pending  ──▶  verified
+pending  ──▶  rejected
+pending  ──▶  revision        ← الأدمن بيطلب توضيح
+revision ──▶  verified        ← الطالب عدّل والأدمن قبل
+revision ──▶  rejected
+revision ──▶  revision        (طلب توضيح تاني — مسموح)
+```
+
+- الـBody بيقبل `verification_status` من: **`verified` | `rejected` | `revision`** بس.
+- لو حاولت تراجع دليل حالته `verified`/`rejected`/`expired` → **`422`** بالشكل ده:
+  ```json
+  {
+    "success": false,
+    "code": "INVALID_EVIDENCE_TRANSITION",
+    "message": "Evidence in status \"verified\" cannot be reviewed again. Only pending or revision evidence can be reviewed."
+  }
+  ```
+- `reviewer_notes` اختياري (max 500) — **مهم**: لما تطلب `revision`، حط سبب الطلب هنا عشان الطالب يعرف يعمل إيه.
+
+### ⚠️ نقطة لسه محتاجة قرار (مش جزء من BA-02)
+
+`GET /api/v1/evidence` لسه **بيرجّع `verified` بس**. يعني الطالب مش هيشوف الـ`pending`/`revision`/`rejected`
+في القايمة — بس هيظهروله في `GET /api/v1/evidence/{id}`. لو محتاجين قايمة بالحالات دي، ده endpoint/فلتر
+تاني ومحتاجين نتفق عليه.
+
+---
+
 ## أمثلة
 
 ### برابط (JSON)
@@ -127,10 +165,7 @@ curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
   -d '{
         "skill_id": 12,
         "evidence_url": "https://example.com/cert.pdf",
-<<<<<<< HEAD
         "description": "خلصت كورس SQL المتقدم بامتياز.",
-=======
->>>>>>> 5dfd98696b51fb3f0f6dbfbc88d2244960b36712
         "evidence_date": "2026-09-01"
       }'
 ```
@@ -142,10 +177,7 @@ curl -X POST https://back-end-zdip.onrender.com/api/v1/evidence \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/json" \
   -F "skill_id=12" \
-<<<<<<< HEAD
   -F "description=مشروع تحليل بيانات سلمته واتقيّم." \
-=======
->>>>>>> 5dfd98696b51fb3f0f6dbfbc88d2244960b36712
   -F "evidence_file=@cert.pdf"
 ```
 
@@ -171,4 +203,4 @@ curl -s https://back-end-zdip.onrender.com/api/v1/skills/taxonomy \
 | `POST` | `/api/v1/evidence` | `learner` — **رفع دليل (الـ endpoint المطلوب)** |
 | `GET` | `/api/v1/evidence` | `learner` — المعتمدة بس |
 | `GET` | `/api/v1/evidence/{id}` | أي مستخدم نشِط — المالك أو أدمن |
-| `PUT` | `/api/v1/evidence/{id}/review` | `admin` — اعتماد/رفض |
+| `PUT` | `/api/v1/evidence/{id}/review` | `admin` — اعتماد / رفض / طلب توضيح (`verified` / `rejected` / `revision`) |

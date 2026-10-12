@@ -471,6 +471,14 @@ class SkillEvaluationService
     /**
      * Convert verification status into the numerical verification factor
      * used by Confidence.
+     *
+     * BA-02: `revision` (the reviewer's "request clarification" outcome,
+     * SRS SKL-05) is spelled out explicitly rather than left to `default`.
+     * A clarification request is a decision NOT to accept the evidence yet,
+     * so it contributes 0.0 — the same as `rejected` and `expired`. It is
+     * deliberately not treated like `pending`: `pending` still carries the
+     * configured partial factor because nobody has judged it yet, whereas a
+     * reviewer has actively declined to accept `revision` evidence.
      */
     private function verificationFactor(
         ?string $status,
@@ -480,6 +488,8 @@ class SkillEvaluationService
             'verified' => 1.0,
 
             'pending' => $pendingVerifiedFactor,
+
+            'revision' => 0.0,
 
             default => 0.0,
         };
