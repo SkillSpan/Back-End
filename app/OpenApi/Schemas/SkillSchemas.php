@@ -120,4 +120,21 @@ use OpenApi\Attributes as OA;
         ),
     ],
 )]
+#[OA\Schema(
+    schema: 'TalentSkill',
+    title: 'TalentSkill',
+    description: 'One skill as it appears inside a Talent Discovery card or profile. This is a derived '
+        .'view, not a `learner_skills` row: `verified` is true when at least one verified skill evidence '
+        .'row exists for it, and `max_level` is the contract ceiling reported alongside the level rather '
+        .'than assumed by the client.',
+    type: 'object',
+    properties: [
+        new OA\Property(property: 'name', type: 'string', nullable: true, example: 'Laravel'),
+        new OA\Property(property: 'category', type: 'string', nullable: true, example: 'Backend'),
+        new OA\Property(property: 'level', type: 'number', format: 'float', example: 3.5),
+        new OA\Property(property: 'max_level', type: 'integer', example: 5),
+        new OA\Property(property: 'verified', type: 'boolean', example: true),
+        new OA\Property(property: 'evidence_count', type: 'integer', example: 4),
+    ],
+)]
 class SkillSchemas {}

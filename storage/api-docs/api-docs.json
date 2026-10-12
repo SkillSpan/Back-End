@@ -3729,13 +3729,12 @@
                                         "maxLength": 5000
                                     },
                                     "message_type": {
-                                        "description": "Defaults to `text` when omitted.",
+                                        "description": "Defaults to `text` when omitted. `system` is refused (422): that type is machine-authored and no participant may set it.",
                                         "type": "string",
                                         "example": "text",
                                         "nullable": true,
                                         "enum": [
                                             "text",
-                                            "system",
                                             "chatbot"
                                         ]
                                     },
@@ -4344,7 +4343,7 @@
                                         "nullable": true
                                     },
                                     "evidence_file": {
-                                        "description": "Required when `evidence_url` is not sent. Maximum 10000 KB.",
+                                        "description": "Required when `evidence_url` is not sent. Allowed types: pdf, jpg, jpeg, png, webp. Maximum 10000 KB.",
                                         "type": "string",
                                         "format": "binary",
                                         "example": "certificate.pdf",
@@ -12052,6 +12051,690 @@
                     }
                 ]
             }
+        },
+        "/v1/talent": {
+            "get": {
+                "tags": [
+                    "Talent Discovery"
+                ],
+                "summary": "List discoverable talent (paginated, filtered)",
+                "description": "Returns the students the caller is permitted to see, newest-readiness first by default. The visibility rule is the same shape as the mentor-student one, because \"which students may this account see?\" must have exactly one answer platform-wide: a student is returned when the caller has an active mentor connection with them, OR the profile visibility is `public`, OR the visibility is `organization_only` and the student shares an active organization membership with the caller. Talent Discovery adds one gate the mentor path does not need, because a company is a third party rather than a coach: `consent_given` must be true. ⚠️ `visibility` defaults to `private` and `consent_given` to false, so an empty `data` array is the expected state until students opt in — not an error. Protected by auth:sanctum + account.active + organization.approved + role:company_admin.",
+                "operationId": "talentDiscoveryIndex",
+                "parameters": [
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Case-insensitive partial match against the student name OR the career-role title.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "Lena",
+                            "maxLength": 255
+                        }
+                    },
+                    {
+                        "name": "career_role",
+                        "in": "query",
+                        "description": "Career-role slug. Get the usable values from `GET /v1/talent/filters` — the caller cannot read `GET /v1/career-roles`, which is `role:learner` only.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "backend-engineer",
+                            "maxLength": 255
+                        }
+                    },
+                    {
+                        "name": "min_readiness",
+                        "in": "query",
+                        "description": "Only return students whose LATEST readiness score is at least this value.",
+                        "required": false,
+                        "schema": {
+                            "type": "number",
+                            "format": "float",
+                            "example": 70,
+                            "maximum": 100,
+                            "minimum": 0
+                        }
+                    },
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "description": "`readiness` (default) sorts by latest readiness score, highest first; `recent` sorts by newest profile. An unsupported value is a 422 rather than a silent default.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "readiness",
+                            "enum": [
+                                "readiness",
+                                "recent"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 1,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Page size. Capped at 100; above the cap is a 422.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 15,
+                            "maximum": 100,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Discoverable talent retrieved. May legitimately be empty.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Discoverable talent retrieved successfully."
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "description": "The student (user) id.",
+                                                        "type": "integer",
+                                                        "example": 42
+                                                    },
+                                                    "name": {
+                                                        "type": "string",
+                                                        "example": "Lena Kim",
+                                                        "nullable": true
+                                                    },
+                                                    "career_role": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer",
+                                                                "example": 1
+                                                            },
+                                                            "title": {
+                                                                "type": "string",
+                                                                "example": "Backend Engineer"
+                                                            },
+                                                            "slug": {
+                                                                "type": "string",
+                                                                "example": "backend-engineer"
+                                                            }
+                                                        },
+                                                        "type": "object",
+                                                        "nullable": true
+                                                    },
+                                                    "specialization": {
+                                                        "type": "string",
+                                                        "example": "Computer Science",
+                                                        "nullable": true
+                                                    },
+                                                    "university_name": {
+                                                        "type": "string",
+                                                        "example": "Cairo University",
+                                                        "nullable": true
+                                                    },
+                                                    "career_status": {
+                                                        "type": "string",
+                                                        "example": "student",
+                                                        "nullable": true
+                                                    },
+                                                    "enrollment_status": {
+                                                        "type": "string",
+                                                        "example": "enrolled",
+                                                        "nullable": true
+                                                    },
+                                                    "availability": {
+                                                        "type": "string",
+                                                        "example": "full_time",
+                                                        "nullable": true
+                                                    },
+                                                    "preferred_work_type": {
+                                                        "type": "string",
+                                                        "example": "remote",
+                                                        "nullable": true
+                                                    },
+                                                    "completeness_percent": {
+                                                        "type": "integer",
+                                                        "example": 82
+                                                    },
+                                                    "visibility": {
+                                                        "type": "string",
+                                                        "example": "public",
+                                                        "nullable": true
+                                                    },
+                                                    "contactable": {
+                                                        "description": "Always true for a listed student (consent is an inclusion condition) but reported explicitly so the client can drive the contact affordance off the payload.",
+                                                        "type": "boolean",
+                                                        "example": true
+                                                    },
+                                                    "readiness": {
+                                                        "properties": {
+                                                            "score": {
+                                                                "type": "number",
+                                                                "format": "float",
+                                                                "example": 78.5,
+                                                                "nullable": true
+                                                            },
+                                                            "band": {
+                                                                "type": "string",
+                                                                "example": "near_ready",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "top_skills": {
+                                                        "description": "At most 3 skills, highest level first.",
+                                                        "type": "array",
+                                                        "items": {
+                                                            "$ref": "#/components/schemas/TalentSkill"
+                                                        }
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "meta": {
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer",
+                                                    "example": 1
+                                                },
+                                                "last_page": {
+                                                    "type": "integer",
+                                                    "example": 1
+                                                },
+                                                "per_page": {
+                                                    "type": "integer",
+                                                    "example": 15
+                                                },
+                                                "total": {
+                                                    "type": "integer",
+                                                    "example": 1
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "request_id": {
+                                            "type": "string",
+                                            "format": "uuid"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The caller is not a company admin (code COMPANY_ADMIN_ONLY), the account is not active, or the organization is not approved.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error (e.g. `per_page` above 100, `min_readiness` outside 0-100, or an unsupported `sort`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/v1/talent/filters": {
+            "get": {
+                "tags": [
+                    "Talent Discovery"
+                ],
+                "summary": "List the filter values usable on the talent list",
+                "description": "Returns the values the list endpoint accepts, so a client never has to hardcode them. This exists because a company admin cannot read `GET /v1/career-roles` (all three of its routes are `role:learner`), so the `career_role` slugs would otherwise be unreachable without guessing. `career_roles` is deliberately NOT the whole taxonomy: it is the set that can actually return a result for THIS caller, derived from the same permitted-student query as the list. A dropdown built from the full table would offer options that always come back empty. Protected by auth:sanctum + account.active + organization.approved + role:company_admin.",
+                "operationId": "talentDiscoveryFilters",
+                "responses": {
+                    "200": {
+                        "description": "Filter values retrieved. `career_roles` may be empty.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Talent discovery filters retrieved successfully."
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "career_roles": {
+                                                    "description": "Only the roles held by at least one student this caller may see.",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer",
+                                                                "example": 1
+                                                            },
+                                                            "title": {
+                                                                "type": "string",
+                                                                "example": "Backend Engineer"
+                                                            },
+                                                            "slug": {
+                                                                "description": "Pass this as the `career_role` query parameter.",
+                                                                "type": "string",
+                                                                "example": "backend-engineer"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "readiness_bands": {
+                                                    "description": "The `readiness.band` vocabulary, so the client can label a band without hardcoding it.",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "example": [
+                                                        "foundation_needed",
+                                                        "developing",
+                                                        "moderate_readiness",
+                                                        "near_ready",
+                                                        "highly_ready"
+                                                    ]
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "request_id": {
+                                            "type": "string",
+                                            "format": "uuid"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The caller is not a company admin (code COMPANY_ADMIN_ONLY), the account is not active, or the organization is not approved.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/v1/talent/{student}": {
+            "get": {
+                "tags": [
+                    "Talent Discovery"
+                ],
+                "summary": "Get one student's talent profile",
+                "description": "Returns the identity block plus the three tabs the UI draws (skills, projects, evaluation). The SAME visibility rules as the list are applied here — never weaker — so a caller cannot reach a student by guessing an id the list would not have shown them. ⚠️ A student the caller may not see is answered with **404, never 403**: a 403 would confirm that the id exists and turn this route into a membership oracle. The same 404 covers an unknown id, a private profile, a student who did not consent, and another tenant. The student email address is not part of this contract on purpose, and neither is the evaluator identity, the per-dimension comments, nor `moderation_reason` — that is internal review material. Protected by auth:sanctum + account.active + organization.approved + role:company_admin.",
+                "operationId": "talentDiscoveryShow",
+                "parameters": [
+                    {
+                        "name": "student",
+                        "in": "path",
+                        "description": "Student (user) id. Must be numeric — a non-numeric segment does not match this route.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 42
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Talent profile retrieved.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Talent profile retrieved successfully."
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "integer",
+                                                    "example": 42
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "example": "Lena Kim",
+                                                    "nullable": true
+                                                },
+                                                "career_role": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "integer",
+                                                            "example": 1
+                                                        },
+                                                        "title": {
+                                                            "type": "string",
+                                                            "example": "Backend Engineer"
+                                                        },
+                                                        "slug": {
+                                                            "type": "string",
+                                                            "example": "backend-engineer"
+                                                        }
+                                                    },
+                                                    "type": "object",
+                                                    "nullable": true
+                                                },
+                                                "specialization": {
+                                                    "type": "string",
+                                                    "example": "Computer Science",
+                                                    "nullable": true
+                                                },
+                                                "university_name": {
+                                                    "type": "string",
+                                                    "example": "Cairo University",
+                                                    "nullable": true
+                                                },
+                                                "career_status": {
+                                                    "type": "string",
+                                                    "example": "student",
+                                                    "nullable": true
+                                                },
+                                                "enrollment_status": {
+                                                    "type": "string",
+                                                    "example": "enrolled",
+                                                    "nullable": true
+                                                },
+                                                "availability": {
+                                                    "type": "string",
+                                                    "example": "full_time",
+                                                    "nullable": true
+                                                },
+                                                "preferred_work_type": {
+                                                    "type": "string",
+                                                    "example": "remote",
+                                                    "nullable": true
+                                                },
+                                                "completeness_percent": {
+                                                    "type": "integer",
+                                                    "example": 82
+                                                },
+                                                "visibility": {
+                                                    "type": "string",
+                                                    "example": "public",
+                                                    "nullable": true
+                                                },
+                                                "contactable": {
+                                                    "type": "boolean",
+                                                    "example": true
+                                                },
+                                                "readiness": {
+                                                    "properties": {
+                                                        "score": {
+                                                            "type": "number",
+                                                            "format": "float",
+                                                            "example": 78.5,
+                                                            "nullable": true
+                                                        },
+                                                        "band": {
+                                                            "type": "string",
+                                                            "example": "near_ready",
+                                                            "nullable": true
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "bio": {
+                                                    "type": "string",
+                                                    "example": "Final-year CS student focused on backend APIs.",
+                                                    "nullable": true
+                                                },
+                                                "interests": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "example": [
+                                                        "distributed systems",
+                                                        "developer tooling"
+                                                    ]
+                                                },
+                                                "academic_level": {
+                                                    "type": "string",
+                                                    "example": "4th year",
+                                                    "nullable": true
+                                                },
+                                                "expected_graduation": {
+                                                    "type": "string",
+                                                    "example": "2027-06-30",
+                                                    "nullable": true
+                                                },
+                                                "graduation_status": {
+                                                    "type": "boolean",
+                                                    "example": false
+                                                },
+                                                "skills": {
+                                                    "description": "Up to 20 skills, highest level first.",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/TalentSkill"
+                                                    }
+                                                },
+                                                "projects": {
+                                                    "description": "Up to 20 projects the student is or was assigned to.",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer",
+                                                                "example": 55
+                                                            },
+                                                            "title": {
+                                                                "type": "string",
+                                                                "example": "E-Commerce Platform Rebuild",
+                                                                "nullable": true
+                                                            },
+                                                            "type": {
+                                                                "type": "string",
+                                                                "example": "simulation",
+                                                                "nullable": true
+                                                            },
+                                                            "role": {
+                                                                "type": "string",
+                                                                "example": "Frontend Lead",
+                                                                "nullable": true
+                                                            },
+                                                            "state": {
+                                                                "type": "string",
+                                                                "example": "completed",
+                                                                "nullable": true
+                                                            },
+                                                            "sponsor_org": {
+                                                                "type": "string",
+                                                                "example": "Acme Software",
+                                                                "nullable": true
+                                                            },
+                                                            "joined_at": {
+                                                                "type": "string",
+                                                                "format": "date",
+                                                                "example": "2026-01-15",
+                                                                "nullable": true
+                                                            },
+                                                            "left_at": {
+                                                                "type": "string",
+                                                                "format": "date",
+                                                                "example": "2026-05-20",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "evaluation": {
+                                                    "description": "Aggregated from the student's FINALIZED project evaluations. The evaluator identity, per-dimension comments and moderation reason are withheld.",
+                                                    "properties": {
+                                                        "authorized": {
+                                                            "description": "False when there is nothing finalized to show; every other field is then null/empty.",
+                                                            "type": "boolean",
+                                                            "example": true
+                                                        },
+                                                        "overall_rating": {
+                                                            "type": "number",
+                                                            "format": "float",
+                                                            "example": 4.5,
+                                                            "nullable": true
+                                                        },
+                                                        "criteria_scores": {
+                                                            "description": "`key` is the rubric-dimension enum key, not a display label — the client owns the label and its translation.",
+                                                            "type": "array",
+                                                            "items": {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "type": "string",
+                                                                        "example": "quality",
+                                                                        "enum": [
+                                                                            "quality",
+                                                                            "commitment",
+                                                                            "communication",
+                                                                            "collaboration",
+                                                                            "creativity",
+                                                                            "problem_solving",
+                                                                            "delivery"
+                                                                        ]
+                                                                    },
+                                                                    "score": {
+                                                                        "type": "number",
+                                                                        "format": "float",
+                                                                        "example": 4.6
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            }
+                                                        },
+                                                        "evaluations_count": {
+                                                            "type": "integer",
+                                                            "example": 3
+                                                        },
+                                                        "reviewed_at": {
+                                                            "type": "string",
+                                                            "format": "date",
+                                                            "example": "2026-06-01",
+                                                            "nullable": true
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "request_id": {
+                                            "type": "string",
+                                            "format": "uuid"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The caller is not a company admin (code COMPANY_ADMIN_ONLY), the account is not active, or the organization is not approved.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No discoverable student with that id — covers an unknown id, a private profile, a student who did not consent, and another tenant, with one indistinguishable response.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -13504,6 +14187,40 @@
                 },
                 "type": "object"
             },
+            "TalentSkill": {
+                "title": "TalentSkill",
+                "description": "One skill as it appears inside a Talent Discovery card or profile. This is a derived view, not a `learner_skills` row: `verified` is true when at least one verified skill evidence row exists for it, and `max_level` is the contract ceiling reported alongside the level rather than assumed by the client.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "example": "Laravel",
+                        "nullable": true
+                    },
+                    "category": {
+                        "type": "string",
+                        "example": "Backend",
+                        "nullable": true
+                    },
+                    "level": {
+                        "type": "number",
+                        "format": "float",
+                        "example": 3.5
+                    },
+                    "max_level": {
+                        "type": "integer",
+                        "example": 5
+                    },
+                    "verified": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "evidence_count": {
+                        "type": "integer",
+                        "example": 4
+                    }
+                },
+                "type": "object"
+            },
             "User": {
                 "title": "User",
                 "description": "A platform account (learner, organization member, mentor or administrator). The exact field set returned varies per endpoint; only stable fields are listed.",
@@ -13834,6 +14551,10 @@
         {
             "name": "Mentor",
             "description": "Mentor student discovery and mentor-student connections."
+        },
+        {
+            "name": "Talent Discovery",
+            "description": "The company-facing list of students who have opted into being discoverable, plus the filter vocabulary it accepts."
         },
         {
             "name": "Conversations",
