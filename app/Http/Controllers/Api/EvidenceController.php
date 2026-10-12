@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ListEvidenceRequest;
 use App\Models\Skill;
 use App\Models\SkillEvidence;
 use App\Services\Skills\SkillEvaluationService;
@@ -172,9 +173,24 @@ class EvidenceController extends Controller
     /**
      * GET /api/v1/evidence
      *
-     * Retrieve verified evidence for the authenticated learner.
+     * Retrieve the authenticated learner's own evidence.
+     *
+     * The list covers EVERY verification state — pending, verified, rejected,
+     * expired and revision — not just `verified`. Restricting it to
+     * `verified` hid the two states a learner most needs to act on: a
+     * reviewer's `revision` request ("clarify/replace this") and a `rejected`
+     * decision were invisible, so the revision workflow had no way to reach
+     * the learner it was created for (SRS SKL-09 requires the evidence and
+     * its state to be viewable).
+     *
+     * Optional `?status={state}` narrows the list to a single state; the
+     * value is validated against SkillEvidence::STATUSES by
+     * ListEvidenceRequest. Omitting it returns everything.
+     *
+     * Ownership is enforced in the query itself — the learner can only ever
+     * see rows on their own student profile.
      */
-    public function index(Request $request)
+    public function index(ListEvidenceRequest $request)
     {
         $studentProfile = $request->user()->studentProfile;
 
@@ -185,11 +201,17 @@ class EvidenceController extends Controller
             ], 422);
         }
 
+        // Present-and-valid, or null when the filter was omitted.
+        $status = $request->validated('status');
+
         $evidence = SkillEvidence::where(
             'student_profile_id',
             $studentProfile->id
         )
-            ->where('verification_status', 'verified')
+            ->when(
+                $status !== null,
+                fn ($query) => $query->where('verification_status', $status),
+            )
             ->with([
                 'skill',
                 'reviewer',

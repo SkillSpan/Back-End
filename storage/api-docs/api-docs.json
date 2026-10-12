@@ -4247,9 +4247,28 @@
                 "tags": [
                     "Evidence"
                 ],
-                "summary": "List verified evidence for the authenticated learner",
-                "description": "Returns only the evidence records whose `verification_status` is `verified`, belonging to the authenticated learner's student profile, with the related skill and reviewer eager-loaded.",
+                "summary": "List the authenticated learner's evidence",
+                "description": "Returns the authenticated learner's own evidence records in EVERY verification state — `pending`, `verified`, `rejected`, `expired` and `revision` — with the related skill and reviewer eager-loaded. The optional `status` query parameter narrows the list to a single state; an unknown value is a 422. Records belonging to another learner are never returned: the ownership check is part of the query.",
                 "operationId": "evidenceIndex",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Optional filter. When present, only evidence in this state is returned.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "revision",
+                            "enum": [
+                                "pending",
+                                "verified",
+                                "rejected",
+                                "expired",
+                                "revision"
+                            ]
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Evidence retrieved.",
@@ -4298,7 +4317,7 @@
                         }
                     },
                     "422": {
-                        "description": "The account has no student profile yet.",
+                        "description": "The account has no student profile yet, or `status` is not one of the allowed states.",
                         "content": {
                             "application/json": {
                                 "schema": {

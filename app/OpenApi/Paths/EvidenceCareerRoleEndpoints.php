@@ -62,10 +62,22 @@ class EvidenceCareerRoleEndpoints
         path: '/v1/evidence',
         operationId: 'evidenceIndex',
         tags: ['Evidence'],
-        summary: 'List verified evidence for the authenticated learner',
-        description: 'Returns only the evidence records whose `verification_status` is `verified`, belonging to '
-            .'the authenticated learner\'s student profile, with the related skill and reviewer eager-loaded.',
+        summary: 'List the authenticated learner\'s evidence',
+        description: 'Returns the authenticated learner\'s own evidence records in EVERY verification state — '
+            .'`pending`, `verified`, `rejected`, `expired` and `revision` — with the related skill and reviewer '
+            .'eager-loaded. The optional `status` query parameter narrows the list to a single state; an unknown '
+            .'value is a 422. Records belonging to another learner are never returned: the ownership check is '
+            .'part of the query.',
         security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'status',
+                in: 'query',
+                required: false,
+                description: 'Optional filter. When present, only evidence in this state is returned.',
+                schema: new OA\Schema(type: 'string', enum: ['pending', 'verified', 'rejected', 'expired', 'revision'], example: 'revision'),
+            ),
+        ],
         responses: [
             new OA\Response(
                 response: 200,
@@ -80,7 +92,7 @@ class EvidenceCareerRoleEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'The account has no student profile yet.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: 'The account has no student profile yet, or `status` is not one of the allowed states.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
         ],
     )]
     public function evidenceIndex(): void {}
