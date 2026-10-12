@@ -12,6 +12,25 @@ use Illuminate\Support\Str;
 
 class CareerRoleController extends Controller
 {
+    /*
+     * BA-04 — the list pagination contract.
+     *
+     * The endpoint used to call `paginate(15)` with the page size hardcoded,
+     * so `?per_page=N` was silently ignored. That made career-roles the only
+     * list endpoint in the project that did not honour `per_page`, and the
+     * SRS requires list endpoints to "enforce a configurable maximum page
+     * size" (NFR-PERF-03, Must).
+     *
+     * The size is now read from the request and clamped — the same contract
+     * ApplicationController and RecommendationController already use
+     * (default 15, max 100). The default is unchanged, so a client that does
+     * not send `per_page` (e.g. the current frontend, which reads Pattern C)
+     * sees exactly the same 15-item pages as before.
+     */
+    private const DEFAULT_PER_PAGE = 15;
+
+    private const MAX_PER_PAGE = 100;
+
     /**
      * GET /api/v1/career-roles
      * List all approved career roles.
@@ -22,7 +41,8 @@ class CareerRoleController extends Controller
      * carries no links and returns EVERY approved role, so a self-taught
      * learner is not restricted to one academic track.
      *
-     * Without the filter the original behaviour is unchanged, so existing
+     * Optional `?per_page={n}` sets the page size (default 15, clamped to
+     * 1..100). Without it the original behaviour is unchanged, so existing
      * consumers keep working.
      */
     public function index(ListCareerRolesRequest $request): JsonResponse
@@ -44,9 +64,6 @@ class CareerRoleController extends Controller
          * a paginated list. Ordering by `id` descending as well makes the
          * order (and therefore the pagination) deterministic; the same rule
          * is used by the project catalog and the assistant's roadmap lookup.
-         *
-         * `per_page` is deliberately fixed at 15: the frontend contract
-         * documents this endpoint's pagination as fixed (handoff Pattern C).
          */
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
@@ -59,7 +76,7 @@ class CareerRoleController extends Controller
             )
             ->latest('version')
             ->orderByDesc('id')
-            ->paginate(15);
+            ->paginate($this->perPage($request));
 
         return response()->json([
             'success' => true,
@@ -67,6 +84,25 @@ class CareerRoleController extends Controller
             'data' => $careerRoles,
             'request_id' => $requestId,
         ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
+     * Resolve the requested page size.
+     *
+     * Mirrors ApplicationController::perPage(): an absent, non-numeric,
+     * zero or negative `per_page` falls back to the default, and anything
+     * above the maximum is clamped rather than rejected, so a client asking
+     * for an unbounded page can never pull the whole table in one request.
+     */
+    private function perPage(Request $request): int
+    {
+        $requested = (int) $request->query('per_page', self::DEFAULT_PER_PAGE);
+
+        if ($requested < 1) {
+            return self::DEFAULT_PER_PAGE;
+        }
+
+        return min($requested, self::MAX_PER_PAGE);
     }
 
     /**

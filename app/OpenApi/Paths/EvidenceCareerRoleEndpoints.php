@@ -167,7 +167,8 @@ class EvidenceCareerRoleEndpoints
         tags: ['Career Roles'],
         summary: 'List approved career roles',
         description: 'Returns approved career roles ordered by version (descending) with a deterministic '
-            .'`id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. '
+            .'`id` tie-breaker, paginated (page size `per_page`, default 15, clamped to 1..100 — BA-04). '
+            .'Each item carries a `skills_count`. '
             .'The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. '
             .'When `specialization_id` is supplied, only the approved career roles linked to that '
             .'specialization (via the career_role_specialization pivot) are returned — this is the filter '
@@ -187,6 +188,13 @@ class EvidenceCareerRoleEndpoints
                     .'When omitted, every approved career role is returned (unchanged behaviour).',
                 schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
             ),
+            new OA\Parameter(
+                name: 'per_page',
+                in: 'query',
+                required: false,
+                description: 'Page size (default 15, clamped to 1..100). BA-04.',
+                schema: new OA\Schema(type: 'integer', minimum: 1, maximum: 100, example: 15),
+            ),
         ],
         responses: [
             new OA\Response(
@@ -199,7 +207,7 @@ class EvidenceCareerRoleEndpoints
                         new OA\Property(
                             property: 'data',
                             type: 'object',
-                            description: 'Laravel length-aware paginator (per page fixed at 15).',
+                            description: 'Laravel length-aware paginator (page size `per_page`, default 15, max 100).',
                             properties: [
                                 new OA\Property(property: 'current_page', type: 'integer', example: 1),
                                 new OA\Property(property: 'data', type: 'array', description: 'Each item is a CareerRole plus a `skills_count`.', items: new OA\Items(ref: '#/components/schemas/CareerRole')),
