@@ -163,6 +163,7 @@ Content-Type: application/json      # only on requests that carry a body
 }
 </code></pre>
 <p>يعني العناصر في <code dir="ltr">data.data</code> — وليس في <code dir="ltr">data</code> مثل باقي المسارات. ولا يوجد مفتاح <code dir="ltr">meta</code>.</p>
+<p><strong>BA-04 (تحديث):</strong> حجم الصفحة صار مدعومًا — <code dir="ltr">?per_page=N</code> (افتراضي <strong>15</strong>، أقصى <strong>100</strong>، وأي قيمة أكبر بتتقلّم لـ100). اللي ما بيبعتش <code dir="ltr">per_page</code> بياخد 15 بالظبط زي قبل، فما في أي كسر للفرونت الحالي. يعني <code dir="ltr">?per_page=50</code> صار يرجّع 50 عنصر.</p>
 <h3>أخطاء الـ middleware (Sanctum)</h3>
 <p>لا تمرّ على أي من الأنماط أعلاه:</p>
 <pre><code class="language-json">{ &quot;message&quot;: &quot;Unauthenticated.&quot; }
@@ -264,7 +265,7 @@ Content-Type: application/json      # only on requests that carry a body
 <p>تُمرَّر كـ query params: <code dir="ltr">?page=2&amp;per_page=30</code>.</p>
 <p><strong>استثناءان:</strong>
 - <code dir="ltr">GET /api/v1/projects</code> — ترجع <strong>مصفوفة عادية</strong> (بحد أقصى 50 عنصر)، بلا ترقيم.
-- <code dir="ltr">GET /api/v1/career-roles</code> — ترقيم مثبَّت على 15، والـ paginator داخل <code dir="ltr">data</code> (انظر النمط C).</p>
+- <code dir="ltr">GET /api/v1/career-roles</code> — الـ paginator داخل <code dir="ltr">data</code> وليس في <code dir="ltr">meta</code> (انظر النمط C)؛ و<code dir="ltr">per_page</code> افتراضي 15 وأقصى 100.</p>
 <hr />
 <h2>5. جدول المسارات الكامل — مصحَّح من الكود</h2>
 <p>العمود الأخير هو <strong>الصلاحية الفعلية</strong> كما هي في الـ middleware، وليست وصفًا نظريًا.</p>

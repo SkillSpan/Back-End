@@ -62,10 +62,22 @@ class EvidenceCareerRoleEndpoints
         path: '/v1/evidence',
         operationId: 'evidenceIndex',
         tags: ['Evidence'],
-        summary: 'List verified evidence for the authenticated learner',
-        description: 'Returns only the evidence records whose `verification_status` is `verified`, belonging to '
-            .'the authenticated learner\'s student profile, with the related skill and reviewer eager-loaded.',
+        summary: 'List the authenticated learner\'s evidence',
+        description: 'Returns the authenticated learner\'s own evidence records in EVERY verification state — '
+            .'`pending`, `verified`, `rejected`, `expired` and `revision` — with the related skill and reviewer '
+            .'eager-loaded. The optional `status` query parameter narrows the list to a single state; an unknown '
+            .'value is a 422. Records belonging to another learner are never returned: the ownership check is '
+            .'part of the query.',
         security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'status',
+                in: 'query',
+                required: false,
+                description: 'Optional filter. When present, only evidence in this state is returned.',
+                schema: new OA\Schema(type: 'string', enum: ['pending', 'verified', 'rejected', 'expired', 'revision'], example: 'revision'),
+            ),
+        ],
         responses: [
             new OA\Response(
                 response: 200,
@@ -80,7 +92,7 @@ class EvidenceCareerRoleEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'The account has no student profile yet.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: 'The account has no student profile yet, or `status` is not one of the allowed states.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
         ],
     )]
     public function evidenceIndex(): void {}
@@ -167,7 +179,8 @@ class EvidenceCareerRoleEndpoints
         tags: ['Career Roles'],
         summary: 'List approved career roles',
         description: 'Returns approved career roles ordered by version (descending) with a deterministic '
-            .'`id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. '
+            .'`id` tie-breaker, paginated (page size `per_page`, default 15, clamped to 1..100 — BA-04). '
+            .'Each item carries a `skills_count`. '
             .'The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. '
             .'When `specialization_id` is supplied, only the approved career roles linked to that '
             .'specialization (via the career_role_specialization pivot) are returned — this is the filter '
@@ -187,6 +200,13 @@ class EvidenceCareerRoleEndpoints
                     .'When omitted, every approved career role is returned (unchanged behaviour).',
                 schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
             ),
+            new OA\Parameter(
+                name: 'per_page',
+                in: 'query',
+                required: false,
+                description: 'Page size (default 15, clamped to 1..100). BA-04.',
+                schema: new OA\Schema(type: 'integer', minimum: 1, maximum: 100, example: 15),
+            ),
         ],
         responses: [
             new OA\Response(
@@ -199,7 +219,7 @@ class EvidenceCareerRoleEndpoints
                         new OA\Property(
                             property: 'data',
                             type: 'object',
-                            description: 'Laravel length-aware paginator (per page fixed at 15).',
+                            description: 'Laravel length-aware paginator (page size `per_page`, default 15, max 100).',
                             properties: [
                                 new OA\Property(property: 'current_page', type: 'integer', example: 1),
                                 new OA\Property(property: 'data', type: 'array', description: 'Each item is a CareerRole plus a `skills_count`.', items: new OA\Items(ref: '#/components/schemas/CareerRole')),

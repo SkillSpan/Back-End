@@ -6,6 +6,7 @@ use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
 use App\Models\Role;
 use App\Models\Skill;
+use App\Models\Specialization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -117,9 +118,9 @@ class CareerRoleRetrievalTest extends TestCase
             ->assertJsonPath('data.data.0.skills_count', 1);
     }
 
-    public function test_index_pagination_is_fixed_at_15_and_never_repeats_a_role(): void
+    public function test_index_default_page_size_is_15_and_never_repeats_a_role(): void
     {
-        // 18 approved roles: page 1 = 15, page 2 = 3.
+        // 18 approved roles, no `per_page` sent: page 1 = 15, page 2 = 3.
         foreach (range(1, 18) as $index) {
             $this->approvedRole('Role '.$index);
         }
@@ -152,6 +153,130 @@ class CareerRoleRetrievalTest extends TestCase
         $sortedIds = $idsPageOne;
         rsort($sortedIds);
         $this->assertSame($sortedIds, $idsPageOne, 'equal versions must be ordered by id descending');
+    }
+
+    // ------------------------------------------------ pagination (BA-04)
+
+    public function test_per_page_is_honoured(): void
+    {
+        foreach (range(1, 18) as $index) {
+            $this->approvedRole('Role '.$index);
+        }
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        $response = $this->getJson('/api/v1/career-roles?per_page=5')->assertOk();
+
+        $this->assertCount(5, $response->json('data.data'));
+        $this->assertSame(5, $response->json('data.per_page'));
+        $this->assertSame(18, $response->json('data.total'));
+        $this->assertSame(4, $response->json('data.last_page'));
+    }
+
+    /**
+     * The case that motivated BA-04: the frontend asked for `per_page=50`
+     * and used to receive 15.
+     */
+    public function test_per_page_50_is_honoured(): void
+    {
+        foreach (range(1, 55) as $index) {
+            $this->approvedRole('Role '.$index);
+        }
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        $response = $this->getJson('/api/v1/career-roles?per_page=50')->assertOk();
+
+        $this->assertCount(50, $response->json('data.data'));
+        $this->assertSame(50, $response->json('data.per_page'));
+        $this->assertSame(55, $response->json('data.total'));
+        $this->assertSame(2, $response->json('data.last_page'));
+    }
+
+    public function test_per_page_is_clamped_to_the_maximum(): void
+    {
+        $this->approvedRole('Data Analyst');
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        // An unbounded request must never pull the whole table.
+        $response = $this->getJson('/api/v1/career-roles?per_page=100000')->assertOk();
+
+        $this->assertSame(100, $response->json('data.per_page'));
+        $this->assertCount(1, $response->json('data.data'));
+    }
+
+    public function test_a_non_positive_per_page_falls_back_to_the_default(): void
+    {
+        $this->approvedRole('Data Analyst');
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        foreach (['0', '-5'] as $value) {
+            $this->getJson('/api/v1/career-roles?per_page='.$value)
+                ->assertOk()
+                ->assertJsonPath('data.per_page', 15);
+        }
+    }
+
+    public function test_a_non_numeric_per_page_falls_back_to_the_default(): void
+    {
+        $this->approvedRole('Data Analyst');
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        $this->getJson('/api/v1/career-roles?per_page=abc')
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 15);
+    }
+
+    /**
+     * BA-04 must not change the response envelope: the paginator stays inside
+     * `data` and there is still no `meta` key (frontend handoff Pattern C).
+     */
+    public function test_per_page_does_not_change_the_response_shape(): void
+    {
+        foreach (range(1, 3) as $index) {
+            $this->approvedRole('Role '.$index);
+        }
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        $response = $this->getJson('/api/v1/career-roles?per_page=2')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Career roles retrieved successfully.');
+
+        $this->assertIsArray($response->json('data.data'));
+        $this->assertArrayNotHasKey('meta', $response->json());
+        $this->assertSame(2, $response->json('data.per_page'));
+        $this->assertSame(2, $response->json('data.last_page'));
+    }
+
+    public function test_per_page_combines_with_the_specialization_filter(): void
+    {
+        $specialization = Specialization::firstOrCreate(
+            ['name' => 'Data Track'],
+            ['is_active' => true],
+        );
+
+        foreach (range(1, 4) as $index) {
+            $role = $this->approvedRole('Linked Role '.$index);
+            $role->specializations()->attach($specialization->id);
+        }
+
+        $this->approvedRole('Unlinked Role');
+
+        Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
+
+        $response = $this->getJson(
+            '/api/v1/career-roles?specialization_id='.$specialization->id.'&per_page=2'
+        )->assertOk();
+
+        // The filter still applies and the page size still applies to it.
+        $this->assertSame(4, $response->json('data.total'));
+        $this->assertSame(2, $response->json('data.per_page'));
+        $this->assertCount(2, $response->json('data.data'));
     }
 
     public function test_index_reports_the_request_id_in_the_body_and_the_header(): void

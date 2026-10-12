@@ -4247,9 +4247,28 @@
                 "tags": [
                     "Evidence"
                 ],
-                "summary": "List verified evidence for the authenticated learner",
-                "description": "Returns only the evidence records whose `verification_status` is `verified`, belonging to the authenticated learner's student profile, with the related skill and reviewer eager-loaded.",
+                "summary": "List the authenticated learner's evidence",
+                "description": "Returns the authenticated learner's own evidence records in EVERY verification state — `pending`, `verified`, `rejected`, `expired` and `revision` — with the related skill and reviewer eager-loaded. The optional `status` query parameter narrows the list to a single state; an unknown value is a 422. Records belonging to another learner are never returned: the ownership check is part of the query.",
                 "operationId": "evidenceIndex",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Optional filter. When present, only evidence in this state is returned.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "revision",
+                            "enum": [
+                                "pending",
+                                "verified",
+                                "rejected",
+                                "expired",
+                                "revision"
+                            ]
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Evidence retrieved.",
@@ -4298,7 +4317,7 @@
                         }
                     },
                     "422": {
-                        "description": "The account has no student profile yet.",
+                        "description": "The account has no student profile yet, or `status` is not one of the allowed states.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4651,7 +4670,7 @@
                     "Career Roles"
                 ],
                 "summary": "List approved career roles",
-                "description": "Returns approved career roles ordered by version (descending) with a deterministic `id` tie-breaker, paginated at a fixed 15 items per page. Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. When `specialization_id` is supplied, only the approved career roles linked to that specialization (via the career_role_specialization pivot) are returned — this is the filter the frontend uses to drive the specialization -> career role -> skills -> questions flow. The \"Self-Learning / Free Track\" specialization is the exception: it carries no pivot rows and returns EVERY approved career role, so a self-taught learner can pick any role. Omitting the filter preserves the original \"list every approved role\" behaviour.",
+                "description": "Returns approved career roles ordered by version (descending) with a deterministic `id` tie-breaker, paginated (page size `per_page`, default 15, clamped to 1..100 — BA-04). Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. When `specialization_id` is supplied, only the approved career roles linked to that specialization (via the career_role_specialization pivot) are returned — this is the filter the frontend uses to drive the specialization -> career role -> skills -> questions flow. The \"Self-Learning / Free Track\" specialization is the exception: it carries no pivot rows and returns EVERY approved career role, so a self-taught learner can pick any role. Omitting the filter preserves the original \"list every approved role\" behaviour.",
                 "operationId": "careerRolesIndex",
                 "parameters": [
                     {
@@ -4662,6 +4681,18 @@
                         "schema": {
                             "type": "integer",
                             "example": 2,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Page size (default 15, clamped to 1..100). BA-04.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 15,
+                            "maximum": 100,
                             "minimum": 1
                         }
                     }
@@ -4682,7 +4713,7 @@
                                             "example": "Career roles retrieved successfully."
                                         },
                                         "data": {
-                                            "description": "Laravel length-aware paginator (per page fixed at 15).",
+                                            "description": "Laravel length-aware paginator (page size `per_page`, default 15, max 100).",
                                             "properties": {
                                                 "current_page": {
                                                     "type": "integer",
@@ -13421,7 +13452,11 @@
                     },
                     "type": {
                         "type": "string",
-                        "nullable": true
+                        "example": "company_sponsored",
+                        "enum": [
+                            "simulation",
+                            "company_sponsored"
+                        ]
                     },
                     "domain": {
                         "type": "string",
@@ -13432,12 +13467,19 @@
                         "nullable": true
                     },
                     "learning_outcomes": {
-                        "type": "string",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
                         "nullable": true
                     },
                     "difficulty": {
-                        "type": "string",
-                        "nullable": true
+                        "type": "number",
+                        "format": "float",
+                        "example": 3,
+                        "nullable": true,
+                        "maximum": 5,
+                        "minimum": 0
                     },
                     "work_mode": {
                         "type": "string",

@@ -14,11 +14,16 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: 'id', type: 'integer', example: 55),
         new OA\Property(property: 'title', type: 'string', example: 'E-commerce API Modernisation'),
         new OA\Property(property: 'description', type: 'string', nullable: true),
-        new OA\Property(property: 'type', type: 'string', nullable: true),
+        // BA-03 — the response contract must agree with the request bodies in
+        // ProjectEndpoints/AdminEndpoints and with ProjectResource: `type` is
+        // the closed two-value enum (NOT NULL in the schema), and `difficulty`
+        // is a number, not a string. It was documented as a string, which would
+        // generate `difficulty: string` on the client.
+        new OA\Property(property: 'type', type: 'string', enum: ['simulation', 'company_sponsored'], example: 'company_sponsored'),
         new OA\Property(property: 'domain', type: 'string', nullable: true),
         new OA\Property(property: 'objectives', type: 'string', nullable: true),
-        new OA\Property(property: 'learning_outcomes', type: 'string', nullable: true),
-        new OA\Property(property: 'difficulty', type: 'string', nullable: true),
+        new OA\Property(property: 'learning_outcomes', type: 'array', nullable: true, items: new OA\Items(type: 'string')),
+        new OA\Property(property: 'difficulty', type: 'number', format: 'float', nullable: true, minimum: 0, maximum: 5, example: 3),
         new OA\Property(property: 'work_mode', type: 'string', nullable: true),
         new OA\Property(property: 'career_role_id', type: 'integer', nullable: true),
         new OA\Property(
