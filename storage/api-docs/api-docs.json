@@ -13421,7 +13421,11 @@
                     },
                     "type": {
                         "type": "string",
-                        "nullable": true
+                        "example": "company_sponsored",
+                        "enum": [
+                            "simulation",
+                            "company_sponsored"
+                        ]
                     },
                     "domain": {
                         "type": "string",
@@ -13432,12 +13436,19 @@
                         "nullable": true
                     },
                     "learning_outcomes": {
-                        "type": "string",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
                         "nullable": true
                     },
                     "difficulty": {
-                        "type": "string",
-                        "nullable": true
+                        "type": "number",
+                        "format": "float",
+                        "example": 3,
+                        "nullable": true,
+                        "maximum": 5,
+                        "minimum": 0
                     },
                     "work_mode": {
                         "type": "string",
