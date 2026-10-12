@@ -10,6 +10,7 @@ use App\Http\Requests\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Services\Projects\ProjectLifecycleService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -283,7 +284,7 @@ class ProjectManagementController extends Controller
     {
         Log::error('Project management request failed.', array_merge([
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ], $context));
 
         return $this->errorResponse(

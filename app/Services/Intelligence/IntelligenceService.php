@@ -8,6 +8,7 @@ use App\Models\CareerRole;
 use App\Models\DecisionSnapshot;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
+use App\Support\SafeLog;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -250,7 +251,7 @@ class IntelligenceService
                 'decision_uuid' => $decisionUuid,
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             throw new IntelligenceException(

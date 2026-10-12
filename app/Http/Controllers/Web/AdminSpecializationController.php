@@ -9,6 +9,7 @@ use App\Http\Requests\StoreSpecializationRequest;
 use App\Http\Requests\UpdateSpecializationRequest;
 use App\Models\Specialization;
 use App\Services\Assessment\SpecializationService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -305,7 +306,7 @@ class AdminSpecializationController extends Controller
     {
         Log::error('Admin specialization request failed.', [
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ]);
 
         return $this->errorResponse(

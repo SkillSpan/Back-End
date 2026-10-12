@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Services\Projects\ProjectLifecycleService;
+use App\Support\SafeLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -505,7 +506,7 @@ class ProjectController extends Controller
     {
         Log::error('Admin project request failed.', array_merge([
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ], $context));
 
         return $this->errorResponse(

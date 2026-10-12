@@ -8,6 +8,7 @@ use App\Http\Requests\StoreQuestionRequest;
 use App\Http\Requests\UpdateQuestionRequest;
 use App\Models\BaselineAssessmentItem;
 use App\Services\Assessment\QuestionBankService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -269,7 +270,7 @@ class AdminQuestionController extends Controller
     {
         Log::error('Admin question request failed.', [
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ]);
 
         return $this->errorResponse(

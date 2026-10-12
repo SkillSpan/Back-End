@@ -39,7 +39,7 @@ class OrganizationController extends Controller
             $query->where('verification_status', $status);
         }
 
-        $organizations = $query->paginate((int) $request->query('per_page', 15));
+        $organizations = $query->paginate($this->perPage($request));
 
         return response()->json([
             'success' => true,
@@ -384,5 +384,22 @@ class OrganizationController extends Controller
                 $member->notify($notification);
             }
         }
+    }
+
+    /**
+     * Clamp the requested page size so a caller cannot ask for an unbounded
+     * result set.
+     *
+     * This list used to pass `per_page` straight into `paginate()`, so
+     * `?per_page=1000000` asked the database for a million organizations in one
+     * response — the one list endpoint on the API without a ceiling. Default 15
+     * and a hard maximum of 100 mirror Admin\ProjectController and
+     * Admin\SupportController, which already clamp the same way.
+     */
+    private function perPage(Request $request): int
+    {
+        $perPage = (int) $request->query('per_page', 15);
+
+        return max(1, min($perPage, 100));
     }
 }

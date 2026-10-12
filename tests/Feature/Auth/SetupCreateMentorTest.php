@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\AuditEvent;
 use App\Models\ProfessionalProfile;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -366,5 +368,106 @@ class SetupCreateMentorTest extends TestCase
 
         $this->assertSame(0, User::count());
         $this->assertSame(0, ProfessionalProfile::count());
+    }
+
+    // =============================================== the kill switch
+
+    public function test_is_disabled_by_the_kill_switch_even_with_the_correct_secret(): void
+    {
+        config(['services.mentor_setup.enabled' => false]);
+
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload())
+            ->assertStatus(403)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'disabled'));
+
+        $this->assertSame(0, User::count());
+    }
+
+    // ====================================== privilege escalation boundary
+
+    public function test_the_mentor_secret_cannot_take_over_an_administrator(): void
+    {
+        $adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
+
+        $admin = $this->makeUser(['password' => 'admin-original-password']);
+        $admin->roles()->attach($adminRole->id);
+
+        /*
+         * Before the guard this call reset the administrator's password — the
+         * documented "recovery path" was a privilege-escalation path, because a
+         * secret scoped to mentors could take over the highest-privileged
+         * account on the platform.
+         */
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload([
+            'password' => 'attacker-chosen-password',
+        ]))->assertStatus(422)->assertJsonPath('success', false);
+
+        $fresh = $admin->fresh();
+        $this->assertTrue(Hash::check('admin-original-password', $fresh->password));
+        $this->assertFalse(Hash::check('attacker-chosen-password', $fresh->password));
+
+        // …and the account was not otherwise touched: still an admin, and no
+        // verified mentor profile was attached to it.
+        $this->assertTrue($fresh->hasRole('admin'));
+        $this->assertSame('active', $fresh->status);
+        $this->assertNull(ProfessionalProfile::where('user_id', $admin->id)->first());
+        $this->assertSame(0, AuditEvent::count());
+    }
+
+    public function test_an_administrator_is_refused_even_without_a_password(): void
+    {
+        $adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
+
+        $admin = $this->makeUser();
+        $admin->roles()->attach($adminRole->id);
+
+        // No password supplied, so nothing would be overwritten — the refusal
+        // is about the boundary, not about credential replacement.
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload())
+            ->assertStatus(422);
+
+        $this->assertNull(ProfessionalProfile::where('user_id', $admin->id)->first());
+    }
+
+    // =============================================== audit trail
+
+    public function test_a_successful_provisioning_is_audited(): void
+    {
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload())->assertStatus(201);
+
+        $user = User::where('email', 'mentor@test.com')->firstOrFail();
+
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => null,
+            'action' => 'setup.mentor_provisioned',
+            'entity_type' => User::class,
+            'entity_id' => $user->id,
+            'purpose' => 'shared_secret_bootstrap',
+        ]);
+
+        $event = AuditEvent::where('action', 'setup.mentor_provisioned')->firstOrFail();
+        $this->assertTrue($event->after['registered']);
+        $this->assertFalse($event->after['password_reset']);
+    }
+
+    public function test_a_password_reset_through_the_mentor_secret_is_audited(): void
+    {
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload())->assertStatus(201);
+
+        $this->postJson('/api/v1/setup/create-mentor', $this->payload([
+            'password' => 'brand-new-password-2',
+        ]))->assertStatus(201);
+
+        $user = User::where('email', 'mentor@test.com')->firstOrFail();
+
+        // The flag answers "did the mentor secret ever touch this account's
+        // credentials", which is the question an incident review actually asks.
+        $event = AuditEvent::where('action', 'setup.mentor_provisioned')
+            ->where('entity_id', $user->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->assertTrue($event->after['password_reset']);
     }
 }

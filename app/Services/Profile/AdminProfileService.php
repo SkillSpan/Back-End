@@ -4,6 +4,7 @@ namespace App\Services\Profile;
 
 use App\Exceptions\ReadinessException;
 use App\Models\AdminProfile;
+use App\Models\AuthSession;
 use App\Models\User;
 use GdImage;
 use Illuminate\Http\UploadedFile;
@@ -126,6 +127,11 @@ class AdminProfileService
             );
         }
 
+        // The header read above is cheap and attacker-controlled, and the decode
+        // that follows allocates width * height * 4 bytes — so the declared size
+        // has to be refused here, between the two, before any bitmap exists.
+        $this->assertDecodableSize($info);
+
         [$encoded, $mime] = $this->squareAvatar($binary, $info['mime']);
 
         $profile = $this->profileFor($user);
@@ -205,7 +211,71 @@ class AdminProfileService
         $user->password = $newPassword;
         $user->save();
 
+        /*
+         * A password change must end the sessions the OLD password could still
+         * be riding on. Otherwise an administrator who changes their password
+         * precisely BECAUSE a token leaked leaves the attacker signed in for
+         * the token's full 14-day lifetime — the change looks like it worked
+         * and does nothing. These are the same two steps
+         * AuthService::resetPassword() already performs; doing them here too is
+         * what stops the two password-change paths from drifting apart.
+         *
+         * Sanctum tokens only. The panel is a `web` session, so the person
+         * making the change stays signed in where they are; what dies is every
+         * API token issued to this account.
+         */
+        $user->tokens()->delete();
+
+        AuthSession::where('user_id', $user->id)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now()]);
+
         Log::info('Panel password changed.', ['user_id' => $user->id]);
+    }
+
+    /**
+     * Refuse an image whose declared dimensions would exhaust memory when
+     * decoded.
+     *
+     * `getimagesizefromstring` reads only the header, so the numbers are
+     * attacker-controlled and cost almost nothing to inflate: a ~30 byte PNG
+     * header can declare 40000x40000 pixels. `imagecreatefromstring` then
+     * allocates width * height * 4 bytes for the bitmap — roughly 6 GB for that
+     * file — a decompression bomb that kills the worker with an out-of-memory
+     * fatal before any later check can run. The upload byte ceiling does not
+     * help here: the file is tiny on the wire.
+     *
+     * The ceilings are generous on purpose (see config/services.php) so every
+     * normal avatar or phone photo still passes, and both are configurable for
+     * a host with more memory.
+     *
+     * @param  array<int|string, mixed>  $info  the array returned by getimagesizefromstring()
+     *
+     * @throws ReadinessException 422 when the declared dimensions are too large
+     */
+    private function assertDecodableSize(array $info): void
+    {
+        $width = (int) ($info[0] ?? 0);
+        $height = (int) ($info[1] ?? 0);
+
+        $maxDimension = max(1, (int) config('services.profile.avatar_max_dimension', 8000));
+        $maxPixels = max(1, (int) config('services.profile.avatar_max_pixels', 25000000));
+
+        if ($width > $maxDimension || $height > $maxDimension || ($width * $height) > $maxPixels) {
+            Log::warning('Panel avatar refused: declared dimensions exceed the decode ceiling.', [
+                'width' => $width,
+                'height' => $height,
+                'max_dimension' => $maxDimension,
+                'max_pixels' => $maxPixels,
+            ]);
+
+            throw new ReadinessException(
+                'The uploaded image is too large to process. The maximum is '
+                    .$maxDimension.'x'.$maxDimension.' pixels.',
+                422,
+                'PROFILE_AVATAR_INVALID',
+            );
+        }
     }
 
     /**

@@ -385,6 +385,111 @@ class AdminAvatarTest extends TestCase
         $this->assertEquals($before, $this->stored($admin)->only(['avatar_data', 'avatar_mime', 'avatar_updated_at']));
     }
 
+    // ================================================== decompression bombs
+
+    public function test_a_decompression_bomb_is_refused_before_it_is_decoded(): void
+    {
+        $bomb = $this->pngDeclaringSize(40000, 40000);
+
+        // Precondition: the header really does declare 40000x40000, so the
+        // refusal below comes from the size guard and not from the "not an
+        // image" path — otherwise the test would pass for the wrong reason.
+        $declared = getimagesizefromstring($bomb);
+        $this->assertSame(40000, $declared[0]);
+        $this->assertSame(40000, $declared[1]);
+
+        // A few dozen bytes on the wire; ~6 GB once decoded.
+        $this->assertLessThan(1024, strlen($bomb));
+
+        $admin = $this->administrator();
+
+        $this->uploadBytes($admin, 'bomb.png', $bomb)
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+
+        // Nothing was stored: the guard ran before `profileFor()` was reached.
+        $this->assertNull(
+            AdminProfile::where('user_id', $admin->id)->first()?->avatar_data
+        );
+    }
+
+    public function test_a_bomb_leaves_the_existing_avatar_intact(): void
+    {
+        $admin = $this->administrator();
+        $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
+
+        $before = $this->stored($admin)->only(['avatar_data', 'avatar_mime', 'avatar_updated_at']);
+
+        $this->uploadBytes($admin, 'bomb.png', $this->pngDeclaringSize(50000, 50000))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+
+        $this->assertEquals($before, $this->stored($admin)->only(['avatar_data', 'avatar_mime', 'avatar_updated_at']));
+    }
+
+    public function test_an_image_wider_than_the_dimension_ceiling_is_refused(): void
+    {
+        // 9000 x 100 is only 900 000 pixels — well under the pixel ceiling — so
+        // this isolates the per-side rule.
+        $this->uploadBytes($this->administrator(), 'wide.png', $this->pngDeclaringSize(9000, 100))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+    }
+
+    public function test_an_image_taller_than_the_dimension_ceiling_is_refused(): void
+    {
+        $this->uploadBytes($this->administrator(), 'tall.png', $this->pngDeclaringSize(100, 9000))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+    }
+
+    public function test_an_image_over_the_pixel_ceiling_is_refused(): void
+    {
+        // 6000 x 6000 = 36 MP: each side is inside the 8000 ceiling, so this
+        // isolates the total-pixel rule.
+        $this->uploadBytes($this->administrator(), 'dense.png', $this->pngDeclaringSize(6000, 6000))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+    }
+
+    // ============================================ the ceilings stay usable
+
+    public function test_a_large_but_normal_photo_is_still_accepted(): void
+    {
+        // 2000 x 2000 = 4 MP, a perfectly ordinary phone photo. The guard must
+        // not be so tight that real uploads start failing.
+        $this->uploadBytes($this->administrator(), 'photo.png', $this->png(2000, 2000))
+            ->assertOk();
+    }
+
+    public function test_the_pixel_ceiling_is_configurable_and_inclusive(): void
+    {
+        config(['services.profile.avatar_max_pixels' => 10000]);
+
+        $admin = $this->administrator();
+
+        // 100 x 100 = exactly 10 000 pixels: at the ceiling, accepted.
+        $this->uploadBytes($admin, 'at-limit.png', $this->png(100, 100))->assertOk();
+
+        // 101 x 101 = 10 201 pixels: one row over, refused.
+        $this->uploadBytes($admin, 'over-limit.png', $this->png(101, 101))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+    }
+
+    public function test_the_dimension_ceiling_is_configurable(): void
+    {
+        config(['services.profile.avatar_max_dimension' => 300]);
+
+        $admin = $this->administrator();
+
+        $this->uploadBytes($admin, 'ok.png', $this->png(300, 300))->assertOk();
+
+        $this->uploadBytes($admin, 'too-wide.png', $this->png(301, 301))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
+    }
+
     // ============================================================== the serving
 
     public function test_the_avatar_route_serves_the_stored_bytes_verbatim(): void
@@ -681,6 +786,28 @@ class AdminAvatarTest extends TestCase
         imagedestroy($image);
 
         return $bytes;
+    }
+
+    /**
+     * A PNG that is only a header: the 8 byte signature plus an IHDR chunk
+     * declaring the given dimensions, with no pixel data at all.
+     *
+     * This is a decompression bomb in its purest form. The file is a few dozen
+     * bytes, yet `getimagesizefromstring` — and Laravel's own `dimensions`
+     * rule — read the declared size straight out of the header, so nothing
+     * upstream of the decode notices. Only a check sitting between the header
+     * read and `imagecreatefromstring` can stop it, which is what these
+     * fixtures exist to prove.
+     */
+    private function pngDeclaringSize(int $width, int $height): string
+    {
+        // 4 + 4 + (1 bit depth + 1 colour type + 3 reserved) = 13 byte payload.
+        $ihdr = pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0);
+
+        return "\x89PNG\r\n\x1a\n"
+            .pack('N', 13)
+            .'IHDR'.$ihdr
+            .pack('N', crc32('IHDR'.$ihdr));
     }
 
     private function jpeg(int $width, int $height): string

@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Services\Projects\ProjectMatchingRecommendationService;
 use App\Services\Projects\ProjectMatchingService;
 use App\Services\Projects\ProjectMatchingSnapshotService;
+use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -102,7 +103,7 @@ class ProjectMatchingController extends Controller
                 'request_id' => $requestId,
                 'user_id' => $user->id,
                 'project_id' => $project->id,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(

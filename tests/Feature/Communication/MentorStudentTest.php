@@ -670,6 +670,63 @@ class MentorStudentTest extends TestCase
             ->assertJsonValidationErrors(['status']);
     }
 
+    public function test_another_mentor_cannot_update_someone_elses_connection(): void
+    {
+        // IDOR regression: the id in the URL used to be the only thing standing
+        // between a verified mentor and another mentor's connection, so any
+        // mentor could disconnect someone else's student.
+        $owner = $this->mentor();
+        $intruder = $this->mentor();
+        $student = $this->student();
+        $conn = $this->connection($owner, $student, null, 'pending');
+
+        Sanctum::actingAs($intruder);
+
+        $this->patchJson("/api/v1/mentor/connections/{$conn->id}", [
+            'status' => 'disconnected',
+            'reason' => 'Not mine to touch',
+        ])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'CONNECTION_NOT_PARTICIPANT');
+
+        // The row is untouched…
+        $this->assertDatabaseHas('mentor_student_connections', [
+            'id' => $conn->id,
+            'status' => 'pending',
+            'disconnected_reason' => null,
+        ]);
+
+        // …nothing was audited under the intruder's id…
+        $this->assertDatabaseMissing('audit_events', [
+            'actor_id' => $intruder->id,
+            'entity_id' => $conn->id,
+        ]);
+
+        // …and the owner's student was never notified.
+        $this->assertDatabaseMissing('notifications', [
+            'user_id' => $student->id,
+            'event_key' => "mentor_connection_disconnected:{$conn->id}",
+        ]);
+    }
+
+    public function test_a_non_participant_cannot_archive_an_unrelated_connection(): void
+    {
+        // Same guard, a different transition: the check must not live in the
+        // disconnect branch alone.
+        $conn = $this->connection(null, null, null, 'active');
+        $intruder = $this->mentor();
+
+        Sanctum::actingAs($intruder);
+
+        $this->patchJson("/api/v1/mentor/connections/{$conn->id}", ['status' => 'archived'])
+            ->assertStatus(403);
+
+        $this->assertDatabaseHas('mentor_student_connections', [
+            'id' => $conn->id,
+            'status' => 'active',
+        ]);
+    }
+
     // ─── Notification behavior ──────────────────────────────────
 
     public function test_connection_creation_notifies_student(): void

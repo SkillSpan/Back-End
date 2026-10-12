@@ -164,7 +164,7 @@ class ConversationEndpoints
                 required: ['body'],
                 properties: [
                     new OA\Property(property: 'body', type: 'string', maxLength: 5000, example: 'Hi! Ready for our session tomorrow?'),
-                    new OA\Property(property: 'message_type', type: 'string', nullable: true, enum: ['text', 'system', 'chatbot'], example: 'text', description: 'Defaults to `text` when omitted.'),
+                    new OA\Property(property: 'message_type', type: 'string', nullable: true, enum: ['text', 'chatbot'], example: 'text', description: 'Defaults to `text` when omitted. `system` is refused (422): that type is machine-authored and no participant may set it.'),
                     new OA\Property(property: 'metadata', type: 'object', nullable: true, additionalProperties: true, example: ['attachments' => ['spec.pdf']]),
                 ],
             ),

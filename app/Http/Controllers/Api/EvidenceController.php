@@ -42,6 +42,22 @@ class EvidenceController extends Controller
                 'sometimes',
                 'required_without:evidence_url',
                 'file',
+                /*
+                 * Restrict uploads to the document/image types the evidence
+                 * flow actually accepts (certificates and proof photos).
+                 *
+                 * Without this the endpoint accepted ANY file — including
+                 * .php/.phtml, executables, shell scripts and SVG (which can
+                 * carry inline script). The file is written to the private
+                 * `local` disk, so it is not directly web-served, but storing
+                 * an arbitrary attacker-controlled file is a liability the
+                 * moment the disk (or a future download route) changes.
+                 *
+                 * `mimes` validates the type guessed from the file's actual
+                 * content, not the client-supplied extension, so a renamed
+                 * .php/.svg is rejected as well.
+                 */
+                'mimes:pdf,jpg,jpeg,png,webp',
                 'max:10000',
             ],
 

@@ -355,6 +355,50 @@ class ConversationTest extends TestCase
             ->assertJsonPath('data.message_type', 'chatbot');
     }
 
+    public function test_a_participant_cannot_forge_a_system_message(): void
+    {
+        // `system` marks a message as platform-authored. Nothing server-side
+        // ever writes one into `messages` (that type belongs to
+        // support_messages), so accepting it from the client had no legitimate
+        // caller — and let a participant put a fake platform notice in the
+        // other party's inbox.
+        [$mentor, , , $conv] = $this->conversation();
+
+        Sanctum::actingAs($mentor);
+
+        $this->postJson("/api/v1/conversations/{$conv->id}/messages", [
+            'body' => 'Your account has been suspended by an administrator.',
+            'message_type' => 'system',
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['message_type']);
+
+        $this->assertDatabaseMissing('messages', [
+            'conversation_id' => $conv->id,
+            'message_type' => 'system',
+        ]);
+    }
+
+    public function test_omitted_and_explicit_text_types_are_both_stored_as_text(): void
+    {
+        [$mentor, , , $conv] = $this->conversation();
+
+        Sanctum::actingAs($mentor);
+
+        $this->postJson("/api/v1/conversations/{$conv->id}/messages", [
+            'body' => 'No type sent.',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.message_type', 'text');
+
+        $this->postJson("/api/v1/conversations/{$conv->id}/messages", [
+            'body' => 'Explicit text.',
+            'message_type' => 'text',
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.message_type', 'text');
+    }
+
     public function test_send_message_writes_audit_and_notifies_recipient(): void
     {
         [$mentor, $student, , $conv] = $this->conversation();

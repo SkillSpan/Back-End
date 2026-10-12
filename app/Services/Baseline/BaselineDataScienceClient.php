@@ -4,6 +4,7 @@ namespace App\Services\Baseline;
 
 use App\Exceptions\BaselineAssessmentException;
 use App\Models\StudentProfile;
+use App\Support\SafeLog;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -299,24 +300,20 @@ class BaselineDataScienceClient
     }
 
     /**
-     * A bounded, single-line excerpt of the upstream body, for the log only.
+     * A bounded, single-line summary of the upstream failure body, for the log
+     * only — never the body itself.
      *
-     * Bounded so a pathological response cannot flood the log, and collapsed
-     * to one line so the JSON stays greppable next to the request id.
+     * The body comes from a different service, so it is untrusted text: on a
+     * 5xx it can be a debug page or traceback that echoes the request, and the
+     * request here is the learner's own record. {@see SafeLog::upstreamBody()}
+     * keeps only the service's documented `{"detail": "..."}` explanation and
+     * summarises anything else by size. Bounded so a pathological response
+     * cannot flood the log, and collapsed to one line so the JSON stays
+     * greppable next to the request id.
      */
     private function bodyExcerpt(Response $response): string
     {
-        $body = trim((string) $response->body());
-
-        if ($body === '') {
-            return '<empty body>';
-        }
-
-        return mb_substr(
-            preg_replace('/\s+/', ' ', $body) ?? $body,
-            0,
-            500
-        );
+        return SafeLog::upstreamBody((string) $response->body());
     }
 
     private function logFailure(

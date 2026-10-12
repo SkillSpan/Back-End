@@ -352,6 +352,30 @@ class MentorStudentService
         ?Request $request = null,
     ): MentorStudentConnection {
         $connection = MentorStudentConnection::findOrFail($connectionId);
+
+        /*
+         * Authorization: only the two participants of a connection may change
+         * its status.
+         *
+         * The id in the URL is not a capability. Without this check any
+         * verified mentor could accept, archive or disconnect ANY other
+         * mentor's connection — and the disconnect path notifies the victim's
+         * student, so the damage reached a third party too. `$actorId` is
+         * compared strictly against both sides of the connection, which also
+         * means a null actor (no authenticated principal) is refused rather
+         * than silently trusted.
+         *
+         * 403 rather than 404 to mirror ConversationService, which guards the
+         * same mentor/student participant relationship the same way.
+         */
+        if (! in_array($actorId, [$connection->mentor_id, $connection->student_id], true)) {
+            throw new CommunicationException(
+                'You are not a participant in this connection.',
+                403,
+                'CONNECTION_NOT_PARTICIPANT',
+            );
+        }
+
         $before = $connection->toArray();
 
         $updateData = ['status' => $status];

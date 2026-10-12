@@ -14,6 +14,7 @@ use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Profile\AdminProfileService;
 use App\Services\Support\SupportRequestService;
+use App\Support\SafeLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -79,7 +80,7 @@ class SupportRequestController extends Controller
             Log::error('Support handoff failed.', [
                 'request_id' => $requestId,
                 'user_id' => $user->id,
-                'failure_reason' => $e->getMessage(),
+                'failure_reason' => SafeLog::reason($e),
             ]);
 
             return $this->errorResponse(

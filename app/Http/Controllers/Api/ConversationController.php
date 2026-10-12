@@ -98,7 +98,12 @@ class ConversationController extends Controller
                 conversationId: $conversation,
                 senderId: $request->user()->id,
                 body: $request->input('body'),
-                type: $request->input('message_type', 'text'),
+                // Read from validated() rather than input(): the value that
+                // reaches the database can then only ever be one the request
+                // rules allowed (`text` or `chatbot`), never raw client input.
+                // The rules used to also allow `system`, which no participant
+                // may author — see StoreMessageRequest.
+                type: $request->validated('message_type', 'text'),
                 metadata: $request->input('metadata'),
                 request: $request,
             );

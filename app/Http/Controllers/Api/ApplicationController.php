@@ -9,6 +9,7 @@ use App\Http\Resources\ApplicationResource;
 use App\Models\Application;
 use App\Models\Project;
 use App\Services\Projects\ApplicationService;
+use App\Support\SafeLog;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -381,7 +382,7 @@ class ApplicationController extends Controller
     {
         Log::error('Project application request failed.', array_merge([
             'request_id' => $requestId,
-            'failure_reason' => $e->getMessage(),
+            'failure_reason' => SafeLog::reason($e),
         ], $context));
 
         return $this->errorResponse(

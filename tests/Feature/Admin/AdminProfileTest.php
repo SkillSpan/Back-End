@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\AuthSession;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\SupportRequest;
@@ -363,6 +364,43 @@ class AdminProfileTest extends TestCase
         // reaches the column.
         $this->assertTrue(Hash::check('a-much-better-secret', (string) $admin->fresh()->password));
         $this->assertNotSame('a-much-better-secret', $admin->fresh()->password);
+    }
+
+    public function test_changing_the_password_revokes_every_api_token_and_session(): void
+    {
+        $admin = $this->administrator();
+
+        // Two live API tokens, each with the audit row login would have written.
+        foreach ([$admin->createToken('auth_token'), $admin->createToken('auth_token')] as $token) {
+            AuthSession::forceCreate([
+                'user_id' => $admin->id,
+                'token_hash' => $token->accessToken->token,
+                'result' => 'success',
+                'issued_at' => now(),
+            ]);
+        }
+
+        $this->assertSame(2, $admin->tokens()->count());
+        $this->assertSame(2, AuthSession::where('user_id', $admin->id)->whereNull('revoked_at')->count());
+
+        $this->actingAs($admin)
+            ->postJson('/admin/api/profile/password', [
+                'current_password' => 'password123',
+                'password' => 'a-much-better-secret',
+                'password_confirmation' => 'a-much-better-secret',
+            ])
+            ->assertOk();
+
+        // A change made *because* a token leaked has to end that token's life,
+        // not leave it valid for its remaining 14 days. Before this guard the
+        // panel path revoked nothing while the reset-password path revoked
+        // everything, so the two password changes disagreed.
+        $this->assertSame(0, $admin->tokens()->count());
+        $this->assertSame(0, AuthSession::where('user_id', $admin->id)->whereNull('revoked_at')->count());
+
+        // The panel is a web session, so the person making the change stays
+        // signed in — only the API tokens die.
+        $this->assertAuthenticatedAs($admin->fresh());
     }
 
     public function test_a_wrong_current_password_is_refused_in_the_project_envelope(): void
