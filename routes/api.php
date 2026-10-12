@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
 use App\Http\Controllers\Api\SupportRequestController;
+use App\Http\Controllers\Api\TalentDiscoveryController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -322,6 +323,29 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved'])->prefix('organization')->group(function () {
         Route::get('/profile', [OrganizationController::class, 'profile']);
     });
+
+    // ──────────────────────────────────────────────────────────────
+    // Talent Discovery — the company-facing list of discoverable students.
+    //
+    // A DEDICATED endpoint, deliberately separate from /recommendations:
+    // that one returns the CALLER's own stored PROJECT recommendations and is
+    // gated on role:learner, so it can never answer "which students may this
+    // company see?" (the frontend was using it for this page by mistake).
+    //
+    // 'organization.approved' is what makes the UI's "Verified Company Access"
+    // claim true: an account whose organization is still pending or rejected
+    // is refused here, independently of its token.
+    // ──────────────────────────────────────────────────────────────
+    Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
+        ->prefix('talent')
+        ->group(function () {
+            Route::get('/', [TalentDiscoveryController::class, 'index']);
+            // Registered BEFORE /{student} so the literal wins regardless of the
+            // numeric constraint (the constraint alone already protects it).
+            Route::get('/filters', [TalentDiscoveryController::class, 'filters']);
+            Route::get('/{student}', [TalentDiscoveryController::class, 'show'])
+                ->whereNumber('student');
+        });
 
     // ──────────────────────────────────────────────────────────────
     // Mentor–Student communication system.
