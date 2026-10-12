@@ -4528,7 +4528,7 @@
                     "Evidence"
                 ],
                 "summary": "Review evidence (administrator only)",
-                "description": "Marks an evidence record as `verified` or `rejected`, records the reviewer and optional notes, recalculates the learner's skill level and confidence synchronously, and dispatches a queued intelligence recalculation for the learner.",
+                "description": "Marks an evidence record as `verified`, `rejected` or `revision` (the reviewer's \"request clarification\" outcome required by SRS SKL-05 / UC-03), records the reviewer and optional notes, recalculates the learner's skill level and confidence synchronously, and dispatches a queued intelligence recalculation for the learner. Only evidence still awaiting a decision (`pending` or `revision`) can be reviewed; a terminal record (`verified`, `rejected`, `expired`) is refused with `422 INVALID_EVIDENCE_TRANSITION` rather than silently rewritten (SRS BR-EVA-06).",
                 "operationId": "evidenceReview",
                 "parameters": [
                     {
@@ -4552,11 +4552,13 @@
                                 ],
                                 "properties": {
                                     "verification_status": {
+                                        "description": "`revision` = request clarification from the learner.",
                                         "type": "string",
                                         "example": "verified",
                                         "enum": [
                                             "verified",
-                                            "rejected"
+                                            "rejected",
+                                            "revision"
                                         ]
                                     },
                                     "reviewer_notes": {
@@ -4626,7 +4628,7 @@
                         }
                     },
                     "422": {
-                        "description": "Validation error (invalid or missing `verification_status`).",
+                        "description": "Validation error (invalid or missing `verification_status`), or `INVALID_EVIDENCE_TRANSITION` when the record is no longer awaiting a decision.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -14031,12 +14033,15 @@
                         "nullable": true
                     },
                     "verification_status": {
+                        "description": "BA-02: `pending` (awaiting review), `verified` (approved, the only state that raises skill level), `rejected` (denied), `expired` (no longer valid), `revision` (reviewer requested clarification — SRS SKL-05).",
                         "type": "string",
                         "example": "pending",
                         "enum": [
                             "pending",
                             "verified",
-                            "rejected"
+                            "rejected",
+                            "expired",
+                            "revision"
                         ]
                     },
                     "recency_factor": {
