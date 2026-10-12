@@ -89,18 +89,18 @@
    السبب إن PDO بيرجّع أعمدة `DECIMAL` من MySQL كـ string، والـ model مفيش فيه `$casts` للحقول دي.
    **اتأكدنا منها عمليًا على قاعدة الإنتاج.** لو الفرونت بيعمل `Number(x)` أو مقارنات، لازم يحوّل الأول.
 
-3. **`GET /api/v1/evidence` بيرجّع الأدلة المعتمدة بس (`verification_status = verified`).**
-   يعني بعد ما الطالب يرفع دليل بنجاح، **مش هيظهر في القايمة** لحد ما أدمن يعتمده من
-   `PUT /api/v1/evidence/{id}/review`. لو محتاجين نعرض الـ pending/rejected كمان، ده endpoint تاني
-   ومحتاجين نضيفه.
+3. **`GET /api/v1/evidence` — ✅ اتصحّح: بقى يرجّع كل الحالات.**
+   كان مفلتر على `verification_status = verified` بس، يعني الدليل بعد ما الطالب يرفعه **ماكانش يظهر**
+   لحد ما أدمن يعتمده. **دلوقتي** بيرجّع أدلة الطالب في **كل** الحالات
+   (`pending` / `verified` / `rejected` / `expired` / `revision`)، وفيه فلتر اختياري `?status=`. التفاصيل تحت.
 
 4. **`reference` للملفات المرفوعة مش رابط عام.**
    لو رفع `evidence_file`، القيمة اللي بترجع في `reference` بتبقى مسار داخلي على السيرفر
    (زي `evidence/AbC123.jpg`) — **مش متاح من المتصفح**، ومفيش endpoint لتحميله حاليًا.
    فمينفعش الفرونت يعرض الملف بعد الرفع. لو محتاجين ده، قولوا.
 
-5. **مفيش endpoint يجيب كل الأدلة للطالب** (pending + verified + rejected). `GET /api/v1/evidence`
-   مفلتر على `verified` بس.
+5. **`GET /api/v1/evidence` بيرجّع كل الأدلة بتاعة الطالب** (كل الحالات) — اتصحّح. وفيه فلتر
+   اختياري `?status=`، لكن مفيش ترقيم (زي قبل).
 
 ---
 
@@ -145,11 +145,40 @@ revision ──▶  revision        (طلب توضيح تاني — مسموح)
   ```
 - `reviewer_notes` اختياري (max 500) — **مهم**: لما تطلب `revision`، حط سبب الطلب هنا عشان الطالب يعرف يعمل إيه.
 
-### ⚠️ نقطة لسه محتاجة قرار (مش جزء من BA-02)
+### ✅ قائمة الأدلة — `GET /api/v1/evidence` (اتصحّحت)
 
-`GET /api/v1/evidence` لسه **بيرجّع `verified` بس**. يعني الطالب مش هيشوف الـ`pending`/`revision`/`rejected`
-في القايمة — بس هيظهروله في `GET /api/v1/evidence/{id}`. لو محتاجين قايمة بالحالات دي، ده endpoint/فلتر
-تاني ومحتاجين نتفق عليه.
+```
+GET /api/v1/evidence                 → كل أدلة الطالب (كل الحالات)
+GET /api/v1/evidence?status=revision → أدلة الـrevision بس
+```
+
+- الافتراضي بقى **كل الحالات**: `pending`, `verified`, `rejected`, `expired`, `revision`.
+- `status` اختياري، وأي قيمة غير الخمسة دول بترجع **`422`** فاليديشن.
+- **مفيش ترقيم** (زي قبل) — الرد مصفوفة كاملة في `data`.
+- الطالب بيشوف أدلته هو بس؛ أدلة طالب تاني **مش بترجع خالص**.
+- كل الحقول زي ما هي (مفيش أي حقل اتشال ولا اتغير).
+
+```json
+{
+  "success": true,
+  "message": "Evidence retrieved successfully.",
+  "data": [
+    {
+      "id": 1, "student_profile_id": 3, "skill_id": 12, "source": "certificate",
+      "reference": "https://example.com/cert.pdf", "description": "…",
+      "evidence_date": "2026-09-01T00:00:00.000000Z",
+      "verification_status": "revision",
+      "reviewer_id": 2, "reviewer_notes": "Please upload the certificate as a PDF.",
+      "recency_factor": "1.00",
+      "skill": { "id": 12, "name": "SQL" },
+      "reviewer": { "id": 2, "name": "Admin" }
+    }
+  ]
+}
+```
+
+⚠️ **للـfrontend:** ما تعملش فلترة `verified` من عندك وتفترض إنها كل اللي جاي — لازم تفرّع على
+`verification_status` عشان تعرض «مطلوب منك تعديل» لحالة `revision`.
 
 ---
 
@@ -201,6 +230,6 @@ curl -s https://back-end-zdip.onrender.com/api/v1/skills/taxonomy \
 | Method | Endpoint | الصلاحية |
 |---|---|---|
 | `POST` | `/api/v1/evidence` | `learner` — **رفع دليل (الـ endpoint المطلوب)** |
-| `GET` | `/api/v1/evidence` | `learner` — المعتمدة بس |
+| `GET` | `/api/v1/evidence` | `learner` — كل أدلة الطالب (كل الحالات) + فلتر اختياري `?status=` |
 | `GET` | `/api/v1/evidence/{id}` | أي مستخدم نشِط — المالك أو أدمن |
 | `PUT` | `/api/v1/evidence/{id}/review` | `admin` — اعتماد / رفض / طلب توضيح (`verified` / `rejected` / `revision`) |

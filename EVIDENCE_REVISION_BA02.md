@@ -228,9 +228,9 @@ Content-Type: application/json
 
 ## ٨. حاجات خارج نطاق BA-02 (توصيات)
 
-1. **`GET /api/v1/evidence` لسه بيرجّع `verified` بس.** يعني الطالب مش هيشوف الـ`pending`/`revision`/`rejected`
-   في القايمة، بس في `GET /evidence/{id}`. **ده أهم gap متبقّي للـflow** — لو الفرونت محتاج يعرض «مطلوب منك تعديل»،
-   ده محتاج فلتر/endpoint تاني (قرار منفصل). مش اتغيّر هنا عشان ما نكسرش العقد الحالي.
+1. ~~**`GET /api/v1/evidence` لسه بيرجّع `verified` بس.**~~ **اتحلّت في المتابعة:** القائمة بقت ترجّع كل
+   الحالات (`pending`/`verified`/`rejected`/`expired`/`revision`) مع فلتر اختياري `?status=`.
+   التفاصيل في `EVIDENCE_ADD_API.md`.
 2. **`expired` لسه مستحيل توصلها من الـAPI.** موجودة في الـenum والـSRS، بس مفيش مسار بيحطها
    (مفروض تكون آلية/time-based). اتسابت زي ما هي.
 3. **مفيش `superseded`/`voided`** (موجودين في SRS Table 75). إضافتهم محتاجة قرار + schema change، فماتعملتش هنا.
