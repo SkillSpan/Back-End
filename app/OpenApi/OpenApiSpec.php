@@ -50,6 +50,7 @@ use OpenApi\Attributes as OA;
 #[OA\Tag(name: 'Admin', description: 'Platform-administrator surfaces: organization approval and project moderation.')]
 #[OA\Tag(name: 'Organization', description: 'Self-service organization account endpoints.')]
 #[OA\Tag(name: 'Mentor', description: 'Mentor student discovery and mentor-student connections.')]
+#[OA\Tag(name: 'Talent Discovery', description: 'The company-facing list of students who have opted into being discoverable, plus the filter vocabulary it accepts.')]
 #[OA\Tag(name: 'Conversations', description: 'Mentor-student conversations and messages, including chatbot messages.')]
 #[OA\Tag(name: 'Notifications', description: 'In-app notification feed and delivery preferences.')]
 #[OA\Tag(name: 'Setup', description: 'Bootstrap endpoints for creating the first admin/mentor accounts.')]
