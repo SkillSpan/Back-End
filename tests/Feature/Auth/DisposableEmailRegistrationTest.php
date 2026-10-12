@@ -19,12 +19,22 @@ use Tests\TestCase;
  * The rule under test is 'indisposable' from propaganistas/laravel-disposable-email.
  * It is wired into two places:
  *
- *   1. RegisterRequest and RegisterOrganizationRequest — the two explicit
- *      self-registration endpoints.
+ *   1. RegisterRequest — the INDIVIDUAL (learner) self-registration endpoint.
  *   2. AuthService::loginWithGoogle() — the implicit third self-registration
  *      path, which creates an account the first time a Google identity is seen.
  *      It cannot live in GoogleLoginRequest because the address is not client
- *      input; it arrives inside the verified Google ID token.
+ *      input; it arrives inside the verified Google ID token. This path also
+ *      creates an individual, so it stays blocked.
+ *
+ * ⚠️ Deliberately NOT applied to RegisterOrganizationRequest
+ * (POST /auth/register/organization). The organisation flow is a vetted flow:
+ * the organisation is created with verification_status 'pending' and an
+ * administrator has to review the uploaded proof document before it can
+ * operate, so that review — not the mailbox — is the gate. Companies and
+ * university / training-partner desks legitimately register from shared,
+ * role-based or domain-less mailboxes, and the rule was turning them away.
+ * Tests below pin the split in both directions so it cannot be flipped back
+ * on by accident.
  *
  * Deliberately NOT applied to:
  *   - POST /setup/create-admin and POST /setup/create-mentor — those are
@@ -214,18 +224,20 @@ class DisposableEmailRegistrationTest extends TestCase
     // 2. Organisation self-registration — POST /api/v1/auth/register/organization
     // ---------------------------------------------------------------------
 
-    public function test_organization_registration_rejects_a_disposable_email(): void
+    public function test_organization_registration_accepts_a_disposable_email(): void
     {
         $this->postJson('/api/v1/auth/register/organization', $this->organizationPayload([
             'email' => 'admin@guerrillamail.com',
-        ]))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['email'])
-            ->assertJsonPath('errors.email.0', self::DISPOSABLE_MESSAGE);
+        ]))->assertStatus(201);
 
-        // Neither the account nor the organisation was created.
-        $this->assertDatabaseCount('users', 0);
-        $this->assertDatabaseCount('organizations', 0);
+        // The account exists, but the organisation is created 'pending': the
+        // administrator's review of the proof document is what gates it, which
+        // is exactly why the mailbox does not need to be policed here.
+        $this->assertDatabaseHas('users', ['email' => 'admin@guerrillamail.com']);
+        $this->assertDatabaseHas('organizations', [
+            'name' => 'Tech Co',
+            'verification_status' => 'pending',
+        ]);
     }
 
     public function test_organization_registration_still_succeeds_for_a_normal_email(): void
@@ -241,17 +253,20 @@ class DisposableEmailRegistrationTest extends TestCase
     }
 
     /**
-     * Proves the new rule was ADDED to the existing rule set rather than
-     * replacing it: a request that violates both reports both.
+     * The counterpart of the "the rule was ADDED, not swapped" test on the
+     * individual flow: here a disposable address contributes no 'email' error
+     * at all, so a request that really is missing its proof document reports
+     * that — and only that.
      */
-    public function test_organization_registration_reports_both_the_disposable_email_and_the_missing_proof_file(): void
+    public function test_organization_registration_reports_only_the_missing_proof_file(): void
     {
         $payload = $this->organizationPayload(['email' => 'admin@mailinator.com']);
         unset($payload['proof_file']);
 
         $this->postJson('/api/v1/auth/register/organization', $payload)
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['email', 'proof_file']);
+            ->assertJsonValidationErrors(['proof_file'])
+            ->assertJsonMissingValidationErrors(['email']);
     }
 
     /**

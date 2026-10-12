@@ -17,10 +17,14 @@ use Tests\TestCase;
  *
  * test.com is on the disposable-domains blocklist that
  * propaganistas/laravel-disposable-email ships, so any address at that domain
- * is now rejected with 422 by the 'indisposable' rule on both self-registration
- * FormRequests. Using it here made these tests pass for the wrong reason —
- * e.g. the duplicate-email test still went green because the address was
- * rejected as disposable before the unique rule was ever reached.
+ * is rejected with 422 by the 'indisposable' rule on RegisterRequest (the
+ * individual flow) — and was, until the organisation flow was exempted. Using
+ * it here made these tests pass for the wrong reason — e.g. the
+ * duplicate-email test still went green because the address was rejected as
+ * disposable before the unique rule was ever reached.
+ *
+ * Note the rule now covers only the individual and Google paths; the
+ * organisation flow accepts disposable domains on purpose.
  *
  * Disposable-email behaviour itself is covered separately in
  * DisposableEmailRegistrationTest.

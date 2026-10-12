@@ -68,12 +68,26 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            // Same disposable-email gate as the individual flow — this is the
-            // other self-registration path. Deliberately NOT applied to
-            // 'organization_contact_email' below: that is a public contact
-            // address, not the account identity, and the account cannot log in
-            // until an administrator approves the organisation.
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email', 'indisposable'],
+            // ⚠️ Deliberately NO 'indisposable' here — unlike the individual
+            // flow in RegisterRequest, and unlike the Google sign-up path in
+            // AuthService::loginWithGoogle().
+            //
+            // An organisation is a VETTED entity, not a self-serve account:
+            // the organisation is created with verification_status 'pending'
+            // and an administrator has to review the uploaded proof document
+            // before it can operate. That human review — not the mailbox — is
+            // the real gate, so a throwaway address buys a registrant nothing.
+            //
+            // The rule was actively harmful on this path: companies and
+            // university / training-partner desks legitimately register from
+            // shared, role-based or domain-less mailboxes, and the rule turned
+            // them away with a message that reads as an accusation. Do not add
+            // it back.
+            //
+            // Deliberately NOT applied to 'organization_contact_email' below
+            // either: that is a public contact address, not the account
+            // identity.
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'terms_accepted' => ['required', 'accepted'],
@@ -101,7 +115,8 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            'email.indisposable' => 'Disposable or temporary email addresses are not allowed.',
+            // No 'email.indisposable' key on purpose — the rule is not in the
+            // rule set above, so a message for it could never be reached.
             'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
             'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
             'proof_file.required' => 'Please upload a document proving the organization\'s identity (company or university registration certificate).',
