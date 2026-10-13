@@ -13,7 +13,25 @@ return [
     |
     */
 
-    'default' => env('QUEUE_CONNECTION', 'database'),
+    /*
+     * The fallback is `sync`, NOT Laravel's `database` default.
+     *
+     * This deployment's Docker image runs no queue worker — the CMD is
+     * `migrate` → `config:cache` → background seeder → `serve`, with no
+     * `queue:work` anywhere. With `database` and no worker, every queued job
+     * is written to the `jobs` table and then never processed: it fails
+     * silently, which is the worst possible failure mode. The only queued
+     * class in the app is App\Listeners\RecalculateIntelligence
+     * (SkillDataChanged → intelligence recalculation), so running it inline
+     * is both correct and cheap.
+     *
+     * `sync` makes the correct state the default regardless of whether the
+     * Render dashboard defines QUEUE_CONNECTION at all — and a cached config
+     * is baked at container start (`config:cache` in the Dockerfile), so this
+     * takes effect on the next deploy. If a real background worker is added
+     * later, set QUEUE_CONNECTION=database explicitly to opt back in.
+     */
+    'default' => env('QUEUE_CONNECTION', 'sync'),
 
     /*
     |--------------------------------------------------------------------------
