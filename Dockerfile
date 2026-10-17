@@ -90,16 +90,25 @@ EXPOSE 10000
 #   container. (Verified: `route:cache` succeeds on this route table — there
 #   are no closure routes — and `view:cache` compiles cleanly.)
 #
-# WHY PHP_CLI_SERVER_WORKERS:
+# WHY PHP_CLI_SERVER_WORKERS + --no-reload:
 #   `artisan serve` is PHP's built-in server, which handles ONE request at a
 #   time by default. Most of a request here is spent WAITING on the shared
 #   remote MySQL, not on CPU, so a handful of workers lets those waits overlap
 #   instead of queueing. POSIX only (the container is Linux); it is a no-op
-#   anywhere else. Replacing this with php-fpm + nginx remains the real fix.
+#   anywhere else.
+#
+#   ⚠️ `--no-reload` IS REQUIRED, not cosmetic. Laravel's ServeCommand refuses
+#   to apply PHP_CLI_SERVER_WORKERS without it and silently falls back to a
+#   single server ("Unable to respect the `PHP_CLI_SERVER_WORKERS` environment
+#   variable without the `--no-reload` flag"). Measured: without it,
+#   concurrency did not improve at all. Reload-on-change is meaningless in a
+#   container anyway — the code cannot change while it runs.
+#
+#   Replacing this with php-fpm + nginx remains the real fix.
 CMD php artisan migrate --force \
     && php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache \
     && (php artisan db:seed --force > /var/log/seed.log 2>&1 &) \
     && export PHP_CLI_SERVER_WORKERS=${PHP_CLI_SERVER_WORKERS:-4} \
-    && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+    && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000} --no-reload
