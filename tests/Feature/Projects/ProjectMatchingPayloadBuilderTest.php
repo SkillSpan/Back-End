@@ -460,4 +460,52 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
 
         $this->assertNotEmpty($payload['validation']['constraints']);
     }
+
+    // ------------------------------------------------- interests propagation
+
+    /**
+     * Regression: ProjectMatchingSnapshotService never copied
+     * StudentProfile::interests into the snapshot, so the payload builder's
+     * interests branch was unreachable in the normal matching flow and
+     * `interest_match` had nothing to score.
+     */
+    public function test_learner_interests_are_included_when_present(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $learner->studentProfile->update([
+            'interests' => ['web development', 'data science'],
+        ]);
+        $learner->load('studentProfile');
+
+        $project = $this->createOpenProject();
+
+        $snapshot = $this->makeValidatedSnapshot($learner, $project);
+
+        // The snapshot itself must carry them...
+        $this->assertSame(
+            ['web development', 'data science'],
+            $snapshot->snapshot['learner']['interests'],
+        );
+
+        // ...and the builder must forward them to the matching payload.
+        $payload = $this->builder->build($snapshot);
+
+        $this->assertArrayHasKey('interests', $payload['learner']);
+        $this->assertSame(
+            ['web development', 'data science'],
+            $payload['learner']['interests'],
+        );
+    }
+
+    public function test_learner_interests_are_omitted_when_absent(): void
+    {
+        $learner = $this->createLearnerWithProfile();
+        $project = $this->createOpenProject();
+
+        $snapshot = $this->makeValidatedSnapshot($learner, $project);
+
+        $payload = $this->builder->build($snapshot);
+
+        $this->assertArrayNotHasKey('interests', $payload['learner']);
+    }
 }

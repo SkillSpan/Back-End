@@ -217,6 +217,11 @@ class ProjectMatchingSnapshotService
                 'student_profile_id' => (int) $studentProfile->id,
                 'availability' => $studentProfile->availability,
                 'preferred_work_type' => $studentProfile->preferred_work_type,
+                // Carried here so the matching payload can send the learner's
+                // real interests and `interest_match` has something to score.
+                // It was previously omitted, which made the payload builder's
+                // interests branch unreachable in the normal matching flow.
+                'interests' => $studentProfile->interests,
             ],
             'project' => [
                 'id' => (int) $project->id,

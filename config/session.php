@@ -18,7 +18,21 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    /*
+     * The fallback is `file`, NOT Laravel's `database` default.
+     *
+     * The database driver costs a network round trip to the shared remote
+     * MySQL on every session-backed request (the admin/mentor panel), which
+     * measured 0.35-0.83 s per request on this deployment. `file` reads and
+     * writes the session on the container's own disk instead. Sessions are
+     * lost on redeploy — acceptable for a panel session, and the API itself
+     * uses Sanctum bearer tokens, not sessions.
+     *
+     * Revisit if this ever runs on more than one instance: `file` sessions are
+     * not shared between instances, and `redis` would be the correct choice.
+     */
+
+    'driver' => env('SESSION_DRIVER', 'file'),
 
     /*
     |--------------------------------------------------------------------------

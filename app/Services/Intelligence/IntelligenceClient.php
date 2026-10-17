@@ -26,14 +26,32 @@ class IntelligenceClient
      */
     private readonly int $timeout;
 
+    /**
+     * @param  int|null  $timeout  Explicit override in seconds. `null` (the
+     *                             default) means "use the configured value",
+     *                             which is what almost every caller wants.
+     */
     public function __construct(
         private readonly ?string $serviceToken = null,
         private readonly ?string $baseUrl = null,
-        int $timeout = 10,
+        ?int $timeout = null,
     ) {
-        $this->timeout = $timeout > 0
+        /*
+         * An explicitly supplied positive timeout wins; otherwise the
+         * CONFIGURED timeout applies.
+         *
+         * The default used to be the literal `10`, which made the
+         * `$timeout > 0` branch always true and left
+         * `config('services.data_science.timeout')` unreachable. Every caller
+         * that did `new IntelligenceClient` — notably ProjectMatchingService —
+         * therefore silently used 10 s instead of the configured 60 s, so the
+         * first call after a Render free-tier cold start (24.7-33.8 s) failed
+         * with a false INTELLIGENCE_UNAVAILABLE even though the service was
+         * healthy. The fallback below matches config/services.php on purpose.
+         */
+        $this->timeout = ($timeout !== null && $timeout > 0)
             ? $timeout
-            : (int) config('services.data_science.timeout', 10);
+            : (int) config('services.data_science.timeout', 60);
     }
 
     private function resolvedBaseUrl(): string
