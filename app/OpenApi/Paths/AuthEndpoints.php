@@ -25,7 +25,7 @@ class AuthEndpoints
                 required: ['name', 'email', 'password', 'password_confirmation', 'terms_accepted', 'privacy_accepted'],
                 properties: [
                     new OA\Property(property: 'name', type: 'string', maxLength: 255, example: 'Sara Ahmad'),
-                    new OA\Property(property: 'email', type: 'string', format: 'email', maxLength: 255, example: 'sara@example.com', description: 'Must be unique and not a disposable domain.'),
+                    new OA\Property(property: 'email', type: 'string', format: 'email', maxLength: 255, example: 'sara@example.com', description: 'Must be unique. Temporary (disposable) domains are accepted on this flow.'),
                     new OA\Property(property: 'phone', type: 'string', nullable: true, maxLength: 20, example: '+962790000000'),
                     new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 8, example: 'StrongPass123'),
                     new OA\Property(property: 'password_confirmation', type: 'string', format: 'password', example: 'StrongPass123'),
@@ -62,7 +62,7 @@ class AuthEndpoints
                     ],
                 ),
             ),
-            new OA\Response(response: 422, description: 'Validation error (duplicate email, disposable email, weak password, …).', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
+            new OA\Response(response: 422, description: 'Validation error (duplicate email, weak password, …).', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
             new OA\Response(response: 429, description: 'Too many requests.'),
         ],
     )]

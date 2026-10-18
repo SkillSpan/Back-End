@@ -28,13 +28,17 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            // 'indisposable' rejects throwaway/relay domains (Mailinator,
-            // Yopmail, …) from the package's bundled list — it resolves
-            // offline, with no network call at validation time. It is placed
-            // after 'email' so a malformed address still fails on the email
-            // rule first, and after 'unique' so an already-registered address
-            // keeps reporting the duplicate error it always did.
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email', 'indisposable'],
+            // ⚠️ No 'indisposable' on this field — by product decision
+            // (2026-10-18) the individual/student flow ACCEPTS temporary
+            // (disposable) domains again, so a student can sign up from a
+            // throwaway mailbox. The organisation flow never carried the
+            // rule; only the Google sign-up path still rejects them
+            // (AuthService::resolveGoogleUser).
+            //
+            // Do not re-add it without re-confirming that decision: the rule
+            // is silent at the API level (it just returns 422), so a student
+            // turned away here reads as "registration is broken".
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'terms_accepted' => ['required', 'accepted'],
@@ -63,7 +67,6 @@ class RegisterRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            'email.indisposable' => 'Disposable or temporary email addresses are not allowed.',
             'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
             'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
             'user_type.in' => 'This endpoint is for individual accounts only. Please use /api/auth/register/organization to register a company, university, or training partner.',

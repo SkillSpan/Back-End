@@ -2184,7 +2184,7 @@
                                         "maxLength": 255
                                     },
                                     "email": {
-                                        "description": "Must be unique and not a disposable domain.",
+                                        "description": "Must be unique. Temporary (disposable) domains are accepted on this flow.",
                                         "type": "string",
                                         "format": "email",
                                         "example": "sara@example.com",
@@ -2313,7 +2313,7 @@
                         }
                     },
                     "422": {
-                        "description": "Validation error (duplicate email, disposable email, weak password, …).",
+                        "description": "Validation error (duplicate email, weak password, …).",
                         "content": {
                             "application/json": {
                                 "schema": {
