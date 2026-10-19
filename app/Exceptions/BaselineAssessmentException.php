@@ -85,4 +85,61 @@ class BaselineAssessmentException extends Exception
             ['invalid_questions' => $invalidQuestions],
         );
     }
+
+    /**
+     * A frozen snapshot row cannot be turned into a trustworthy Intelligence
+     * request: it has no numeric assessment item id, no frozen scoring data,
+     * and no verified fallback to the live item.
+     *
+     * Fails closed — scoring a learner from a snapshot we cannot prove is
+     * the one they were shown would produce an unverifiable result.
+     *
+     * @param  array<int, int|string>  $snapshotIds
+     * @param  array<int, string>  $reasons
+     */
+    public static function snapshotIncomplete(array $snapshotIds, array $reasons = []): self
+    {
+        return new self(
+            'The baseline assessment snapshot is incomplete and cannot be scored.',
+            422,
+            'ASSESSMENT_SNAPSHOT_INCOMPLETE',
+            [
+                'snapshot_ids' => array_values($snapshotIds),
+                'reasons' => array_values($reasons),
+            ],
+        );
+    }
+
+    /**
+     * A selected question's type is not part of the Intelligence baseline
+     * contract (`single_choice` | `scale`). Sending it would only produce an
+     * opaque upstream 422, so it is refused before any HTTP call.
+     *
+     * @param  array<int, array<string, mixed>>  $questions
+     */
+    public static function unsupportedQuestionType(array $questions): self
+    {
+        return new self(
+            'One or more selected questions use a question type the intelligence baseline contract does not support.',
+            422,
+            'BASELINE_QUESTION_TYPE_UNSUPPORTED',
+            ['unsupported_questions' => $questions],
+        );
+    }
+
+    /**
+     * The payload built from the snapshot does not satisfy the Intelligence
+     * baseline schema. The request is never sent.
+     *
+     * @param  array<int, string>  $problems  Field paths only — never answers.
+     */
+    public static function invalidIntelligencePayload(array $problems): self
+    {
+        return new self(
+            'The baseline assessment could not be prepared for the intelligence service.',
+            422,
+            'BASELINE_INTELLIGENCE_PAYLOAD_INVALID',
+            ['problems' => array_values($problems)],
+        );
+    }
 }

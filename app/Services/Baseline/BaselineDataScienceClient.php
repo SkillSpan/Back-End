@@ -17,39 +17,50 @@ use Throwable;
  * computed by the intelligence service and returned as an authoritative,
  * normalized payload — never trusted from the requesting client.
  *
- * Expected contract (must be implemented by the FastAPI service):
+ * Expected contract (the FastAPI `BaselineRequest` schema is the source of
+ * truth; see App\Services\Baseline\BaselineIntelligencePayloadBuilder):
  *
  * POST {url}/api/v1/baseline
  *
  * Request:
  * {
- *   "student_profile_id": 1,
- *   "user_id": 2,
- *   "assessment_version": "v1.0",
+ *   "student_profile_id": 15,
+ *   "user_id": 20,
  *   "career_role_id": 3,
- *   "career_role_version": 1,
- *   "question_ids": ["sql-001", "python-002"],
+ *   "assessment_version": "v1.0",
+ *   "questions": [
+ *     {
+ *       "question_id": 27,
+ *       "question_type": "single_choice",
+ *       "options": ["A", "B", "C", "D"],
+ *       "correct_answer": "A",
+ *       "scoring_rule": null,
+ *       "weight": 1.0,
+ *       "skill_mappings": [
+ *         { "skill_id": 7, "skill_slug": "sql", "weight": 1.0 }
+ *       ]
+ *     }
+ *   ],
  *   "responses": [
- *     { "question_id": "sql-001", "answer": "B" },
- *     { "question_id": "python-002", "answer": "A" }
+ *     { "question_id": 27, "answer": "A" }
  *   ]
  * }
  *
  * Identifier note:
- * `question_ids` and every `responses[].question_id` are the SAME opaque
- * string — the item bank's `item_id` (e.g. "sql-001"), never the numeric
- * primary key. The Laravel API accepts that same value from the client as
- * `question_id`, so the three stay aligned end-to-end. If the FastAPI
- * service needs the numeric key it must resolve it itself via
- * GET /api/v1/internal/baseline-items?version=v1.0.
+ * `questions[].question_id` and `responses[].question_id` are the SAME
+ * numeric `baseline_assessment_item_id`. The public/client identifier
+ * (`item_id`, e.g. "sql-001") never leaves Laravel — it is translated while
+ * the payload is built from the frozen snapshot.
  *
  * Response 200:
  * {
- *   "algorithm_version": "baseline-v1.0",
- *   "student_profile_id": 1,
- *   "overall_score": 60,
+ *   "algorithm_version": "baseline-v2.0",
+ *   "assessment_version": "v1.0",
+ *   "career_role_id": 3,
+ *   "student_profile_id": 15,
+ *   "overall_score": 87.5,
  *   "skills": [
- *     { "skill_id": 7, "slug": "sql", "level": 2.5, "confidence": 0.7 }
+ *     { "skill_id": 7, "slug": "sql", "level": 4.38, "confidence": 1.0 }
  *   ]
  * }
  *
@@ -61,14 +72,17 @@ use Throwable;
  */
 class BaselineDataScienceClient
 {
+    /**
+     * @param  array<int, array<string, mixed>>  $questions  FastAPI `questions[]`, already frozen.
+     * @param  array<int, array<string, mixed>>  $responses  FastAPI `responses[]` with integer question_id.
+     */
     public function compute(
         StudentProfile $studentProfile,
         string $assessmentVersion,
+        array $questions,
         array $responses,
         string $requestId,
         ?int $careerRoleId = null,
-        ?int $careerRoleVersion = null,
-        ?array $questionIds = null,
     ): array {
         $baseUrl = rtrim(
             (string) config('services.data_science.url'),
@@ -96,9 +110,12 @@ class BaselineDataScienceClient
             '/'
         );
 
+        // The configured Data Science timeout (60s by default) — Render cold
+        // starts measure 24.7-33.8s, so a short fallback would turn a healthy
+        // service into a false outage.
         $timeout = (int) config(
             'services.data_science.timeout',
-            10
+            60
         );
 
         $endpoint = $baseUrl.'/'.$path;
@@ -117,24 +134,36 @@ class BaselineDataScienceClient
             );
         }
 
+        // Last line of defence: the builder already validated the full
+        // contract, but a request with no questions/responses (or without the
+        // required career_role_id) must never reach the wire.
+        if ($questions === [] || $responses === [] || $careerRoleId === null) {
+            $problems = [];
+
+            if ($questions === []) {
+                $problems[] = 'questions';
+            }
+
+            if ($responses === []) {
+                $problems[] = 'responses';
+            }
+
+            if ($careerRoleId === null) {
+                $problems[] = 'career_role_id';
+            }
+
+            throw BaselineAssessmentException::invalidIntelligencePayload($problems);
+        }
+
+        // Exactly the fields of the FastAPI BaselineRequest — no more.
         $payload = [
             'student_profile_id' => (int) $studentProfile->id,
             'user_id' => (int) $studentProfile->user_id,
+            'career_role_id' => (int) $careerRoleId,
             'assessment_version' => $assessmentVersion,
+            'questions' => $questions,
             'responses' => $responses,
         ];
-
-        if ($careerRoleId !== null) {
-            $payload['career_role_id'] = $careerRoleId;
-        }
-
-        if ($careerRoleVersion !== null) {
-            $payload['career_role_version'] = $careerRoleVersion;
-        }
-
-        if ($questionIds !== null) {
-            $payload['question_ids'] = $questionIds;
-        }
 
         $startedAt = microtime(true);
 
@@ -198,19 +227,22 @@ class BaselineDataScienceClient
         $status = $response->status();
 
         if ($status === 422) {
+            // The FastAPI validation body echoes the submitted input values —
+            // i.e. the learner's answers. It is summarised (bounded, and only
+            // the service's own `detail` string is kept) for the log, and is
+            // never copied into the client-facing error.
             $this->logFailure(
                 $payload,
                 $requestId,
                 $status,
                 $startedAt,
-                'Intelligence validation error'
+                'Intelligence validation error: '.$this->bodyExcerpt($response),
             );
 
             throw new BaselineAssessmentException(
                 'The intelligence service rejected the baseline request.',
                 422,
                 'INTELLIGENCE_VALIDATION_ERROR',
-                $this->safeJson($response),
             );
         }
 
@@ -290,13 +322,6 @@ class BaselineDataScienceClient
         );
 
         return $data;
-    }
-
-    private function safeJson(Response $response): array
-    {
-        $data = $response->json();
-
-        return is_array($data) ? $data : [];
     }
 
     /**
