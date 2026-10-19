@@ -7,7 +7,9 @@ use App\Models\Country;
 use App\Models\Specialization;
 use App\Models\University;
 use App\Support\ReferenceCache;
+use App\Support\ReferenceResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -19,10 +21,14 @@ use Illuminate\Support\Facades\Cache;
  * Every list here is cached — see {@see ReferenceCache} for why. The payloads
  * are stored as plain arrays, not Eloquent models, so the cached copy is the
  * exact JSON the endpoint already returned; the response contract is unchanged.
+ *
+ * The response is also marked cacheable in the browser — see
+ * {@see ReferenceResponse} — because the lists are identical for every caller
+ * and the largest of them is 541 KB.
  */
 class ReferenceController extends Controller
 {
-    public function universities(): JsonResponse
+    public function universities(Request $request): JsonResponse
     {
         $universities = Cache::remember(
             ReferenceCache::UNIVERSITIES,
@@ -34,14 +40,14 @@ class ReferenceController extends Controller
                 ->toArray(),
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Universities retrieved successfully.',
-            'data' => $universities,
-        ]);
+        return ReferenceResponse::make(
+            'Universities retrieved successfully.',
+            $universities,
+            $request,
+        );
     }
 
-    public function specializations(): JsonResponse
+    public function specializations(Request $request): JsonResponse
     {
         $specializations = Cache::remember(
             ReferenceCache::SPECIALIZATIONS,
@@ -53,11 +59,11 @@ class ReferenceController extends Controller
                 ->toArray(),
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Specializations retrieved successfully.',
-            'data' => $specializations,
-        ]);
+        return ReferenceResponse::make(
+            'Specializations retrieved successfully.',
+            $specializations,
+            $request,
+        );
     }
 
     /**
@@ -65,7 +71,7 @@ class ReferenceController extends Controller
      * Backs the onboarding country dropdown (countries task). Alphabetical
      * by English name so the list is stable across requests/locales.
      */
-    public function countries(): JsonResponse
+    public function countries(Request $request): JsonResponse
     {
         $countries = Cache::remember(
             ReferenceCache::COUNTRIES,
@@ -76,11 +82,11 @@ class ReferenceController extends Controller
                 ->toArray(),
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Countries retrieved successfully.',
-            'data' => $countries,
-        ]);
+        return ReferenceResponse::make(
+            'Countries retrieved successfully.',
+            $countries,
+            $request,
+        );
     }
 
     /**
@@ -91,7 +97,7 @@ class ReferenceController extends Controller
      * The route-model binding still costs one round trip; the per-country list
      * it feeds is cached so the second lookup of the same country is free.
      */
-    public function countryUniversities(Country $country): JsonResponse
+    public function countryUniversities(Country $country, Request $request): JsonResponse
     {
         $universities = Cache::remember(
             ReferenceCache::countryUniversities($country->id),
@@ -104,10 +110,10 @@ class ReferenceController extends Controller
                 ->toArray(),
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Universities retrieved successfully.',
-            'data' => $universities,
-        ]);
+        return ReferenceResponse::make(
+            'Universities retrieved successfully.',
+            $universities,
+            $request,
+        );
     }
 }

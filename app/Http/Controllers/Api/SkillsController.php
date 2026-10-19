@@ -7,6 +7,7 @@ use App\Models\LearnerSkill;
 use App\Models\Skill;
 use App\Models\User;
 use App\Support\ReferenceCache;
+use App\Support\ReferenceResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -16,7 +17,7 @@ class SkillsController extends Controller
      * GET /api/v1/skills/taxonomy
      * Retrieve all skills with their taxonomy information.
      */
-    public function taxonomy()
+    public function taxonomy(Request $request)
     {
         // Pure reference data: no learner context, no user argument, and the
         // application never writes skills at runtime (they are seeded). Eager
@@ -32,11 +33,14 @@ class SkillsController extends Controller
                 ->toArray(),
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Skills taxonomy retrieved successfully.',
-            'data' => $skills,
-        ]);
+        // `$shared: false` — the payload is identical for every learner, but the
+        // route sits behind auth:sanctum, so it must not be marked public.
+        return ReferenceResponse::make(
+            'Skills taxonomy retrieved successfully.',
+            $skills,
+            $request,
+            shared: false,
+        );
     }
 
     /**

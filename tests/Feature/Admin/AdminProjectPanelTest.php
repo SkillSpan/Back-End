@@ -145,12 +145,21 @@ class AdminProjectPanelTest extends TestCase
         // fix, and it must serve the same payload shape.
         Skill::create(['name' => 'PHP', 'slug' => 'php-panel', 'category' => 'backend', 'status' => 'active']);
 
-        $this->actingAs($this->admin())
+        $response = $this->actingAs($this->admin())
             ->getJson('/admin/api/skills/taxonomy')
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonStructure(['success', 'message', 'data'])
             ->assertJsonFragment(['name' => 'PHP']);
+
+        // This controller extends Api\SkillsController, so it also inherits that
+        // method's cache policy. It must stay `private`: the payload is shared by
+        // every admin, but the route is behind a session and a shared cache must
+        // never hand it to a guest.
+        $cacheControl = $response->headers->get('Cache-Control');
+
+        $this->assertStringContainsString('private', $cacheControl);
+        $this->assertStringNotContainsString('public', $cacheControl);
     }
 
     public function test_the_skill_picker_endpoint_is_not_public(): void
