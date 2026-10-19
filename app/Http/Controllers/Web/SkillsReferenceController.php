@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Api\SkillsController;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * Session-authenticated twin of the skills-reference endpoints.
@@ -20,14 +21,17 @@ use Illuminate\Http\JsonResponse;
  * user argument) so it is safe to reuse verbatim; this class only re-declares it
  * on the session. The same `Web\Admin* extends Api\*` precedent used by
  * AdminOrganizationController and AdminProjectController.
+ *
+ * The signature must track the parent exactly — PHP fatals on a signature
+ * mismatch, and this class inherits the parent's private-cache behaviour.
  */
 class SkillsReferenceController extends SkillsController
 {
     /**
      * GET /admin/api/skills/taxonomy
      */
-    public function taxonomy(): JsonResponse
+    public function taxonomy(Request $request): JsonResponse
     {
-        return parent::taxonomy();
+        return parent::taxonomy($request);
     }
 }

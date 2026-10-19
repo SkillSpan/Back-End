@@ -14,27 +14,29 @@ use Mockery\MockInterface;
 use Tests\TestCase;
 
 /**
- * Disposable / temporary email protection on the self-registration flows.
+ * Disposable / temporary email handling on the self-registration flows.
  *
- * The rule under test is 'indisposable' from propaganistas/laravel-disposable-email.
- * It is wired into two places:
+ * The rule is 'indisposable' from propaganistas/laravel-disposable-email.
+ * After the 2026-10-18 product decision it is wired into ONE place only:
  *
- *   1. RegisterRequest — the INDIVIDUAL (learner) self-registration endpoint.
- *   2. AuthService::loginWithGoogle() — the implicit third self-registration
- *      path, which creates an account the first time a Google identity is seen.
- *      It cannot live in GoogleLoginRequest because the address is not client
- *      input; it arrives inside the verified Google ID token. This path also
- *      creates an individual, so it stays blocked.
+ *   1. AuthService::loginWithGoogle() — the implicit third self-registration
+ *      path, which creates an account the first time a Google identity is
+ *      seen. It cannot live in GoogleLoginRequest because the address is not
+ *      client input; it arrives inside the verified Google ID token.
  *
- * ⚠️ Deliberately NOT applied to RegisterOrganizationRequest
+ * ⚠️ Deliberately NOT applied to RegisterRequest (POST /auth/register).
+ * The individual/student flow ACCEPTS temporary domains again: students
+ * routinely sign up from a throwaway mailbox, and the rule returned a plain
+ * 422 that reads as "registration is broken". The tests below pin that
+ * acceptance so the rule cannot be re-added by accident.
+ *
+ * ⚠️ Deliberately NOT applied to RegisterOrganizationRequest either
  * (POST /auth/register/organization). The organisation flow is a vetted flow:
  * the organisation is created with verification_status 'pending' and an
  * administrator has to review the uploaded proof document before it can
  * operate, so that review — not the mailbox — is the gate. Companies and
  * university / training-partner desks legitimately register from shared,
- * role-based or domain-less mailboxes, and the rule was turning them away.
- * Tests below pin the split in both directions so it cannot be flipped back
- * on by accident.
+ * role-based or domain-less mailboxes.
  *
  * Deliberately NOT applied to:
  *   - POST /setup/create-admin and POST /setup/create-mentor — those are
@@ -133,51 +135,51 @@ class DisposableEmailRegistrationTest extends TestCase
         ]);
     }
 
-    public function test_individual_registration_rejects_a_disposable_email(): void
+    /**
+     * Pins the 2026-10-18 reversal: a throwaway domain must register exactly
+     * like any other address. If someone re-adds 'indisposable' to
+     * RegisterRequest this test turns 201 into 422 and fails.
+     */
+    public function test_individual_registration_accepts_a_disposable_email(): void
     {
-        $response = $this->postJson('/api/v1/auth/register', $this->individualPayload([
+        $this->postJson('/api/v1/auth/register', $this->individualPayload([
             'email' => 'someone@mailinator.com',
-        ]));
+        ]))
+            ->assertStatus(201)
+            ->assertJsonPath('success', true);
 
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['email'])
-            ->assertJsonPath('errors.email.0', self::DISPOSABLE_MESSAGE);
-
-        // Rejected at validation, so nothing was persisted and no OTP went out.
-        $this->assertDatabaseCount('users', 0);
-        Notification::assertNothingSent();
+        $this->assertDatabaseHas('users', [
+            'email' => 'someone@mailinator.com',
+            'status' => 'pending',
+        ]);
     }
 
     /**
-     * The address is normalised to lower case before the rule runs
-     * (prepareForValidation) and the package lower-cases the domain again
-     * internally, so a mixed-case domain must still be caught.
+     * prepareForValidation() lower-cases the address, so a mixed-case domain
+     * must be stored (and accepted) in its normalised form — not rejected.
      */
-    public function test_individual_registration_rejects_a_disposable_domain_in_mixed_case(): void
+    public function test_individual_registration_accepts_a_disposable_domain_in_mixed_case(): void
     {
         $this->postJson('/api/v1/auth/register', $this->individualPayload([
             'email' => 'Someone@MailInator.COM',
         ]))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['email']);
+            ->assertStatus(201);
 
-        $this->assertDatabaseCount('users', 0);
+        $this->assertDatabaseHas('users', ['email' => 'someone@mailinator.com']);
     }
 
     /**
-     * Guards the include_subdomains setting in config/disposable-email.php.
-     * With the package default (false) the exact-match check would let
-     * inbox.mailinator.com through, because only mailinator.com is listed.
+     * A subdomain of a blocklisted domain is treated no differently: the
+     * individual flow no longer consults the list at all.
      */
-    public function test_individual_registration_rejects_a_subdomain_of_a_disposable_domain(): void
+    public function test_individual_registration_accepts_a_subdomain_of_a_disposable_domain(): void
     {
         $this->postJson('/api/v1/auth/register', $this->individualPayload([
             'email' => 'someone@inbox.mailinator.com',
         ]))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['email']);
+            ->assertStatus(201);
 
-        $this->assertDatabaseCount('users', 0);
+        $this->assertDatabaseHas('users', ['email' => 'someone@inbox.mailinator.com']);
     }
 
     public function test_individual_registration_still_rejects_a_malformed_email(): void
@@ -204,20 +206,6 @@ class DisposableEmailRegistrationTest extends TestCase
         ]))
             ->assertStatus(422)
             ->assertJsonValidationErrors(['email']);
-    }
-
-    public function test_disposable_rejection_uses_the_existing_validation_response_structure(): void
-    {
-        $response = $this->postJson('/api/v1/auth/register', $this->individualPayload([
-            'email' => 'someone@yopmail.com',
-        ]));
-
-        $response->assertStatus(422)
-            ->assertJsonStructure(['message', 'errors' => ['email']])
-            ->assertJsonPath('message', self::DISPOSABLE_MESSAGE)
-            ->assertJsonPath('errors.email.0', self::DISPOSABLE_MESSAGE);
-
-        $this->assertIsArray($response->json('errors.email'));
     }
 
     // ---------------------------------------------------------------------
@@ -253,10 +241,8 @@ class DisposableEmailRegistrationTest extends TestCase
     }
 
     /**
-     * The counterpart of the "the rule was ADDED, not swapped" test on the
-     * individual flow: here a disposable address contributes no 'email' error
-     * at all, so a request that really is missing its proof document reports
-     * that — and only that.
+     * A disposable address contributes no 'email' error at all, so a request
+     * that really is missing its proof document reports that — and only that.
      */
     public function test_organization_registration_reports_only_the_missing_proof_file(): void
     {
@@ -301,6 +287,29 @@ class DisposableEmailRegistrationTest extends TestCase
             ->assertJsonPath('errors.credential.0', self::DISPOSABLE_MESSAGE);
 
         $this->assertDatabaseCount('users', 0);
+    }
+
+    /**
+     * The rejection travels on the 'credential' field (the address is not
+     * client input on this route), so the envelope shape is pinned separately
+     * from the individual flow it used to cover.
+     */
+    public function test_google_disposable_rejection_uses_the_existing_validation_response_structure(): void
+    {
+        $this->mockVerifiedToken($this->verifiedPayload(['email' => 'throwaway@yopmail.com']));
+
+        $response = $this->postJson('/api/v1/auth/login/google', [
+            'credential' => 'valid-id-token',
+            'terms_accepted' => true,
+            'privacy_accepted' => true,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonStructure(['message', 'errors' => ['credential']])
+            ->assertJsonPath('message', self::DISPOSABLE_MESSAGE)
+            ->assertJsonPath('errors.credential.0', self::DISPOSABLE_MESSAGE);
+
+        $this->assertIsArray($response->json('errors.credential'));
     }
 
     public function test_google_signup_still_creates_an_account_for_a_normal_email(): void
