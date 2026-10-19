@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\LearnerSkill;
 use App\Models\Skill;
 use App\Models\User;
+use App\Support\ReferenceCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class SkillsController extends Controller
 {
@@ -16,9 +18,19 @@ class SkillsController extends Controller
      */
     public function taxonomy()
     {
-        $skills = Skill::with(['aliases', 'parent', 'children', 'careerRoles'])
-            ->where('status', 'active')
-            ->get();
+        // Pure reference data: no learner context, no user argument, and the
+        // application never writes skills at runtime (they are seeded). Eager
+        // loading four relations costs five round trips against a database
+        // hosted on a different provider, so the result is cached as plain
+        // arrays — the JSON is identical to what this endpoint already returned.
+        $skills = Cache::remember(
+            ReferenceCache::SKILLS_TAXONOMY,
+            ReferenceCache::TTL_SECONDS,
+            fn (): array => Skill::with(['aliases', 'parent', 'children', 'careerRoles'])
+                ->where('status', 'active')
+                ->get()
+                ->toArray(),
+        );
 
         return response()->json([
             'success' => true,
