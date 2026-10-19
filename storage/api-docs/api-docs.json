@@ -3588,6 +3588,83 @@
                         "bearerAuth": []
                     }
                 ]
+            },
+            "delete": {
+                "tags": [
+                    "Conversations"
+                ],
+                "summary": "Remove a conversation from your own list",
+                "description": "Hides the conversation for the calling user only. It is **not** a delete: the thread, its messages and the audit records stay intact for the other participant, and the conversation reappears in the caller's list as soon as a new message arrives. Hiding twice is idempotent. The caller must be one of the two participants, otherwise 403 (`UNAUTHORIZED_CONVERSATION`). Protected by auth:sanctum + account.active.",
+                "operationId": "conversationsHide",
+                "parameters": [
+                    {
+                        "name": "conversation",
+                        "in": "path",
+                        "description": "Id of the conversation.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 88
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Conversation removed from the caller's list.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Conversation removed from your list."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The caller is not a participant of this conversation (`UNAUTHORIZED_CONVERSATION`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "The conversation does not exist.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/v1/conversations/{conversation}/messages": {

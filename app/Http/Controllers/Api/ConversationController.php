@@ -86,6 +86,33 @@ class ConversationController extends Controller
     }
 
     /**
+     * DELETE /api/v1/conversations/{conversation}
+     *
+     * Removes the conversation from the CALLER's own list only. It is not a
+     * delete: the thread, its messages and the audit records stay intact for the
+     * other participant, and the conversation reappears for the caller as soon as
+     * a new message arrives.
+     */
+    public function destroy(Request $request, int $conversation): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        try {
+            $this->conversationService->hideConversation(
+                conversationId: $conversation,
+                userId: $request->user()->id,
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Conversation removed from your list.',
+            ], 200, ['X-Request-ID' => $requestId]);
+        } catch (CommunicationException $e) {
+            return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
+        }
+    }
+
+    /**
      * POST /api/v1/conversations/{conversation}/messages
      * Send a message in a conversation.
      */
