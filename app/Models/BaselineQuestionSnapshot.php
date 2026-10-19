@@ -18,6 +18,13 @@ class BaselineQuestionSnapshot extends Model
         'item_type',
         'question_text',
         'options',
+        // Frozen scoring inputs for the Intelligence baseline contract.
+        // Copied from the source item/skill at snapshot time so a later
+        // bank edit cannot change how the learner is scored.
+        'correct_answer',
+        'scoring_rule',
+        'weight',
+        'skill_slug',
         'importance_weight',
         'is_critical',
     ];
@@ -25,6 +32,8 @@ class BaselineQuestionSnapshot extends Model
     protected $casts = [
         'is_critical' => 'boolean',
         'options' => 'array',
+        'scoring_rule' => 'array',
+        'weight' => 'float',
     ];
 
     public function baselineAssessment()

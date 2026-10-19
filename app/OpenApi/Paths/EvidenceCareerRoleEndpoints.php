@@ -9,7 +9,7 @@ use OpenApi\Attributes as OA;
  * and App\Http\Controllers\Api\CareerRoleController.
  * Paths are relative to the `/api` server, so they carry the `/v1` prefix
  * exactly as registered in routes/api.php.
- */
+ */ 
 class EvidenceCareerRoleEndpoints
 {
     #[OA\Post(

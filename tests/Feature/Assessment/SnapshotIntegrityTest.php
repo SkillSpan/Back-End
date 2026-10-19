@@ -8,6 +8,7 @@ use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
 use App\Models\Role;
 use App\Models\Skill;
+use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Database\QueryException;
@@ -243,6 +244,74 @@ class SnapshotIntegrityTest extends TestCase
         $this->assertSame($frozen['options'], $reloaded->options);
     }
 
+    /**
+     * The Intelligence request is rebuilt from the snapshot, so the SCORING
+     * inputs must be frozen too — otherwise editing the bank after the
+     * learner started would silently change their score.
+     */
+    public function test_scoring_inputs_are_frozen_at_assessment_start(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql', 'python']);
+
+        $snapshot = $assessment->questionSnapshots()
+            ->where('item_id', 'sql-001')
+            ->firstOrFail();
+
+        $frozen = [
+            'correct_answer' => $snapshot->correct_answer,
+            'scoring_rule' => $snapshot->scoring_rule,
+            'weight' => $snapshot->weight,
+            'skill_slug' => $snapshot->skill_slug,
+            'item_type' => $snapshot->item_type,
+        ];
+
+        $this->assertSame('A', $frozen['correct_answer']);
+        $this->assertNull($frozen['scoring_rule']);
+        $this->assertSame(1.0, (float) $frozen['weight']);
+        $this->assertSame('sql', $frozen['skill_slug']);
+
+        // Rewrite every scoring input on the live item.
+        BaselineAssessmentItem::query()
+            ->where('item_id', 'sql-001')
+            ->update([
+                'correct_answer' => 'D',
+                'scoring_rule' => json_encode(['1' => 0.5, '2' => 0.5]),
+                'weight' => 0.250,
+                'item_type' => 'scale',
+            ]);
+
+        $reloaded = BaselineQuestionSnapshot::findOrFail($snapshot->id);
+
+        $this->assertSame($frozen['correct_answer'], $reloaded->correct_answer);
+        $this->assertNull($reloaded->scoring_rule);
+        $this->assertSame(1.0, (float) $reloaded->weight);
+        $this->assertSame($frozen['skill_slug'], $reloaded->skill_slug);
+        $this->assertSame($frozen['item_type'], $reloaded->item_type);
+    }
+
+    public function test_frozen_question_weight_is_the_item_weight_not_the_role_skill_weight(): void
+    {
+        [$user] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        [$assessment] = $this->startDynamicAssessment($user, ['sql', 'python']);
+
+        $snapshot = $assessment->questionSnapshots()
+            ->where('item_id', 'sql-001')
+            ->firstOrFail();
+
+        // seedItems() writes item weight 1.000; the role skill weight is 0.9.
+        $this->assertSame(1.0, (float) $snapshot->weight);
+        $this->assertSame(0.9, (float) $snapshot->importance_weight);
+        $this->assertNotEquals(
+            (float) $snapshot->importance_weight,
+            (float) $snapshot->weight
+        );
+    }
+
     public function test_deactivating_a_source_question_does_not_break_an_inflight_assessment(): void
     {
         [$user] = $this->createLearner();
@@ -322,7 +391,17 @@ class SnapshotIntegrityTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_submission_succeeds_after_source_questions_are_deleted(): void
+    /**
+     * Hard-deleting the source item detaches the snapshot (ON DELETE SET
+     * NULL), which destroys the numeric `baseline_assessment_item_id` the
+     * Intelligence contract requires. The frozen content survives, but the
+     * submission must fail closed: sending a fabricated id would score the
+     * learner against a question that no longer exists.
+     *
+     * (The admin question-bank refuses this delete outright with a 409; this
+     * test covers the out-of-band DB case.)
+     */
+    public function test_submission_fails_closed_after_source_questions_are_deleted(): void
     {
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
@@ -341,13 +420,29 @@ class SnapshotIntegrityTest extends TestCase
 
         BaselineAssessmentItem::query()->delete();
 
-        $this->fakeIntelligence($assessment);
+        Http::fake();
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => $responses,
         ])
-            ->assertStatus(200)
-            ->assertJsonPath('data.status', 'completed');
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'ASSESSMENT_SNAPSHOT_INCOMPLETE');
+
+        // Nothing was scored and the attempt is still resumable.
+        Http::assertNothingSent();
+        $this->assertSame(0, SkillEvaluation::count());
+        $this->assertSame('in_progress', $assessment->fresh()->status);
+
+        // The frozen content itself is still intact.
+        $snapshot = BaselineQuestionSnapshot::query()
+            ->where('baseline_assessment_id', $assessment->id)
+            ->firstOrFail();
+
+        $this->assertNotEmpty($snapshot->item_id);
+        $this->assertSame('single_choice', $snapshot->item_type);
+        $this->assertNotEmpty($snapshot->options);
+        $this->assertSame('A', $snapshot->correct_answer);
+        $this->assertSame(1.0, (float) $snapshot->weight);
     }
 
     public function test_submission_validates_against_frozen_options_after_source_edit(): void

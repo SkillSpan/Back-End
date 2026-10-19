@@ -130,7 +130,9 @@ return [
         'roadmap_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ENABLED', false),
 
         'baseline' => [
-            'path' => env('DATA_SCIENCE_BASELINE_PATH', 'api/v1/baseline'),
+            // The client normalises the leading slash, so both forms work;
+            // the documented/production value is the absolute path.
+            'path' => env('DATA_SCIENCE_BASELINE_PATH', '/api/v1/baseline'),
             'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
             'enabled' => (bool) env('DATA_SCIENCE_BASELINE_ENABLED', false),
         ],
