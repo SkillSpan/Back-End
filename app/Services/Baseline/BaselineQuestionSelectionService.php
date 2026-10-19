@@ -45,6 +45,9 @@ class BaselineQuestionSelectionService
      *     item_type: string,
      *     question_text: ?string,
      *     options: array,
+     *     correct_answer: ?string,
+     *     scoring_rule: ?array,
+     *     weight: float,
      *     importance_weight: float,
      *     required_level: float,
      *     is_critical: bool,
@@ -159,6 +162,12 @@ class BaselineQuestionSelectionService
                     'item_type' => (string) $item->item_type,
                     'question_text' => $item->question_text,
                     'options' => is_array($item->options) ? array_values($item->options) : [],
+                    // Scoring inputs frozen with the question. `weight` is the
+                    // ITEM weight (BaselineAssessmentItem::weight), never the
+                    // career-role skill importance weight below.
+                    'correct_answer' => $item->correct_answer,
+                    'scoring_rule' => is_array($item->scoring_rule) ? $item->scoring_rule : null,
+                    'weight' => (float) $item->weight,
                     'importance_weight' => (float) $roleSkill->importance_weight,
                     'required_level' => (float) $roleSkill->required_level,
                     'is_critical' => (bool) $roleSkill->is_critical,

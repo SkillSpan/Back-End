@@ -39,6 +39,7 @@ class BaselineAssessmentService
     public function __construct(
         private readonly BaselineDataScienceClient $dataScienceClient,
         private readonly BaselineQuestionSelectionService $questionSelection,
+        private readonly BaselineIntelligencePayloadBuilder $payloadBuilder,
     ) {}
 
     /**
@@ -205,28 +206,23 @@ class BaselineAssessmentService
             ->values()
             ->all();
 
-        $metadata = $assessment->snapshot_metadata ?? [];
-
         /*
-         * Data Science contract: the `question_ids` field carries the
-         * item bank's `item_id` string (the same value the client submits
-         * as `question_id`), NOT the internal primary key. We pass the
-         * frozen snapshot ids so the service scores the exact question set
-         * the learner saw.
+         * Data Science contract: the request is rebuilt from the FROZEN
+         * snapshot, and every identifier sent upstream is the numeric
+         * `baseline_assessment_item_id` — the client's `item_id`
+         * (e.g. "sql-001") is a frontend identifier only and never leaves
+         * Laravel. The builder also validates the payload against the
+         * upstream schema before any HTTP call is made.
          */
-        $assessmentItemIds = $snapshots
-            ->map(fn (BaselineQuestionSnapshot $s) => $this->questionSelection->snapshotItemId($s))
-            ->values()
-            ->all();
+        $payload = $this->payloadBuilder->build($assessment, $snapshots, $responses);
 
         $serviceResult = $this->dataScienceClient->compute(
             $assessment->studentProfile,
             $assessment->assessment_version,
-            $responses,
+            $payload['questions'],
+            $payload['responses'],
             $requestId,
             $assessment->career_role_id !== null ? (int) $assessment->career_role_id : null,
-            isset($metadata['career_role_version']) ? (int) $metadata['career_role_version'] : null,
-            $assessmentItemIds,
         );
 
         // Intelligence evaluations must belong to the role's approved
@@ -302,6 +298,12 @@ class BaselineAssessmentService
                 'item_type' => $question['item_type'],
                 'question_text' => $question['question_text'],
                 'options' => $question['options'],
+                // Scoring inputs, frozen alongside the content so the
+                // Intelligence request can be rebuilt from the snapshot alone.
+                'correct_answer' => $question['correct_answer'],
+                'scoring_rule' => $question['scoring_rule'],
+                'weight' => $question['weight'],
+                'skill_slug' => $question['skill_slug'],
                 'importance_weight' => $question['importance_weight'],
                 'is_critical' => $question['is_critical'],
             ]);

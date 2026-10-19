@@ -711,13 +711,26 @@ class BaselineAssessmentTest extends TestCase
             'responses' => $this->responsesFor($assessment),
         ])->assertStatus(200);
 
-        Http::assertSent(function ($request) use ($role) {
+        Http::assertSent(function ($request) use ($role, $assessment) {
             $payload = $request->data();
 
-            return ($payload['career_role_id'] ?? null) === $role->id
-                && ($payload['career_role_version'] ?? null) === (int) $role->version
-                && ! empty($payload['question_ids'])
-                && in_array('sql-001', $payload['question_ids'], true);
+            $expectedItemIds = $assessment->questionSnapshots
+                ->pluck('baseline_assessment_item_id')
+                ->map(fn ($id) => (int) $id)
+                ->sort()
+                ->values()
+                ->all();
+
+            $sentQuestionIds = collect($payload['questions'] ?? [])
+                ->pluck('question_id')
+                ->sort()
+                ->values()
+                ->all();
+
+            return ($payload['career_role_id'] ?? null) === (int) $role->id
+                && ! array_key_exists('career_role_version', $payload)
+                && ! array_key_exists('question_ids', $payload)
+                && $sentQuestionIds === $expectedItemIds;
         });
     }
 
@@ -728,6 +741,7 @@ class BaselineAssessmentTest extends TestCase
 
         [$assessment] = $this->startDynamicAssessment($user, ['sql']);
         $sql = Skill::where('slug', 'sql')->first();
+        $itemId = (int) $assessment->questionSnapshots()->value('baseline_assessment_item_id');
 
         Http::fake([
             '*/api/v1/baseline' => Http::response([
@@ -744,17 +758,20 @@ class BaselineAssessmentTest extends TestCase
             ],
         ])->assertStatus(200);
 
-        Http::assertSent(function ($request) {
+        Http::assertSent(function ($request) use ($itemId) {
             $payload = $request->data();
 
-            // The outbound identifier namespace is the item bank's
-            // `item_id` string — never the numeric primary key.
-            $questionIds = $payload['question_ids'] ?? [];
+            // The outbound identifier is the numeric assessment item id. The
+            // public `item_id` string ("sql-001") is a frontend identifier and
+            // must never be sent upstream.
+            $questionIds = collect($payload['questions'] ?? [])->pluck('question_id')->all();
             $responseIds = collect($payload['responses'] ?? [])->pluck('question_id')->all();
 
-            return $questionIds === ['sql-001']
-                && $responseIds === ['sql-001']
-                && collect($questionIds)->every(fn ($id) => is_string($id) && ! ctype_digit($id));
+            return $questionIds === [$itemId]
+                && $responseIds === [$itemId]
+                && collect($questionIds)->every(fn ($id) => is_int($id))
+                && ! in_array('sql-001', $questionIds, true)
+                && ! in_array('sql-001', $responseIds, true);
         });
     }
 
