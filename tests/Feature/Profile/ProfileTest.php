@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -270,5 +271,93 @@ class ProfileTest extends TestCase
 
         $this->putJson('/api/v1/profile', ['visibility' => 'public'])
             ->assertStatus(404);
+    }
+
+    /**
+     * Build a tiny real PNG on disk so the GD processing path is exercised
+     * (UploadedFile::fake() does not produce decodable pixels).
+     */
+    private function pngPath(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'avatar').'.png';
+
+        $image = imagecreatetruecolor(120, 80);
+        imagefill($image, 0, 0, imagecolorallocate($image, 80, 120, 200));
+        imagepng($image, $path);
+        imagedestroy($image);
+
+        return $path;
+    }
+
+    public function test_avatar_upload_stores_a_square_image_and_exposes_url(): void
+    {
+        $user = $this->learner();
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+
+        Sanctum::actingAs($user);
+
+        $path = $this->pngPath();
+
+        $response = $this->postJson('/api/v1/profile/avatar', [
+            'avatar' => new UploadedFile($path, 'photo.png', 'image/png', null, true),
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.has_avatar', true)
+            ->assertJsonPath('data.avatar_url', fn ($url) => is_string($url) && str_contains($url, '/avatar'));
+
+        $profile = $user->studentProfile->fresh();
+        $this->assertNotNull($profile->avatar_data);
+        $this->assertNotNull($profile->avatar_mime);
+        $this->assertNotNull($profile->avatar_updated_at);
+
+        // The stored bytes are a square, so the served image is square.
+        $served = $this->getJson('/api/v1/profile/avatar')->assertOk();
+        $info = @getimagesizefromstring($served->getContent());
+        $this->assertSame($info[0], $info[1]);
+    }
+
+    public function test_avatar_get_returns_404_when_absent(): void
+    {
+        $user = $this->learner();
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/v1/profile/avatar')->assertStatus(404);
+    }
+
+    public function test_avatar_upload_rejects_non_image(): void
+    {
+        $user = $this->learner();
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+
+        Sanctum::actingAs($user);
+
+        $path = tempnam(sys_get_temp_dir(), 'txt').'.txt';
+        file_put_contents($path, 'not an image');
+
+        $this->postJson('/api/v1/profile/avatar', [
+            'avatar' => new UploadedFile($path, 'note.txt', 'text/plain', null, true),
+        ])->assertStatus(422);
+    }
+
+    public function test_avatar_remove_clears_the_photo(): void
+    {
+        $user = $this->learner();
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/v1/profile/avatar', [
+            'avatar' => new UploadedFile($this->pngPath(), 'photo.png', 'image/png', null, true),
+        ])->assertOk();
+
+        $this->deleteJson('/api/v1/profile/avatar')
+            ->assertOk()
+            ->assertJsonPath('data.has_avatar', false)
+            ->assertJsonPath('data.avatar_url', null);
+
+        $this->assertNull($user->studentProfile->fresh()->avatar_data);
     }
 }

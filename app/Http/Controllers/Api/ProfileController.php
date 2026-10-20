@@ -3,13 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Events\SkillDataChanged;
+use App\Exceptions\ReadinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\StoreProfileRequest;
 use App\Http\Requests\Profile\UpdateProfileRequest;
 use App\Models\CareerGoalHistory;
 use App\Models\StudentProfile;
+use App\Services\Profile\StudentProfileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 
 /**
@@ -212,7 +216,105 @@ class ProfileController extends Controller
             'graduation_status' => $profile->graduation_status,
             'graduation_date' => $profile->graduation_date?->toDateString(),
             'updated_at' => $profile->updated_at?->toIso8601String(),
+            'has_avatar' => $profile->hasAvatar(),
+            'avatar_url' => $this->avatarService()->avatarUrl($profile),
+            'avatar_updated_at' => $profile->avatar_updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * POST /api/v1/profile/avatar
+     *
+     * The avatar is the learner's own face on the profile and in the support
+     * thread, so it is stored and served exactly like the panel avatar: decoded,
+     * centre-cropped, re-encoded to a fixed square — never trusted as-is.
+     */
+    public function storeAvatar(Request $request): JsonResponse
+    {
+        /** @var UploadedFile|null $file */
+        $file = $request->file('avatar');
+
+        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No avatar image was uploaded.',
+            ], 422);
+        }
+
+        $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
+
+        if (($file->getSize() / 1024) > $maxKb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The image is larger than the '.$maxKb.' KB limit.',
+            ], 422);
+        }
+
+        try {
+            $profile = $this->avatarService()->storeAvatar($request->user(), $file);
+        } catch (ReadinessException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => $e->codeName,
+            ], $e->status);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile photo updated.',
+            'data' => $this->present($profile),
+        ], 200);
+    }
+
+    /**
+     * DELETE /api/v1/profile/avatar
+     *
+     * Back to initials. Idempotent: removing an absent avatar is a success.
+     */
+    public function removeAvatar(Request $request): JsonResponse
+    {
+        $profile = $this->avatarService()->removeAvatar($request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile photo removed.',
+            'data' => $this->present($profile),
+        ], 200);
+    }
+
+    /**
+     * GET /api/v1/profile/avatar
+     *
+     * The raw image bytes for the authenticated learner's own avatar. Served
+     * from a stable URL (versioned by `avatar_updated_at`) so the browser can
+     * cache it; 404 when there is none.
+     */
+    public function avatar(Request $request): Response
+    {
+        $profile = $request->user()->studentProfile;
+
+        if ($profile === null) {
+            abort(404);
+        }
+
+        $binary = $this->avatarService()->avatarBinary($profile);
+
+        if ($binary === null) {
+            abort(404);
+        }
+
+        return response($binary, 200, [
+            'Content-Type' => (string) $profile->avatar_mime,
+            'Content-Length' => (string) strlen($binary),
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function avatarService(): StudentProfileService
+    {
+        return new StudentProfileService;
     }
 
     /**

@@ -59,6 +59,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/', [ProfileController::class, 'store']);
         Route::get('/', [ProfileController::class, 'show']);
         Route::put('/', [ProfileController::class, 'update']);
+        Route::post('/avatar', [ProfileController::class, 'storeAvatar']);
+        Route::delete('/avatar', [ProfileController::class, 'removeAvatar']);
+        Route::get('/avatar', [ProfileController::class, 'avatar'])->name('learner.profile.avatar');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
