@@ -360,4 +360,36 @@ class ProfileTest extends TestCase
 
         $this->assertNull($user->studentProfile->fresh()->avatar_data);
     }
+
+    public function test_avatar_upload_rejects_php_truncated_payload(): void
+    {
+        // Simulates a phone photo larger than PHP's `upload_max_filesize`: PHP
+        // would normally truncate the upload mid-flight and surface the cut-off
+        // bytes as an opaque "could not be processed" error. The service must
+        // recognise the UPLOAD_ERR_INI_SIZE code and tell the caller exactly
+        // what was rejected so the UI can guide them to a smaller image.
+        $user = $this->learner();
+        StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
+
+        Sanctum::actingAs($user);
+
+        $file = new UploadedFile(
+            $this->pngPath(),
+            'phone-snap.png',
+            'image/png',
+            UPLOAD_ERR_INI_SIZE,  // PHP itself refused the upload (too big)
+            true,                 // test-mode: skip the isUploadedFile() check
+        );
+
+        $this->postJson('/api/v1/profile/avatar', ['avatar' => $file])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID')
+            ->assertJsonPath(
+                'message',
+                'The photo is too large to upload (limit 4096 KB). Please pick a smaller image.',
+            );
+
+        $this->assertNull($user->studentProfile->fresh()->avatar_data);
+    }
 }

@@ -234,19 +234,56 @@ class ProfileController extends Controller
         /** @var UploadedFile|null $file */
         $file = $request->file('avatar');
 
-        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+        if (! $file instanceof UploadedFile) {
             return response()->json([
                 'success' => false,
                 'message' => 'No avatar image was uploaded.',
+                'code' => 'PROFILE_AVATAR_INVALID',
             ], 422);
         }
 
+        // PHP-level upload errors (truncated mid-flight because the photo was
+        // bigger than `upload_max_filesize`, the connection dropped, the temp
+        // dir was full, …) are mapped to a clear message here. Without this
+        // branch the service would still detect the failure — but `$file->get()`
+        // on an errored upload returns a partial / empty payload that
+        // `imagecreatefromstring` then rejects with the opaque "could not be
+        // processed" message. Telling the caller what PHP rejected and why
+        // (vs. silently re-encoding the error as a downstream GD failure) is
+        // the fix that came out of the dashboard bug.
+        if (! $file->isValid()) {
+            $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
+
+            $message = match ($file->getError()) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => sprintf(
+                    'The photo is too large to upload (limit %d KB). Please pick a smaller image.',
+                    $maxKb,
+                ),
+                UPLOAD_ERR_PARTIAL => 'The upload was cut off before it finished. Please try again.',
+                UPLOAD_ERR_NO_FILE => 'No photo was received. Please pick a file and try again.',
+                UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'The server could not store the upload. Please try again in a moment.',
+                UPLOAD_ERR_EXTENSION => 'The photo was rejected by the server. Please try a JPEG, PNG, WebP or GIF.',
+                default => 'The photo could not be uploaded. Please try a JPEG, PNG, WebP or GIF under '
+                    .$maxKb.' KB.',
+            };
+
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'code' => 'PROFILE_AVATAR_INVALID',
+            ], 422);
+        }
+
+        // Bytes can only be checked on a valid upload — for an INI_SIZE failure
+        // $file->getSize() returns the truncated size, not the intended one,
+        // so this guard would either be a no-op or mislead the caller.
         $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
 
         if (($file->getSize() / 1024) > $maxKb) {
             return response()->json([
                 'success' => false,
                 'message' => 'The image is larger than the '.$maxKb.' KB limit.',
+                'code' => 'PROFILE_AVATAR_INVALID',
             ], 422);
         }
 

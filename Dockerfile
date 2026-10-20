@@ -31,6 +31,27 @@ RUN { \
         echo 'opcache.revalidate_freq=0'; \
     } > /usr/local/etc/php/conf.d/zz-opcache.ini
 
+# PHP upload & memory limits for the profile avatar endpoint.
+#
+# The CLI image ships with the compiled-in defaults (upload_max_filesize=2M,
+# post_max_size=8M, memory_limit=128M). Modern phone photos are 3–8 MB, so a
+# learner picking an iPhone JPEG would have the upload silently truncated
+# mid-stream: PHP keeps the first ~2 MB and drops the rest. The first few KB
+# are enough for `getimagesizefromstring` to identify the file as JPEG, but
+# `imagecreatefromstring` then fails on the truncated body with the opaque
+# "could not be processed" — the symptom that came out of the dashboard bug.
+#
+# Raising these only affects this container — Render's dashboard is untouched.
+# 12M / 14M cover a typical phone photo with a generous margin and stay inside
+# Render's request-body envelope; 256M of memory keeps GD's centre-crop
+# comfortably under the ceiling even for the highest-resolution uploads.
+RUN { \
+        echo 'upload_max_filesize=12M'; \
+        echo 'post_max_size=14M'; \
+        echo 'memory_limit=256M'; \
+        echo 'max_input_time=60'; \
+    } > /usr/local/etc/php/conf.d/zz-upload.ini
+
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
