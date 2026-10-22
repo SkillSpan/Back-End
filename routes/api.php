@@ -59,6 +59,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/', [ProfileController::class, 'store']);
         Route::get('/', [ProfileController::class, 'show']);
         Route::put('/', [ProfileController::class, 'update']);
+        Route::post('/avatar', [ProfileController::class, 'storeAvatar']);
+        Route::delete('/avatar', [ProfileController::class, 'removeAvatar']);
+        Route::get('/avatar', [ProfileController::class, 'avatar'])->name('learner.profile.avatar');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
@@ -374,6 +377,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead']);
         Route::get('/conversations/{conversation}/status', [ConversationController::class, 'status']);
+        // Hides the conversation from the caller's own list only — it is not a
+        // delete, and the thread stays intact for the other participant.
+        Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy']);
 
         // Chatbot communication endpoints — automated messages tagged
         // message_type=chatbot, participant-authorized like human messages.

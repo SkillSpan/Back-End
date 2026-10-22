@@ -46,6 +46,20 @@ class Conversation extends Model
     }
 
     /**
+     * Users who have removed this conversation from their own list.
+     *
+     * Deliberately NOT a delete: the conversation, its messages and the audit
+     * trail stay intact for the other participant. See the
+     * `conversation_user_hides` migration for the reasoning.
+     */
+    public function hiddenFor()
+    {
+        return $this->belongsToMany(User::class, 'conversation_user_hides')
+            ->withPivot('hidden_at')
+            ->withTimestamps();
+    }
+
+    /**
      * Scope to only active conversations.
      */
     public function scopeActive($query)

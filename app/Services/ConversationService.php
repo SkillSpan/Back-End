@@ -91,6 +91,10 @@ class ConversationService
             $q->where('mentor_id', $userId)->orWhere('student_id', $userId);
         })
             ->where('status', 'active')
+            // A conversation the caller removed from their own list stays hidden
+            // until someone writes in it again (see sendMessage). The other
+            // participant is unaffected.
+            ->whereDoesntHave('hiddenFor', fn ($q) => $q->where('conversation_user_hides.user_id', $userId))
             ->with(['connection.mentor', 'connection.student'])
             ->latest('last_message_at')
             ->paginate($perPage);
@@ -112,6 +116,25 @@ class ConversationService
         }
 
         return $conversation;
+    }
+
+    /**
+     * Remove a conversation from the caller's own list.
+     *
+     * NOT a delete. The thread, its messages and the audit records stay intact
+     * for the other participant — the UI states that communication is recorded
+     * for audit purposes, so erasing it for both sides would be wrong. The row
+     * is cleared when a new message arrives (see sendMessage), so a conversation
+     * can never be lost silently.
+     */
+    public function hideConversation(int $conversationId, int $userId): void
+    {
+        // Reuses the participant check, so a caller can only hide their own.
+        $conversation = $this->getConversation($conversationId, $userId);
+
+        $conversation->hiddenFor()->syncWithoutDetaching([
+            $userId => ['hidden_at' => now()],
+        ]);
     }
 
     /**
@@ -159,6 +182,11 @@ class ConversationService
             ]);
 
             $conversation->update(['last_message_at' => now()]);
+
+            // A new message brings the conversation back for anyone who removed
+            // it from their list — the same behaviour every chat app has, and it
+            // guarantees a hidden thread can never swallow a reply.
+            $conversation->hiddenFor()->detach();
 
             $this->audit(
                 actorId: $senderId,
