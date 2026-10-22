@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
 use App\Http\Controllers\Api\SupportRequestController;
+use App\Http\Controllers\Api\SystemPulseController;
 use App\Http\Controllers\Api\TalentDiscoveryController;
 use Illuminate\Support\Facades\Route;
 
@@ -287,6 +288,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/countries', [ReferenceController::class, 'countries']);
         Route::get('/countries/{country}/universities', [ReferenceController::class, 'countryUniversities']);
     });
+
+    // Read-only region + latency probe. Reports the DB region (decoded from the
+    // host's CNAME) and the real connect/query milliseconds from inside the
+    // container — the only place those numbers mean anything. No credentials,
+    // no host, two constant-cost queries. See SystemPulseController.
+    Route::get('/_pulse/7c1f9e2a', [SystemPulseController::class, 'show']);
 
     // Skills API
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('skills')->group(function () {
