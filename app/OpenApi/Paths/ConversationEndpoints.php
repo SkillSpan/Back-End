@@ -138,6 +138,44 @@ class ConversationEndpoints
     )]
     public function show(): void {}
 
+    #[OA\Delete(
+        path: '/v1/conversations/{conversation}',
+        operationId: 'conversationsHide',
+        tags: ['Conversations'],
+        summary: 'Remove a conversation from your own list',
+        description: 'Hides the conversation for the calling user only. It is **not** a delete: the thread, '
+            .'its messages and the audit records stay intact for the other participant, and the conversation '
+            .'reappears in the caller\'s list as soon as a new message arrives. Hiding twice is idempotent. '
+            .'The caller must be one of the two participants, otherwise 403 (`UNAUTHORIZED_CONVERSATION`). '
+            .'Protected by auth:sanctum + account.active.',
+        security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'conversation',
+                in: 'path',
+                required: true,
+                description: 'Id of the conversation.',
+                schema: new OA\Schema(type: 'integer', example: 88),
+            ),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Conversation removed from the caller\'s list.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: true),
+                        new OA\Property(property: 'message', type: 'string', example: 'Conversation removed from your list.'),
+                    ],
+                ),
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 403, description: 'The caller is not a participant of this conversation (`UNAUTHORIZED_CONVERSATION`).', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 404, description: 'The conversation does not exist.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+        ],
+    )]
+    public function destroy(): void {}
+
     #[OA\Post(
         path: '/v1/conversations/{conversation}/messages',
         operationId: 'conversationsSendMessage',

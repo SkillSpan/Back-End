@@ -3,13 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Events\SkillDataChanged;
+use App\Exceptions\ReadinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\StoreProfileRequest;
 use App\Http\Requests\Profile\UpdateProfileRequest;
 use App\Models\CareerGoalHistory;
 use App\Models\StudentProfile;
+use App\Services\Profile\StudentProfileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 
 /**
@@ -212,7 +216,142 @@ class ProfileController extends Controller
             'graduation_status' => $profile->graduation_status,
             'graduation_date' => $profile->graduation_date?->toDateString(),
             'updated_at' => $profile->updated_at?->toIso8601String(),
+            'has_avatar' => $profile->hasAvatar(),
+            'avatar_url' => $this->avatarService()->avatarUrl($profile),
+            'avatar_updated_at' => $profile->avatar_updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * POST /api/v1/profile/avatar
+     *
+     * The avatar is the learner's own face on the profile and in the support
+     * thread, so it is stored and served exactly like the panel avatar: decoded,
+     * centre-cropped, re-encoded to a fixed square — never trusted as-is.
+     */
+    public function storeAvatar(Request $request): JsonResponse
+    {
+        /** @var UploadedFile|null $file */
+        $file = $request->file('avatar');
+
+        if (! $file instanceof UploadedFile) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No avatar image was uploaded.',
+                'code' => 'PROFILE_AVATAR_INVALID',
+            ], 422);
+        }
+
+        // PHP-level upload errors (truncated mid-flight because the photo was
+        // bigger than `upload_max_filesize`, the connection dropped, the temp
+        // dir was full, …) are mapped to a clear message here. Without this
+        // branch the service would still detect the failure — but `$file->get()`
+        // on an errored upload returns a partial / empty payload that
+        // `imagecreatefromstring` then rejects with the opaque "could not be
+        // processed" message. Telling the caller what PHP rejected and why
+        // (vs. silently re-encoding the error as a downstream GD failure) is
+        // the fix that came out of the dashboard bug.
+        if (! $file->isValid()) {
+            $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
+
+            $message = match ($file->getError()) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => sprintf(
+                    'The photo is too large to upload (limit %d KB). Please pick a smaller image.',
+                    $maxKb,
+                ),
+                UPLOAD_ERR_PARTIAL => 'The upload was cut off before it finished. Please try again.',
+                UPLOAD_ERR_NO_FILE => 'No photo was received. Please pick a file and try again.',
+                UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'The server could not store the upload. Please try again in a moment.',
+                UPLOAD_ERR_EXTENSION => 'The photo was rejected by the server. Please try a JPEG, PNG, WebP or GIF.',
+                default => 'The photo could not be uploaded. Please try a JPEG, PNG, WebP or GIF under '
+                    .$maxKb.' KB.',
+            };
+
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'code' => 'PROFILE_AVATAR_INVALID',
+            ], 422);
+        }
+
+        // Bytes can only be checked on a valid upload — for an INI_SIZE failure
+        // $file->getSize() returns the truncated size, not the intended one,
+        // so this guard would either be a no-op or mislead the caller.
+        $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
+
+        if (($file->getSize() / 1024) > $maxKb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The image is larger than the '.$maxKb.' KB limit.',
+                'code' => 'PROFILE_AVATAR_INVALID',
+            ], 422);
+        }
+
+        try {
+            $profile = $this->avatarService()->storeAvatar($request->user(), $file);
+        } catch (ReadinessException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => $e->codeName,
+            ], $e->status);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile photo updated.',
+            'data' => $this->present($profile),
+        ], 200);
+    }
+
+    /**
+     * DELETE /api/v1/profile/avatar
+     *
+     * Back to initials. Idempotent: removing an absent avatar is a success.
+     */
+    public function removeAvatar(Request $request): JsonResponse
+    {
+        $profile = $this->avatarService()->removeAvatar($request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile photo removed.',
+            'data' => $this->present($profile),
+        ], 200);
+    }
+
+    /**
+     * GET /api/v1/profile/avatar
+     *
+     * The raw image bytes for the authenticated learner's own avatar. Served
+     * from a stable URL (versioned by `avatar_updated_at`) so the browser can
+     * cache it; 404 when there is none.
+     */
+    public function avatar(Request $request): Response
+    {
+        $profile = $request->user()->studentProfile;
+
+        if ($profile === null) {
+            abort(404);
+        }
+
+        $binary = $this->avatarService()->avatarBinary($profile);
+
+        if ($binary === null) {
+            abort(404);
+        }
+
+        return response($binary, 200, [
+            'Content-Type' => (string) $profile->avatar_mime,
+            'Content-Length' => (string) strlen($binary),
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function avatarService(): StudentProfileService
+    {
+        return new StudentProfileService;
     }
 
     /**
