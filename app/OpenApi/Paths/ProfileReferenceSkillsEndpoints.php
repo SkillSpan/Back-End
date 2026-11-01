@@ -522,4 +522,65 @@ class ProfileReferenceSkillsEndpoints
         ],
     )]
     public function skillsMatrixUpdate(): void {}
+
+    #[OA\Delete(
+        path: '/v1/learner/skills/{skill}',
+        operationId: 'learnerSkillsDestroy',
+        tags: ['Skills'],
+        summary: 'Remove a skill from the authenticated learner\'s own skill list',
+        description: 'Deletes the caller\'s own learner_skills row for the given skill id. The skill itself is '
+            .'shared taxonomy and is NOT deleted — career_role_skills, project requirements, baseline snapshots '
+            .'and every other learner keep pointing at it, which is why this lives under /learner and not under '
+            .'/skills. The learner id always comes from the authenticated request; no learner_id is accepted from '
+            .'the client. A skill that is not on the caller\'s list (or does not exist) returns 404 and deletes '
+            .'nothing, and no other learner\'s rows are ever affected. Protected by auth:sanctum + account.active '
+            .'+ role:learner.',
+        security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(
+                name: 'skill',
+                in: 'path',
+                required: true,
+                description: 'skills.id — the skill to remove from the caller\'s own list.',
+                schema: new OA\Schema(type: 'integer', example: 45),
+            ),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Skill removed from the learner\'s list.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: true),
+                        new OA\Property(property: 'message', type: 'string', example: 'Skill removed successfully.'),
+                        new OA\Property(property: 'data', type: 'object', nullable: true, example: null),
+                    ],
+                ),
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(
+                response: 403,
+                description: 'Caller is not a learner account.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'code', type: 'string', example: 'LEARNER_ONLY'),
+                        new OA\Property(property: 'message', type: 'string', example: 'Only learner accounts can access this resource.'),
+                        new OA\Property(property: 'request_id', type: 'string', example: '9f1c2b7e-3a4d-4c8e-9b2f-1d6a5c7e8f90'),
+                    ],
+                ),
+            ),
+            new OA\Response(
+                response: 404,
+                description: 'Skill is not on this learner\'s list (or does not exist).',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: false),
+                        new OA\Property(property: 'message', type: 'string', example: 'Skill is not associated with this learner.'),
+                        new OA\Property(property: 'data', type: 'object', nullable: true, example: null),
+                    ],
+                ),
+            ),
+        ],
+    )]
+    public function learnerSkillsDestroy(): void {}
 }

@@ -189,4 +189,54 @@ class SkillsController extends Controller
             'data' => $learnerSkill,
         ]);
     }
+
+    /**
+     * DELETE /api/v1/learner/skills/{skill}
+     *
+     * Remove ONE skill from the authenticated learner's own skill list.
+     *
+     * This deletes the `learner_skills` relation and nothing else. The row in
+     * `skills` is shared reference data — career_role_skills, project
+     * requirements, baseline snapshots and every other learner point at it —
+     * so it is never touched here. That is also why the route is NOT
+     * `DELETE /api/v1/skills/{id}`, which would read as "delete the skill
+     * from the system".
+     *
+     * AUTHZ: the learner id is taken from the authenticated request and from
+     * nowhere else. No learner_id is read from the body or the query string,
+     * and because the learner id is part of the DELETE's own WHERE clause, a
+     * skill that belongs to another learner simply matches zero rows — there
+     * is no row to look up first, so there is no row to get wrong.
+     */
+    public function removeFromLearner(Request $request, string $skill)
+    {
+        // Route params arrive as strings; the route's whereNumber() constraint
+        // guarantees digits, so the cast cannot fail. Casting (rather than
+        // type-hinting int) also keeps an absurdly long id from raising a
+        // TypeError — it simply matches no rows and falls through to the 404.
+        $skillId = (int) $skill;
+
+        $deleted = LearnerSkill::query()
+            ->where('learner_id', $request->user()->id)
+            ->where('skill_id', $skillId)
+            ->delete();
+
+        if ($deleted === 0) {
+            // Deliberately the same answer for "this skill is not yours" and
+            // "this skill id does not exist": the two cases must be
+            // indistinguishable, or the endpoint becomes a probe for the
+            // taxonomy and for other learners' skill lists.
+            return response()->json([
+                'success' => false,
+                'message' => 'Skill is not associated with this learner.',
+                'data' => null,
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Skill removed successfully.',
+            'data' => null,
+        ]);
+    }
 }

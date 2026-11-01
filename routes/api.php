@@ -303,6 +303,25 @@ Route::prefix('v1')->group(function () {
         Route::put('/matrix/{id}', [SkillsController::class, 'update']);
     });
 
+    // ──────────────────────────────────────────────────────────────
+    // The learner's OWN skills — "My Skills" on the profile screen.
+    //
+    // A separate /learner prefix rather than DELETE /skills/{id}:
+    // `skills` is shared taxonomy (career_role_skills, project
+    // requirements, baseline snapshots and every learner's matrix point
+    // at it), so a delete under that path would read as "delete the
+    // skill from the system" — the one thing this must never do. Here
+    // {skill} is a skills.id, and the only row removed is the caller's
+    // own learner_skills row.
+    // ──────────────────────────────────────────────────────────────
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
+        ->prefix('learner')
+        ->group(function () {
+            Route::delete('/skills/{skill}', [SkillsController::class, 'removeFromLearner'])
+                ->name('learner.skills.destroy')
+                ->whereNumber('skill');
+        });
+
     // Evidence Submission API
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('evidence')->group(function () {
         // Uploading stores a file and triggers a skill recalculation, so it is
