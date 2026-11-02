@@ -36,6 +36,9 @@ class NotificationService
         ?string $link = null,
         ?string $eventKey = null,
         string $channel = 'in_app',
+        ?int $organizationId = null,
+        ?string $entityType = null,
+        ?int $entityId = null,
     ): ?Notification {
         if (! $this->isEnabled($userId, $category, $channel)) {
             return null;
@@ -51,6 +54,11 @@ class NotificationService
 
         return Notification::create([
             'user_id' => $userId,
+            // US-COMP-03: which organization produced this, and which record
+            // it is about. Both optional — mentor/student traffic has neither.
+            'organization_id' => $organizationId,
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
             'category' => $category,
             'channel' => $channel,
             'title' => $title,
