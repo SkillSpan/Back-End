@@ -51,6 +51,14 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: 'student_profile_id', type: 'integer', example: 12),
         new OA\Property(property: 'skill_id', type: 'integer', example: 15),
         new OA\Property(property: 'source', type: 'string', example: 'certificate'),
+        new OA\Property(
+            property: 'evidence_type',
+            type: 'string',
+            nullable: true,
+            enum: ['github_repository', 'live_deployment', 'design_file', 'document'],
+            description: 'The KIND of proof the learner attached — a repository, a running deployment, a design file or an uploaded document. Nullable: records created before this column existed report `null` ("type not recorded"), and so does a legacy submission that declared no type and sent a URL. Not to be confused with `source`, which is the weighted skill-evaluation channel.',
+            example: 'github_repository'
+        ),
         new OA\Property(property: 'value', type: 'number', format: 'float', example: 0),
         new OA\Property(property: 'normalized_value', type: 'number', format: 'float', example: 0),
         new OA\Property(property: 'reference', type: 'string', nullable: true, description: 'A URL, or the stored path of the uploaded file.'),
