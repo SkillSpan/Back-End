@@ -104,8 +104,15 @@ New indexes (`2026_11_02_000001_add_company_dashboard_indexes`): `projects(organ
 `entity_id` to `notifications` (nullable, indexed) and `NotificationService::dispatch()` takes them as
 trailing optional arguments — the Database task list asks a notification to know its organization and
 the record it is about. Both migrations are guarded with `Schema::hasIndex` / `Schema::hasColumn`, so
-re-running is a no-op. **Not applied to alwaysdata yet** — that needs
-`php artisan migrate --force` on the server.
+re-running is a no-op. **Applied 2026-11-02 on both hosts.**
+
+On alwaysdata a `git pull` alone is not enough — a stale routes cache keeps serving the old route
+table (`route:list` sees the new route, HTTP still 404s). The full sequence there is:
+
+```bash
+cd ~/www/skillspan && git pull && php artisan migrate --force \
+  && php artisan optimize:clear && php artisan config:cache
+```
 
 ## 5. Deliberately not done
 

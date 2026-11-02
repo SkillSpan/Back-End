@@ -100,7 +100,9 @@ Indexes: `projects(organization_id,status)`, `applications(project_id,status)`,
 `notifications(user_id,read_at)`, plus `notifications(organization_id)` and
 `notifications(entity_type,entity_id)`. Both migrations are guarded (`Schema::hasIndex()` /
 `Schema::hasColumn()`), so a re-run is a no-op.
-**Not applied to alwaysdata** — needs `php artisan migrate --force` there.
+**Applied 2026-11-02** on both hosts — Render on deploy (`migrate --force` in the `Dockerfile`) and
+alwaysdata manually (`git pull && php artisan migrate --force && php artisan optimize:clear &&
+php artisan config:cache`).
 
 ### API
 
@@ -153,11 +155,14 @@ from sample data; the only thing it lacks is the one function in
 
 ## 7. What is left, in one line each
 
-1. `cd ~/www/skillspan && php artisan migrate --force` — applies the dashboard indexes and the three
-   notification context columns (the only written-but-not-deployed piece).
+1. ~~Apply the migrations~~ — **done 2026-11-02 on both hosts**; `/api/v1/company/dashboard` answers
+   401 unauthenticated and 403 `COMPANY_ADMIN_ONLY` with a non-company token.
 2. Frontend team: the two-line wiring in `docs/US-COMP-03_IMPLEMENTATION.md` §7.
 3. When US-MATCH-04 lands: emit the `invites` task in `CompanyDashboardService::tasks()` — the single
    place that has to change, already marked with a comment.
 4. When US-PRJ-01 starts emitting company notifications: pass `organizationId` / `entityType` /
    `entityId` to `NotificationService::dispatch()`. The columns and the service arguments are already
    there; nothing else to add.
+5. One manual check nobody can automate: load the dashboard in Postman with a real `company_admin`
+   token and eyeball the payload. Every other path (401, 403, cross-org, empty org) is covered by a
+   test or a live probe.
