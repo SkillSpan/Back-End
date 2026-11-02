@@ -252,6 +252,11 @@ class AuthController extends Controller
                 'organizations' => [$organization],
                 'token' => $tokenResult->plainTextToken,
                 'token_type' => 'Bearer',
+                // US-COMP-03 / AC-01: a company login lands on the Company
+                // Dashboard. Same `redirect_url` convention the password-reset
+                // and logout responses already use, so the client has one
+                // place to read it from instead of re-deriving it from roles.
+                'redirect_url' => '/company/dashboard',
             ],
         ]);
     }

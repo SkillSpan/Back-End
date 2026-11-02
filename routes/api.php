@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
 use App\Http\Controllers\Api\ChatbotController;
+use App\Http\Controllers\Api\Company\CompanyDashboardController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
@@ -377,6 +378,21 @@ Route::prefix('v1')->group(function () {
         });
 
     // ──────────────────────────────────────────────────────────────
+    // Company workspace — US-COMP-03.
+    //
+    // Same two independent gates as Talent Discovery: an approved
+    // organization (so a pending/rejected one is refused even with a valid
+    // token) and the company role. The organization is resolved from the
+    // caller's membership inside the controller, never from the request.
+    // ──────────────────────────────────────────────────────────────
+    Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
+        ->prefix('company')
+        ->group(function () {
+            Route::get('/dashboard', [CompanyDashboardController::class, 'show'])
+                ->name('company.dashboard');
+        });
+
+    // ──────────────────────────────────────────────────────────────
     // Mentor–Student communication system.
     // Mentor identity = verified ProfessionalProfile (type=mentor,
     // verification_status=verified). Not a role-slug; the 'mentor'
@@ -422,6 +438,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/preferences', [NotificationController::class, 'preferences']);
         Route::put('/preferences', [NotificationController::class, 'updatePreference']);
         Route::post('/{notification}/read', [NotificationController::class, 'markAsRead']);
+        // US-COMP-03 lists PATCH for the same action, and the company dashboard
+        // sends PATCH. Both verbs hit the same handler: marking a notification
+        // read is idempotent, so there is nothing for a second verb to do
+        // differently, and refusing one would only be a trap for the client.
+        Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead']);
     });
 
     Route::post('/setup/create-admin', [SetupController::class, 'createAdmin'])

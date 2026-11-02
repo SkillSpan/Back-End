@@ -32,8 +32,14 @@ class NotificationController extends Controller
             userId: $request->user()->id,
             filters: [
                 'category' => $request->query('category'),
-                'unread_only' => $request->boolean('unread_only'),
+                // `unread_only` is this API's original spelling; the company
+                // dashboard's Notification History sends `unread=1`. Both are
+                // accepted so the client does not have to guess which one the
+                // backend settled on (US-COMP-03 listed these endpoints as
+                // "to be confirmed").
+                'unread_only' => $request->boolean('unread_only') || $request->boolean('unread'),
             ],
+            perPage: $this->perPage($request),
         );
 
         return response()->json([
@@ -168,5 +174,22 @@ class NotificationController extends Controller
     private function requestId(Request $request): string
     {
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
+    }
+
+    /**
+     * BR-11 / NFR-PERF-03 — pagination with a *configurable* maximum.
+     *
+     * Clamped rather than validated: a caller asking for 1000 gets the ceiling,
+     * not a 422. The dashboard's Notification History is a scrolling list; a
+     * rejected request would be a worse experience than a smaller page.
+     */
+    private function perPage(Request $request): int
+    {
+        $default = (int) config('company.notifications.default_per_page', 20);
+        $max = max(1, (int) config('company.notifications.max_per_page', 50));
+
+        $requested = $request->integer('per_page', $default);
+
+        return max(1, min($max, $requested));
     }
 }
