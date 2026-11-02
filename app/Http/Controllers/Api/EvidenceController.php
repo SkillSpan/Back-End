@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Events\SkillDataChanged;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListEvidenceRequest;
+use App\Http\Requests\StoreEvidenceRequest;
 use App\Models\Skill;
 use App\Models\SkillEvidence;
 use App\Services\Skills\SkillEvaluationService;
@@ -22,57 +23,27 @@ class EvidenceController extends Controller
      *
      * Submit new evidence for a skill.
      * Evidence is created as pending until reviewed by an admin.
+     *
+     * Four kinds of proof are accepted, declared through `evidence_type`:
+     *
+     *   github_repository  → evidence_url (https://github.com/owner/repo)
+     *   live_deployment    → evidence_url (a reachable deployment)
+     *   design_file        → evidence_url (https://figma.com/file/...)
+     *   document           → evidence_file (pdf / jpg / jpeg / png / webp, ≤10 MB)
+     *
+     * `evidence_type` describes the SHAPE of the proof and is a different axis
+     * from `source`, which stays `certificate` for every learner submission —
+     * see SkillEvidence for why the two must not be conflated.
+     *
+     * Requests that declare no type keep the previous contract exactly (a URL or
+     * a file, at least one) and are stored with `evidence_type = NULL`.
+     *
+     * The rules themselves live in StoreEvidenceRequest, because "a URL is
+     * required for this type but forbidden for that one" cannot be expressed as
+     * one flat rule set.
      */
-    public function store(Request $request)
+    public function store(StoreEvidenceRequest $request)
     {
-        $request->validate([
-            'skill_id' => [
-                'required',
-                Rule::exists('skills', 'id')->where(function ($query) {
-                    $query->where('status', 'active');
-                }),
-            ],
-
-            'evidence_url' => [
-                'sometimes',
-                'required_without:evidence_file',
-                'url',
-            ],
-
-            'evidence_file' => [
-                'sometimes',
-                'required_without:evidence_url',
-                'file',
-                /*
-                 * Restrict uploads to the document/image types the evidence
-                 * flow actually accepts (certificates and proof photos).
-                 *
-                 * Without this the endpoint accepted ANY file — including
-                 * .php/.phtml, executables, shell scripts and SVG (which can
-                 * carry inline script). The file is written to the private
-                 * `local` disk, so it is not directly web-served, but storing
-                 * an arbitrary attacker-controlled file is a liability the
-                 * moment the disk (or a future download route) changes.
-                 *
-                 * `mimes` validates the type guessed from the file's actual
-                 * content, not the client-supplied extension, so a renamed
-                 * .php/.svg is rejected as well.
-                 */
-                'mimes:pdf,jpg,jpeg,png,webp',
-                'max:10000',
-            ],
-
-            'description' => [
-                'sometimes',
-                'string',
-                'max:500',
-            ],
-
-            'evidence_date' => [
-                'sometimes',
-                'date',
-            ],
-        ]);
 
         $studentProfile = $request->user()->studentProfile;
 
@@ -86,27 +57,51 @@ class EvidenceController extends Controller
         $skillId = $request->skill_id;
 
         /*
-         * Use URL as reference when provided.
-         * Otherwise store the uploaded file and use its path as reference.
+         * Resolve what is being stored, and under which evidence type.
+         *
+         * The URL, when present, is the reference; otherwise the uploaded file
+         * is stored and its path becomes the reference.
+         *
+         * The type is only inferred in one, unambiguous case: a client that
+         * uploaded a file without declaring a type has submitted a document.
+         * Nothing is inferred for a URL, because a link on its own says nothing
+         * about whether it is a repository, a deployment or a design file —
+         * guessing there would put a wrong label in front of the reviewer.
          */
+        $declaredType = $request->declaredEvidenceType();
+
         if ($request->filled('evidence_url')) {
             $reference = $request->evidence_url;
+            $evidenceType = $declaredType;
         } elseif ($request->hasFile('evidence_file')) {
             $reference = $request->file('evidence_file')->store('evidence');
+            $evidenceType = $declaredType ?? SkillEvidence::TYPE_DOCUMENT;
         } else {
             $reference = null;
+            $evidenceType = $declaredType;
         }
 
         /*
-         * Prevent duplicate evidence for the same learner,
-         * skill, source and reference.
+         * Prevent duplicate evidence for the same learner, skill, evidence type
+         * and reference.
+         *
+         * The type is part of the key on purpose. Before it existed the check
+         * was (learner, skill, source, reference) — and because every learner
+         * submission is stored under `source = certificate`, a URL re-submitted
+         * under a different kind could not be told apart from a real duplicate.
+         * Legacy rows carry no type, so a request that declares none is matched
+         * against other typeless rows only, which keeps the old behaviour intact
+         * for old clients.
          */
-        $duplicate = SkillEvidence::where(
-            'student_profile_id',
-            $studentProfile->id
-        )
+        $duplicate = SkillEvidence::query()
+            ->where('student_profile_id', $studentProfile->id)
             ->where('skill_id', $skillId)
-            ->where('source', 'certificate')
+            ->where('source', SkillEvidence::LEARNER_SUBMISSION_SOURCE)
+            ->when(
+                $evidenceType === null,
+                fn ($query) => $query->whereNull('evidence_type'),
+                fn ($query) => $query->where('evidence_type', $evidenceType),
+            )
             ->where('reference', $reference)
             ->exists();
 
@@ -127,7 +122,8 @@ class EvidenceController extends Controller
         $evidence = SkillEvidence::create([
             'student_profile_id' => $studentProfile->id,
             'skill_id' => $skillId,
-            'source' => 'certificate',
+            'source' => SkillEvidence::LEARNER_SUBMISSION_SOURCE,
+            'evidence_type' => $evidenceType,
             'value' => 0,
             'normalized_value' => 0,
             'reference' => $reference,

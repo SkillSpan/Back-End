@@ -76,12 +76,83 @@ class SkillEvidence extends Model
         self::STATUS_REVISION,
     ];
 
+    /*
+     * ------------------------------------------------------------------
+     * Evidence types — the SHAPE of the submitted proof
+     * ------------------------------------------------------------------
+     *
+     * `evidence_type` is a separate axis from `source` and must not be
+     * confused with it:
+     *
+     *   source        — which weighted assessment channel the record feeds
+     *                   (self_assessment / assessment_test /
+     *                   project_performance / expert_evaluation /
+     *                   certificate). Weights live in
+     *                   config('services.evidence.source_weights') and drive
+     *                   SkillEvaluationService.
+     *
+     *   evidence_type — what the learner actually attached: a repository, a
+     *                   running deployment, a design file, or an uploaded
+     *                   document. It carries no weight; it tells the reviewer
+     *                   (and the learner) how the proof should be read.
+     *
+     * Every learner submission keeps `source = 'certificate'` — the channel for
+     * a self-submitted artifact that no one has assessed yet. Mapping GitHub
+     * evidence to `project_performance` would silently multiply its confidence
+     * contribution by 7 (0.05 → 0.35), which is a product/Data-Science decision
+     * and not something this column may imply.
+     */
+    public const TYPE_GITHUB_REPOSITORY = 'github_repository';
+
+    public const TYPE_LIVE_DEPLOYMENT = 'live_deployment';
+
+    public const TYPE_DESIGN_FILE = 'design_file';
+
+    public const TYPE_DOCUMENT = 'document';
+
+    /**
+     * Every value `evidence_type` accepts. Validation reads this list, so an
+     * unknown type is a 422 rather than a new column value.
+     *
+     * The column is NULLABLE for records written before the column existed;
+     * NULL means "type not recorded", never "some other type".
+     */
+    public const EVIDENCE_TYPES = [
+        self::TYPE_GITHUB_REPOSITORY,
+        self::TYPE_LIVE_DEPLOYMENT,
+        self::TYPE_DESIGN_FILE,
+        self::TYPE_DOCUMENT,
+    ];
+
+    /**
+     * Types proven by a link. `evidence_url` is required for these and an
+     * uploaded file is refused, so a request can never carry a proof the
+     * backend then silently discards.
+     */
+    public const URL_BASED_TYPES = [
+        self::TYPE_GITHUB_REPOSITORY,
+        self::TYPE_LIVE_DEPLOYMENT,
+        self::TYPE_DESIGN_FILE,
+    ];
+
+    /**
+     * Types proven by an uploaded file. `evidence_file` is required for these
+     * and `evidence_url` is refused.
+     */
+    public const FILE_BASED_TYPES = [
+        self::TYPE_DOCUMENT,
+    ];
+
+    /** The evidence source every learner submission is recorded under. */
+    public const LEARNER_SUBMISSION_SOURCE = 'certificate';
+
     protected $table = 'skill_evidences';
 
     protected $fillable = [
         'student_profile_id',
         'skill_id',
         'source',
+        'evidence_type',
         'value',
         'normalized_value',
         'reference',
@@ -117,5 +188,17 @@ class SkillEvidence extends Model
     public function sourceRecord()
     {
         return $this->morphTo(__FUNCTION__, 'source_record_type', 'source_record_id');
+    }
+
+    /** Whether this record's proof is a link rather than an uploaded file. */
+    public function isUrlBased(): bool
+    {
+        return in_array($this->evidence_type, self::URL_BASED_TYPES, true);
+    }
+
+    /** Whether this record's proof is an uploaded file. */
+    public function isFileBased(): bool
+    {
+        return in_array($this->evidence_type, self::FILE_BASED_TYPES, true);
     }
 }

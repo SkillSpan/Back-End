@@ -18,9 +18,20 @@ class EvidenceCareerRoleEndpoints
         tags: ['Evidence'],
         summary: 'Submit evidence for a skill',
         description: 'Creates a new evidence record for the authenticated learner, linked to an active skill. '
-            .'The record is stored as `pending` until an administrator reviews it. Either `evidence_url` or an '
-            .'uploaded `evidence_file` must be supplied. Submitting a combination of learner, skill, source '
-            .'(`certificate`) and reference that already exists is rejected as a duplicate.',
+            .'The record is stored as `pending` until an administrator reviews it. '
+            ."\n\n".'**Evidence types.** `evidence_type` declares what the proof is and therefore which half of the '
+            .'payload is required: `github_repository`, `live_deployment` and `design_file` require `evidence_url` '
+            .'and refuse `evidence_file`; `document` requires `evidence_file` (pdf, jpg, jpeg, png, webp, max '
+            .'10 MB) and refuses `evidence_url`. The unused half is rejected rather than ignored, so a 201 always '
+            .'means the proof was actually stored. '
+            ."\n\n".'**Legacy requests.** `evidence_type` is optional. Omitting it keeps the previous contract — at '
+            .'least one of `evidence_url` / `evidence_file` — and stores `evidence_type: null` ("type not '
+            .'recorded"), except that a lone file upload is recorded as `document`. '
+            ."\n\n".'**URL rules.** Only http/https, publicly reachable hosts (no loopback or private ranges). '
+            .'`github_repository` must be an https github.com URL with an `/{owner}/{repo}` path. '
+            ."\n\n".'**Duplicates.** The same learner + skill + evidence type + reference is rejected with 409. '
+            ."\n\n".'`source` is NOT the evidence type: it is the weighted skill-evaluation channel and stays '
+            .'`certificate` for every learner submission.',
         security: [['bearerAuth' => []]],
         requestBody: new OA\RequestBody(
             required: true,
@@ -30,8 +41,16 @@ class EvidenceCareerRoleEndpoints
                     required: ['skill_id'],
                     properties: [
                         new OA\Property(property: 'skill_id', type: 'integer', description: 'Must reference an existing skill whose status is `active`.', example: 15),
-                        new OA\Property(property: 'evidence_url', type: 'string', format: 'uri', nullable: true, description: 'Required when `evidence_file` is not sent.', example: 'https://example.com/certs/php-advanced.pdf'),
-                        new OA\Property(property: 'evidence_file', type: 'string', format: 'binary', nullable: true, description: 'Required when `evidence_url` is not sent. Allowed types: pdf, jpg, jpeg, png, webp. Maximum 10000 KB.', example: 'certificate.pdf'),
+                        new OA\Property(
+                            property: 'evidence_type',
+                            type: 'string',
+                            nullable: true,
+                            enum: ['github_repository', 'live_deployment', 'design_file', 'document'],
+                            description: 'Optional. Declares the kind of proof and which payload half is required. Omit it to use the legacy url-or-file contract. Any other value is a 422. Case and surrounding whitespace are normalised.',
+                            example: 'github_repository'
+                        ),
+                        new OA\Property(property: 'evidence_url', type: 'string', format: 'uri', nullable: true, maxLength: 255, description: 'Required for `github_repository`, `live_deployment` and `design_file`; refused for `document`. For a legacy request (no `evidence_type`), required when `evidence_file` is not sent. Must be http/https on a publicly reachable host; `github_repository` additionally requires https on github.com with an `/{owner}/{repo}` path.', example: 'https://github.com/user/project'),
+                        new OA\Property(property: 'evidence_file', type: 'string', format: 'binary', nullable: true, description: 'Required for `document`; refused for the URL-based types. For a legacy request (no `evidence_type`), required when `evidence_url` is not sent. Allowed types: pdf, jpg, jpeg, png, webp. Maximum 10000 KB (10 MB). Stored on the private disk, never the public one.', example: 'certificate.pdf'),
                         new OA\Property(property: 'description', type: 'string', nullable: true, maxLength: 500, example: 'Completed the advanced PHP certification.'),
                         new OA\Property(property: 'evidence_date', type: 'string', format: 'date', nullable: true, description: 'Defaults to today when omitted.', example: '2026-01-15'),
                     ],
@@ -52,8 +71,8 @@ class EvidenceCareerRoleEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 409, description: 'Duplicate evidence already exists for this skill.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'Validation error, or the account has no student profile (`success`/`message` envelope).', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
+            new OA\Response(response: 409, description: 'Duplicate evidence: the same learner, skill, evidence type and reference already exist.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: 'Validation error — an unknown `evidence_type`, a missing or forbidden `evidence_url`/`evidence_file`, an invalid or non-public URL, a GitHub URL that is not a repository, a disallowed or oversized upload, an inactive `skill_id` — or the account has no student profile (`success`/`message` envelope).', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
         ],
     )]
     public function evidenceStore(): void {}

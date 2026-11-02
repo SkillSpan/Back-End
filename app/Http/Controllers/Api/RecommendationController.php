@@ -62,7 +62,15 @@ class RecommendationController extends Controller
         $projects = $this->accessService->accessibleProjectsQuery(
             $this->accessService->activeOrganizationIds($request->user()),
             [
-                'organization:id,title',
+                /*
+                 * `organizations` has no `title` column — the display name is
+                 * `name`, which ProjectResource reads and re-emits under the
+                 * unchanged JSON key `title`. Selecting `title` produced
+                 * invalid SQL on MySQL (`42S22 Unknown column`) and a null
+                 * organization name on SQLite, where an unresolvable
+                 * double-quoted identifier degrades to a string literal.
+                 */
+                'organization:id,name',
                 'requiredSkills.skill:id,name',
                 'eligibilityConstraints',
             ],
