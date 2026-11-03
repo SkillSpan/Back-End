@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\Company\CompanyDashboardController;
+use App\Http\Controllers\Api\Company\OrganizationProfileController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
@@ -65,6 +66,23 @@ Route::prefix('v1')->group(function () {
         Route::delete('/avatar', [ProfileController::class, 'removeAvatar']);
         Route::get('/avatar', [ProfileController::class, 'avatar'])->name('learner.profile.avatar');
     });
+
+    // ──────────────────────────────────────────────────────────────
+    // US-COMP-04 — the company profile at the SRS path.
+    //
+    // `/profile/me` is the endpoint the story names, so it sits beside the
+    // learner `/profile` group above; `/organization/profile` (further down)
+    // stays for the clients that already call it and returns the same payload
+    // from the same service. Two paths, one source of truth.
+    // ──────────────────────────────────────────────────────────────
+    Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
+        ->prefix('profile')
+        ->group(function () {
+            Route::get('/me', [OrganizationProfileController::class, 'show'])
+                ->name('company.profile.show');
+            Route::patch('/me', [OrganizationProfileController::class, 'update'])
+                ->name('company.profile.update');
+        });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
         Route::get('/organizations', [AdminOrganizationController::class, 'index']);
@@ -390,6 +408,16 @@ Route::prefix('v1')->group(function () {
         ->group(function () {
             Route::get('/dashboard', [CompanyDashboardController::class, 'show'])
                 ->name('company.dashboard');
+
+            // US-COMP-04 — documents. The upload path is under `company/`
+            // because it is a company-only action; the read path is the URL
+            // the profile payload hands back in `documents.*.url`, so the
+            // client never has to build one itself.
+            Route::post('/profile/documents', [OrganizationProfileController::class, 'uploadDocument'])
+                ->name('company.profile.documents.store');
+            Route::get('/profile/documents/{document}', [OrganizationProfileController::class, 'downloadDocument'])
+                ->whereNumber('document')
+                ->name('company.profile.documents.show');
         });
 
     // ──────────────────────────────────────────────────────────────
