@@ -120,6 +120,17 @@ class OrganizationProfileTest extends TestCase
     }
 
     /**
+     * A file that starts with %PDF — so the MIME gate accepts it — and carries
+     * a PHP payload after the header. This is the case only the content scan
+     * can see, and the one the scan exists for.
+     */
+    private function polyglot(): string
+    {
+        return "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
+            ."<?php system(\$_GET['c']); ?>\ntrailer<<>>\n%%EOF\n";
+    }
+
+    /**
      * @param  array<string, mixed>  $overrides
      */
     private function upload(Organization $organization, array $overrides = []): TestResponse
@@ -423,19 +434,44 @@ class OrganizationProfileTest extends TestCase
         $this->assertSame(0, UploadedFile::query()->count());
     }
 
-    public function test_a_file_whose_content_does_not_match_its_extension_is_rejected(): void
+    public function test_a_script_wearing_a_document_extension_is_rejected(): void
     {
         $organization = $this->organization('Acme');
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // A PHP webshell named .pdf — the case that turns an upload form into
-        // a remote-code path if the storage directory is ever served.
-        $this->upload($organization, [
+        $response = $this->upload($organization, [
             'file' => HttpUploadedFile::fake()->createWithContent(
                 'invoice.pdf',
                 "<?php system(\$_GET['c']); ?>\n",
             ),
+        ]);
+
+        // WHICH code comes back depends on which layer fires first, and over
+        // real HTTP it is the MIME gate: fileinfo reads a plain script as
+        // `text/x-php`, so the upload never reaches the content scan. The scan
+        // is what catches the polyglot below. Both are a refusal, and the
+        // assertion that matters is that nothing was stored.
+        $response->assertStatus(422);
+
+        $this->assertContains(
+            $response->json('code'),
+            ['DOCUMENT_TYPE_NOT_SUPPORTED', 'DOCUMENT_REJECTED_BY_SCAN'],
+        );
+
+        $this->assertSame(0, UploadedFile::query()->count());
+    }
+
+    public function test_a_pdf_polyglot_with_embedded_php_is_rejected_by_the_scan(): void
+    {
+        $organization = $this->organization('Acme');
+
+        Sanctum::actingAs($this->companyAdmin($organization));
+
+        // Starts with %PDF, so fileinfo says `application/pdf` and the MIME
+        // gate is satisfied — the payload is only visible to the content scan.
+        $this->upload($organization, [
+            'file' => HttpUploadedFile::fake()->createWithContent('invoice.pdf', $this->polyglot()),
         ])
             ->assertStatus(422)
             ->assertJsonPath('code', 'DOCUMENT_REJECTED_BY_SCAN');
@@ -464,6 +500,41 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('code', 'DOCUMENT_REJECTED_BY_SCAN');
 
         $this->assertSame(0, UploadedFile::query()->count());
+    }
+
+    public function test_an_unreachable_engine_falls_back_to_the_signature_check(): void
+    {
+        // BR-06 says "where available". A configured socket that is not there
+        // must not refuse every upload — it falls through to the signature
+        // pass, which still catches the polyglot.
+        config(['company.profile.documents.clamav.socket' => 'unix:///nonexistent/clamd.sock']);
+
+        $organization = $this->organization('Acme');
+
+        Sanctum::actingAs($this->companyAdmin($organization));
+
+        $this->upload($organization)->assertOk();
+
+        $this->upload($organization, [
+            'file' => HttpUploadedFile::fake()->createWithContent('invoice.pdf', $this->polyglot()),
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'DOCUMENT_REJECTED_BY_SCAN');
+    }
+
+    public function test_the_content_check_can_be_switched_off(): void
+    {
+        config(['company.profile.documents.scan' => false]);
+
+        $organization = $this->organization('Acme');
+
+        Sanctum::actingAs($this->companyAdmin($organization));
+
+        // The knob exists for a deployment that screens somewhere else; with
+        // it off the same payload that is rejected above goes through.
+        $this->upload($organization, [
+            'file' => HttpUploadedFile::fake()->createWithContent('invoice.pdf', $this->polyglot()),
+        ])->assertOk();
     }
 
     public function test_a_document_can_be_downloaded_by_its_own_organization(): void

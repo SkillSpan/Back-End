@@ -108,10 +108,19 @@ return [
             'mimes' => ['pdf', 'jpg', 'jpeg', 'png'],
             'mime_types' => ['application/pdf', 'image/jpeg', 'image/png'],
             'disk' => env('COMPANY_DOCUMENT_DISK', null),
-            // No antivirus is installed on the app servers. When true the
-            // service still runs the cheap signature check in
-            // DocumentScreeningService (App\Services\Screening); set false to
-            // skip it entirely.
+            // BR-06 — "malware-screened where available". No engine is
+            // installed on the app servers, so the default is the signature
+            // check in App\Services\Screening\DocumentScreeningService. Point
+            // `socket` at a clamd instance (unix:///var/run/clamav/clamd.ctl
+            // or tcp://127.0.0.1:3310) and every upload is streamed to it
+            // first. An unreachable socket falls back to the signature check
+            // instead of refusing uploads.
+            'clamav' => [
+                'socket' => env('COMPANY_CLAMAV_SOCKET'),
+                'timeout' => (int) env('COMPANY_CLAMAV_TIMEOUT', 10),
+            ],
+            // Set false to skip the content check entirely (tests, or a
+            // deployment that screens elsewhere).
             'scan' => filter_var(env('COMPANY_DOCUMENT_SCAN', true), FILTER_VALIDATE_BOOLEAN),
         ],
     ],

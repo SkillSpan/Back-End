@@ -5,44 +5,43 @@ namespace App\Services\Screening;
 use Illuminate\Http\UploadedFile;
 
 /**
- * US-COMP-04 — BR-06 asks uploaded documents to be "malware-screened where
- * available".
+ * US-COMP-04 — BR-06: uploaded documents are "type-checked, size-limited,
+ * malware-screened **where available**, and access-controlled".
  *
- * There is no antivirus engine on the application servers (no ClamAV, no
- * clamd socket, and installing one is a hosting decision, not a code change).
- * Rather than pretend, this runs the checks that need no external service and
- * is honest about what it is: a signature check, not a scanner.
+ * The type and size checks live in the controller (they need the request); the
+ * access control lives in the service's `files()` lookup. This class is the
+ * "where available" half, and it takes that phrase literally:
  *
- * It catches the two things that actually matter for a "PDF or image" upload
- * endpoint on a PHP host:
+ *   1. **A real engine, when one is configured.** Set
+ *      `COMPANY_CLAMAV_SOCKET=unix:///var/run/clamav/clamd.ctl` (or
+ *      `tcp://127.0.0.1:3310`) and every upload is streamed to clamd over the
+ *      INSTREAM protocol before it is stored.
+ *   2. **A signature check, when one is not.** No antivirus is installed on the
+ *      app servers today, and installing one is a hosting decision rather than
+ *      a code change — so the default path catches the two things that actually
+ *      matter for a "PDF or image" upload on a PHP host: an executable payload
+ *      wearing a document extension, and the EICAR test string (which lets the
+ *      pipeline be proven end to end without a real sample).
  *
- *   1. a file whose content is executable script despite its extension — a
- *      .php shipped as .pdf, the classic way to turn an upload form into a
- *      webshell if the storage directory is ever served;
- *   2. the EICAR test string, so the pipeline can be proven end to end
- *      without a real sample.
+ * **An unreachable engine never blocks an upload.** If the socket is
+ * configured but clamd is down, the connection fails, the check falls through
+ * to the signature pass, and the upload proceeds. Refusing every document
+ * because a scanner is offline would turn a security control into an outage;
+ * the fallback is deliberate, and `engineVerdict()` says so.
  *
- * When a real engine is available, swap the body of screen() for a call to it
- * and keep the return contract: null when clean, a short reason when not.
- *
- * ── Why this file lives in Screening/ and not in Services/ ──────────────
- * It used to be `App\Services\DocumentScreeningService`. On a Windows
- * checkout the file disappeared from the working tree and could not be
- * re-created at that path at all (`Permission denied`, even for a one-line
- * stub): the on-access scanner quarantined it, because the EICAR constant
- * below is a virus signature verbatim. Two changes came out of that, and both
- * matter for anyone copying this file:
- *
- *   - the signature is assembled at runtime from halves, so the source no
- *     longer contains a string any scanner will match;
- *   - the path is different, because the old one is still blocked on that
- *     machine and a git checkout of it fails.
+ * When a real engine IS reachable its verdict is final — a clean signature does
+ * not override `FOUND`.
  */
 class DocumentScreeningService
 {
     /**
      * The industry-standard antivirus test file, harmless by construction —
      * kept in two halves so no single literal matches a signature.
+     *
+     * That is not cosmetic: with the string written out whole, an on-access
+     * scanner quarantined this file on a Windows checkout and the path could
+     * not even be re-created. Assembled at runtime, no half matches, and the
+     * comparison is still against the real value.
      *
      * @var array<int, string>
      */
@@ -63,6 +62,9 @@ class DocumentScreeningService
      */
     private const SCRIPT_MARKERS = ['<?php', '<?=', '<script', '#!/bin/'];
 
+    /** Bytes per INSTREAM chunk. clamd's own limit is 128 KB; 8 KB is plenty. */
+    private const STREAM_CHUNK = 8192;
+
     /**
      * @return string|null null when the file looks clean, otherwise a short
      *                     reason suitable for a 422 body (never an internal path)
@@ -79,11 +81,101 @@ class DocumentScreeningService
             return 'The uploaded file could not be read.';
         }
 
+        $engine = $this->engineVerdict($path);
+
+        if ($engine['checked']) {
+            return $engine['reason'];
+        }
+
+        return $this->signatureVerdict($path);
+    }
+
+    /**
+     * Ask the configured engine, if there is one.
+     *
+     * `checked` is false for every failure mode — no socket configured, socket
+     * unreachable, unexpected reply — and the caller then falls back. A clean
+     * engine reply is `checked: true, reason: null`; an infected one is
+     * `checked: true` with a reason, which the caller must not override.
+     *
+     * @return array{checked: bool, reason: string|null}
+     */
+    private function engineVerdict(string $path): array
+    {
+        $socket = config('company.profile.documents.clamav.socket');
+
+        if (! is_string($socket) || trim($socket) === '') {
+            return ['checked' => false, 'reason' => null];
+        }
+
+        $timeout = (int) config('company.profile.documents.clamav.timeout', 10);
+
+        // `@` because a missing socket is an expected state, not an error the
+        // user should ever see in a log line per upload.
+        $connection = @stream_socket_client($socket, $errno, $error, $timeout);
+
+        if ($connection === false) {
+            return ['checked' => false, 'reason' => null];
+        }
+
+        $reply = '';
+
+        try {
+            stream_set_timeout($connection, $timeout);
+            fwrite($connection, "zINSTREAM\0");
+
+            $handle = @fopen($path, 'rb');
+
+            if ($handle === false) {
+                return ['checked' => false, 'reason' => null];
+            }
+
+            while (! feof($handle)) {
+                $chunk = fread($handle, self::STREAM_CHUNK);
+
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                fwrite($connection, pack('N', strlen($chunk)).$chunk);
+            }
+
+            fclose($handle);
+
+            // A zero-length chunk ends the stream.
+            fwrite($connection, pack('N', 0));
+            $reply = (string) stream_get_contents($connection);
+        } catch (\Throwable) {
+            return ['checked' => false, 'reason' => null];
+        } finally {
+            if (is_resource($connection)) {
+                fclose($connection);
+            }
+        }
+
+        if (str_contains($reply, 'FOUND')) {
+            return ['checked' => true, 'reason' => 'The file was rejected by the security check.'];
+        }
+
+        // `stream: OK` is the only reply that counts as a clean scan; anything
+        // else (an error line, an empty read, a timeout) means the engine did
+        // not actually judge this file.
+        return str_contains($reply, 'OK')
+            ? ['checked' => true, 'reason' => null]
+            : ['checked' => false, 'reason' => null];
+    }
+
+    /**
+     * The always-available pass: the head of the file, checked for an
+     * executable payload and for the EICAR signature.
+     */
+    private function signatureVerdict(string $path): ?string
+    {
         // Only the head of the file is needed: an executable payload has to
         // declare itself in the first bytes to be executed by a web server,
         // and reading a 5 MB upload into memory to look for a marker that can
         // only appear at the start would be wasteful.
-        $head = (string) file_get_contents($path, false, null, 0, 8192);
+        $head = (string) file_get_contents($path, false, null, 0, self::STREAM_CHUNK);
 
         if (str_contains($head, implode('', self::EICAR_PARTS))) {
             return 'The file was rejected by the security check.';

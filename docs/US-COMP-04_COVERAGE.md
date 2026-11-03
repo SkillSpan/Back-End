@@ -1,149 +1,104 @@
 # US-COMP-04 — Organization Profile Management
 
-**State:** implemented and tested. 30 new feature tests, full suite green at **1717 tests /
-11 570 assertions**, Pint clean.
-**Date:** 2026-11-03 · **Branch:** `feature/authentication` · **Commits:** `0051041`, `14240f8`
+Coverage against `sprint_4_company.pdf` §5 (pp. 11–16), task by task.
+**State:** implemented, tested, deployed.
+**Date:** 2026-11-03 · **Branch:** `feature/authentication` · **Live on alwaysdata:** `b32a13d`
+
+Suite: **1793 tests / 11 828 assertions**, Pint clean. Company surface: 106 tests, of which 33 are
+the profile story and 40 are the endpoint matrix.
 
 Legend: ✅ done · ⚠️ partial (reason given) · ⬜ not backend
 
 ---
 
-## 1. Endpoints
+## 1. Backend — Laravel (the story's twelve bullets)
 
-| Method | Path | Guard | Controller |
+| # | Task | State | Where |
 |---|---|---|---|
-| `GET` | `/api/v1/profile/me` | auth + active + approved org + `company_admin` | `OrganizationProfileController@show` |
-| `PATCH` | `/api/v1/profile/me` | same | `@update` |
-| `POST` | `/api/v1/company/profile/documents` | same | `@uploadDocument` |
-| `GET` | `/api/v1/company/profile/documents/{document}` | same | `@downloadDocument` |
-| `GET` | `/api/v1/organization/profile` | auth + approved org | `OrganizationController@profile` — **kept**, now returns the identical payload from the same service |
+| 1 | Organization profile read endpoint | ✅ | `OrganizationProfileController@show` → `OrganizationProfileService::payload()` |
+| 2 | Organization profile update endpoint | ✅ | `@update` → `::update()` — diffs, writes only what changed |
+| 3 | Validate organization membership and authorization | ✅ | route gates + `ResolvesCompanyOrganization` (pivot `role_in_org=admin` **and** `status=active`) |
+| 4 | Validate required fields and formats | ✅ | `UpdateOrganizationProfileRequest` + `guardRequiredContact()` |
+| 5 | Document upload and replacement endpoint | ✅ | `@uploadDocument` → `::uploadDocument()`; a replacement is a new row |
+| 6 | Validate document type and size | ✅ | extension **and** detected MIME, 5 MB, `DOCUMENT_TYPE_NOT_SUPPORTED` / `DOCUMENT_TOO_LARGE` |
+| 7 | Apply malware screening **where available** | ✅ | `App\Services\Screening\DocumentScreeningService` — streams to clamd when `COMPANY_CLAMAV_SOCKET` is set, otherwise runs the signature pass (EICAR + script markers) |
+| 8 | Store document references with access control | ✅ | `uploaded_files` morph to the organization; a foreign document is a **404** |
+| 9 | Profile completeness from configured fields | ✅ | `config/company.php` → `profile.fields`; `::completeness()` |
+| 10 | Re-verification policy for verification-relevant fields | ✅ | `flag` (default) / `pending` / `off`, `COMPANY_REVERIFICATION_MODE` |
+| 11 | Audit records for profile and document changes | ✅ | `organization.profile.updated`, `organization.document.uploaded`, `company.profile.denied` |
+| 12 | Clear validation and authorization errors | ✅ | every failure carries a `code` (see §5) |
 
-The organization is always resolved from the caller's **own admin membership**
-(`organization_members.role_in_org = admin` **and** `status = active`) — never from a route
-parameter, a query string or a body field. There is no id to tamper with, so "cross-organization
-access" is not a check that can be forgotten; it is the only way the lookup works.
+**On bullet 7, precisely:** no antivirus is installed on the app servers, so the default is a
+signature check — but it is no longer a decision baked into the code. Set
+`COMPANY_CLAMAV_SOCKET=unix:///var/run/clamav/clamd.ctl` (or `tcp://127.0.0.1:3310`) and every
+upload is streamed to clamd over INSTREAM before it is stored. **An unreachable engine falls back to
+the signature check instead of refusing uploads** — a scanner being offline must not become an
+outage.
 
-## 2. Backend tasks
+**How the two gates divide the work** (measured over real HTTP, not assumed):
 
-| Task | State | Where |
+| Upload | fileinfo says | Caught by | Code |
+|---|---|---|---|
+| `<?php … ?>` renamed to `.pdf` | `text/x-php` | MIME gate | `DOCUMENT_TYPE_NOT_SUPPORTED` |
+| PDF **polyglot** — starts `%PDF`, PHP payload after the header | `application/pdf` | content scan | `DOCUMENT_REJECTED_BY_SCAN` |
+
+The second row is the reason the scan exists: it is the only payload the MIME gate cannot see.
+
+## 2. Database (the story's seven items)
+
+| # | Item | State | Column |
+|---|---|---|---|
+| 1 | Organization profile updated timestamp | ✅ | `organizations.profile_updated_at` |
+| 2 | Updated by (user ID) | ✅ | `organizations.profile_updated_by` |
+| 3 | Profile completeness value | ✅ | `organizations.profile_completeness` (tinyint) |
+| 4 | Completeness configuration version | ✅ | `organizations.completeness_version` |
+| 5 | Document version and replaced-document reference | ✅ | `uploaded_files.version`, `.replaces_id` (+ index) |
+| 6 | Verification-relevant change flag | ✅ | `organizations.reverification_required_at` (+ index) — **non-null is the flag**, and it carries *when*, which a boolean cannot |
+| 7 | Audit information | ✅ | `audit_events` (actor, action, entity, before, after, request_id, ip, user agent, occurred_at) |
+
+Migrations: `2026_11_03_000001_add_profile_metadata_to_organizations`,
+`2026_11_03_000002_add_document_versioning_to_uploaded_files`. All columns nullable, so every
+existing organization stays valid.
+
+## 3. API
+
+| Method | Path | State |
 |---|---|---|
-| Profile read endpoint | ✅ | `OrganizationProfileService::payload()` |
-| Profile update endpoint (partial) | ✅ | `::update()` — diffs, writes only what changed |
-| Required fields enforced server-side | ✅ | `UpdateOrganizationProfileRequest` + `guardRequiredContact()` |
-| E-mail / website / phone format | ✅ | custom website closure (needs a dot + 2-letter TLD), `email`, phone regex |
-| Read-only fields refused, not ignored | ✅ | `guardReadOnly()` → `422 FIELD_NOT_EDITABLE` |
-| Document upload | ✅ | `::uploadDocument()` |
-| Document replacement / versioning | ✅ | new row + `replaces_id` + `version`; nothing is overwritten |
-| Malware screening where available | ⚠️ | no AV engine on the host. `App\Services\Screening\DocumentScreeningService` runs an EICAR signature check + script-marker check and says so in its class doc. Swap its body for a real engine and the contract holds (`null` = clean) |
-| Completeness, server-side, config-driven | ✅ | `config/company.php` → `profile.fields`; `::completeness()` |
-| Missing fields named | ✅ | `completeness.missing[]` with `level` (`required` / `recommended`) |
-| Re-verification policy | ✅ | `flag` (default) / `pending` / `off`, env `COMPANY_REVERIFICATION_MODE` |
-| Audit every change | ✅ | `organization.profile.updated`, `organization.document.uploaded`, `company.profile.denied` |
-| Access control (BR-07) | ✅ | ownership goes through the organization's own `files()`; a foreign document is a **404**, not a 403 |
+| `GET` | `/api/v1/profile/me` | ✅ |
+| `PATCH` | `/api/v1/profile/me` | ✅ |
+| `POST` | `/api/v1/company/profile/documents` | ✅ |
+| `GET` | `/api/v1/company/profile/documents/{document}` | ✅ (the URL the payload hands back) |
+| `GET` | `/api/v1/organization/profile` | ✅ kept, same payload from the same service |
 
-## 3. Database
-
-`2026_11_03_000001_add_profile_metadata_to_organizations.php` — all nullable, so every existing row
-stays valid: `profile_updated_at`, `profile_updated_by`, `profile_completeness`,
-`completeness_version`, `reverification_required_at` (+ index).
-
-`2026_11_03_000002_add_document_versioning_to_uploaded_files.php` — `version` (default 1),
-`replaces_id`, `original_name`, `screened_at` (+ index on `replaces_id`).
-
-`completeness_version` exists because a stored `67 %` is unreadable once the field list changes:
-the percentage alone does not say *67 % of what*.
+The story's "the API must" list: authentication ✅ · organization ownership ✅ · field and file
+validation ✅ · **returns completeness and verification status** ✅ · clear error codes ✅.
 
 ## 4. Testing — the story's fifteen bullets
 
 | # | Bullet | Test |
 |---|---|---|
-| 1 | view the profile | `test_company_admin_can_view_the_profile` |
-| 2 | update the profile | `test_profile_can_be_updated_and_the_change_is_persisted` |
-| 3 | missing required field | `test_missing_required_field_is_rejected` |
-| 4 | invalid e-mail / website / phone | `test_invalid_contact_details_are_rejected` |
-| 5 | nothing written when validation fails | `test_profile_is_untouched_after_a_failed_validation` |
-| 6 | upload a document | `test_document_can_be_uploaded` |
-| 7 | replace a document | `test_replacing_a_document_keeps_the_previous_version` |
-| 8 | unsupported type | `test_unsupported_document_type_is_rejected` |
-| 9 | oversized file | `test_oversized_document_is_rejected` |
-| 10 | document access control | `test_a_document_of_another_organization_is_not_reachable` |
-| 11 | completeness | `test_completeness_counts_the_configured_groups` |
-| 12 | re-verification policy | five tests — `flag`, not-relevant field, document, `pending`, `off` |
-| 13 | audit record | `test_profile_update_and_document_upload_are_audited` |
-| 14 | cross-organization access | `test_an_admin_only_ever_edits_the_organization_they_administrate` |
-| 15 | learner direct access | `test_a_learner_cannot_reach_the_company_profile` |
+| 1 | View organization profile | `test_company_admin_can_view_the_profile` |
+| 2 | Successful profile update | `test_profile_can_be_updated_and_the_change_is_persisted` |
+| 3 | Missing required fields | `test_missing_required_field_is_rejected` |
+| 4 | Invalid email, website, phone formats | `test_invalid_contact_details_are_rejected` |
+| 5 | Preservation of entered values after errors | `test_profile_is_untouched_after_a_failed_validation` |
+| 6 | Document upload | `test_document_can_be_uploaded` |
+| 7 | Document replacement | `test_replacing_a_document_keeps_the_previous_version` |
+| 8 | Unsupported file type | `test_unsupported_document_type_is_rejected` |
+| 9 | Oversized file | `test_oversized_document_is_rejected` |
+| 10 | Document access control | `test_a_document_of_another_organization_is_not_reachable` |
+| 11 | Profile completeness calculation | `test_completeness_counts_the_configured_groups` |
+| 12 | Re-verification policy handling | five tests — `flag`, non-relevant field, document, `pending`, `off` |
+| 13 | Audit record creation | `test_profile_update_and_document_upload_are_audited` |
+| 14 | Unauthorized access from another organization | `test_an_admin_only_ever_edits_the_organization_they_administrate` |
+| 15 | Direct API access by a learner account | `test_a_learner_cannot_reach_the_company_profile` |
 
-Four extra tests cover what a reader would otherwise have to assume: the legacy path returns the
-same payload, an unchanged PATCH is a no-op, the contact group cannot be emptied, read-only fields
-are refused, an unapproved organization is refused, a denied request is audited, a file whose
-content contradicts its extension is rejected, and the antivirus signature still trips the scan.
+Extra coverage: the legacy path returns the same payload, an unchanged PATCH is a no-op, the contact
+group cannot be emptied, read-only fields are refused, an unapproved organization is refused, a denied
+request is audited, the EICAR signature still trips the scan, the scan can be switched off, and an
+unreachable engine falls back.
 
-`tests/Feature/Company/OrganizationProfileTest.php` — 30 tests, 184 assertions.
-
----
-
-## 5. Answers to the frontend team's questions
-
-**1. What values can `verification_status` take?**
-`pending` | `verified` | `rejected`. There is **no** `approved` value — "approved" is `verified`.
-
-**2. Is there a `reverification_pending` / `reverification_required` status?**
-No. `verification_status` keeps its three values and a change that matters is reported **beside**
-it:
-
-```json
-"reverification": {
-  "required": true,
-  "requested_at": "2026-11-02T15:04:00+00:00",
-  "policy": "flag",
-  "fields": ["name"],
-  "message": "A field that identifies your organization changed, so its verification is being reviewed again."
-}
-```
-`policy` is `flag` in production: the badge stays **Verified** and a "being reviewed again" note is
-shown. Only `policy: "pending"` (not the default) would move the status back to `pending`.
-
-**3. Shape of completeness?**
-```json
-"profile_completeness": 50,
-"profile_fields": [{ "key": "info", "level": "required", "done": true }, ...],
-"completeness": {
-  "percent": 50,
-  "version": "v1",
-  "missing": [{ "field": "website", "level": "recommended" }]
-}
-```
-`profile_completeness` / `profile_fields` are the flat keys the dashboard already reads — unchanged.
-`completeness` is the richer object. `percent` is a whole number 0–100; `missing[].field` matches
-`profile_fields[].key` and the existing `company.ws.field.*` i18n labels.
-
-**4. Which fields are editable?**
-`name`, `industry`, `company_size`, `website`, `description`, `country`, `city`, `address`,
-`postal_code`, `contact_email`, `contact_phone`.
-
-**5. Which are read-only?**
-`type`, `verification_status`, `verified_at`. Echoing the current value back is fine (a form seeded
-from the GET does that on every save); sending a *different* one is `422 FIELD_NOT_EDITABLE`.
-
-**6. Website format?**
-Send `acme.com` or `https://acme.com` — a scheme is added server-side, and the stored value always
-has one. A bare host with no dot is rejected.
-
-**7. Upload limits and types?**
-5 MB (`COMPANY_DOCUMENT_MAX_KB`), `application/pdf`, `image/jpeg`, `image/png` — extension **and**
-detected MIME must both match. Document types: `business_registration` (one slot, required) and
-`additional`.
-
-**8. What happens to a replaced document?**
-The old row stays; the new one has `version: 2` and `replaces_id`. The response says which one it
-replaced (`data.replaced`). A replacement goes back to `status: "pending"` — nothing about the
-previous approval carries over.
-
-**9. ETag / conditional requests?**
-Not implemented, and not planned for this story. `updated_at` is in the payload if you want to skip
-a re-render when it has not moved.
-
-**Error shape** — every failure carries a machine code, so branch on `code` and not on the prose:
+## 5. Error codes
 
 | Status | `code` |
 |---|---|
@@ -152,14 +107,29 @@ a re-render when it has not moved.
 | 404 | `DOCUMENT_NOT_FOUND` · `DOCUMENT_UNAVAILABLE` |
 | 422 | `PROFILE_VALIDATION_FAILED` (with `errors{}`) · `PROFILE_CONTACT_REQUIRED` · `FIELD_NOT_EDITABLE` · `DOCUMENT_TYPE_UNKNOWN` · `DOCUMENT_TYPE_NOT_SUPPORTED` · `DOCUMENT_TOO_LARGE` · `DOCUMENT_MISSING` · `DOCUMENT_REJECTED_BY_SCAN` |
 
----
+## 6. Business rules
 
-## 6. What is **not** done
+| Rule | State | Evidence |
+|---|---|---|
+| BR-01 authorized members only | ✅ | approved org + `role:company_admin` + admin pivot |
+| BR-02 no fields owned by another role type | ✅ | `type` is not editable → `FIELD_NOT_EDITABLE` |
+| BR-03 verification status read-only | ✅ | `guardReadOnly()`; only a *different* value is refused |
+| BR-04 required fields server-side | ✅ | form request + `PROFILE_CONTACT_REQUIRED` |
+| BR-05 email / website / phone formats | ✅ | custom website rule (dot + 2-letter TLD), phone regex |
+| BR-06 type, size, screening, access control | ✅ | see §1 |
+| BR-07 documents only for the organization | ✅ | ownership through the org's own `files()`; foreign id → 404 |
+| BR-08 completeness + missing-field explanation | ✅ | `completeness.missing[]` with `level` |
+| BR-09 re-verification policy | ✅ | `reverification` object + the three modes |
+| BR-10 audit with actor, entity, before/after, timestamp | ✅ | `audit_events` |
+| BR-11 representative account details not editable here | ✅ | `name`/`email`/`password` of the *user* are not in `EDITABLE` and never read from the request |
 
-| Item | Why |
-|---|---|
-| Deployed | the two commits are local. Render builds the branch on push and runs `migrate --force`; alwaysdata needs `git pull && migrate --force && optimize:clear && config:cache` |
-| Real antivirus | no engine on the host — see §2. The signature check is what "where available" allows here |
-| Logo upload | `logo` is returned read-only; there is no upload endpoint for it in this story (the learner avatar endpoint is a different table). Say the word and it is one more action on the same controller |
-| Document deletion | documents are versioned on purpose; nothing in the story asks for a delete, and deleting would break the audit trail |
-| Frontend wiring | another team's scope — this document is the contract |
+## 7. What is **not** backend (the rest of the story's Definition of Done)
+
+UI/UX and Frontend task lists, "Frontend and Backend are integrated", Product Owner approval — other
+teams. `docs/US-COMP-04_FRONTEND_API.pdf` is the contract handed over for the integration.
+
+## 8. Deploy
+
+Live on alwaysdata at `b32a13d`; the three migrations ran on the host (`DONE`), `optimize:clear`
+cleared the routes cache, and `GET /api/v1/profile/me` answers **401** unauthenticated (404 before
+the deploy). Render builds the same branch on push.
