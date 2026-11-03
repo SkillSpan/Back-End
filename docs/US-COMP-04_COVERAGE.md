@@ -4,7 +4,7 @@ Coverage against `sprint_4_company.pdf` §5 (pp. 11–16), task by task.
 **State:** implemented, tested, deployed.
 **Date:** 2026-11-03 · **Branch:** `feature/authentication` · **Live on alwaysdata:** `b32a13d`
 
-Suite: **1793 tests / 11 828 assertions**, Pint clean. Company surface: 106 tests, of which 33 are
+Suite: **1793 tests / 11 828 assertions**, Pint clean. Company surface: 107 tests, of which 33 are
 the profile story and 40 are the endpoint matrix.
 
 Legend: ✅ done · ⚠️ partial (reason given) · ⬜ not backend

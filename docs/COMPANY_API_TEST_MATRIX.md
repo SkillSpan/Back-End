@@ -1,7 +1,8 @@
 # Company API — test matrix
 
 Every company-facing endpoint, what guards it, and where its test lives.
-**1757 tests / 11 688 assertions** green, Pint clean. Date 2026-11-03.
+**1793 tests / 11 828 assertions** green, Pint clean. Date 2026-11-03.
+Company surface alone: **107 tests** in `tests/Feature/Company` (33 of them the profile story).
 
 `tests/Feature/Company/CompanyApiTest.php` is the **matrix**: it checks that every route below is
 registered with the method and path the clients use, then runs the same three guard checks against
