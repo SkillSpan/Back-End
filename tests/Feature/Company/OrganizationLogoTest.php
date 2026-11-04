@@ -37,10 +37,12 @@ class OrganizationLogoTest extends TestCase
     {
         parent::setUp();
 
-        // The logo uses the same disk abstraction as the documents; pinning it
-        // to a faked disk is what lets these tests assert on stored files.
-        Storage::fake('local');
-        config(['company.profile.logo.disk' => 'local']);
+        // A logo is public by nature, so the public disk is the contract, not a
+        // test-only override: the private `local` disk serves /storage/{path}
+        // only for a signed request, which would make logo_url a 404 in a
+        // browser while the upload itself looked successful.
+        $this->assertSame('public', config('company.profile.logo.disk'));
+        Storage::fake('public');
 
         $this->companyAdminRole = Role::create([
             'name' => 'Company Admin',
@@ -109,7 +111,7 @@ class OrganizationLogoTest extends TestCase
 
         $organization->refresh();
         $this->assertNotNull($organization->logo);
-        Storage::disk('local')->assertExists($organization->logo);
+        Storage::disk('public')->assertExists($organization->logo);
     }
 
     public function test_the_logo_is_visible_in_the_profile_payload(): void
@@ -153,8 +155,8 @@ class OrganizationLogoTest extends TestCase
         $second = $organization->fresh()->logo;
 
         $this->assertNotSame($first, $second);
-        Storage::disk('local')->assertMissing($first);
-        Storage::disk('local')->assertExists($second);
+        Storage::disk('public')->assertMissing($first);
+        Storage::disk('public')->assertExists($second);
     }
 
     public function test_a_non_image_is_refused(): void
@@ -225,7 +227,7 @@ class OrganizationLogoTest extends TestCase
             ->assertJsonPath('data.logo', null);
 
         $this->assertNull($organization->fresh()->logo);
-        Storage::disk('local')->assertMissing($path);
+        Storage::disk('public')->assertMissing($path);
 
         // A second press is not an error.
         $this->deleteJson('/api/v1/company/profile/logo')

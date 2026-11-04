@@ -140,7 +140,13 @@ return [
             'max_kb' => (int) env('COMPANY_LOGO_MAX_KB', 2048),
             'mimes' => ['jpg', 'jpeg', 'png', 'webp'],
             'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
-            'disk' => env('COMPANY_LOGO_DISK', env('COMPANY_DOCUMENT_DISK', null)),
+            // The PUBLIC disk, unlike documents. A logo is meant to be shown on
+            // every page the company appears on, so it needs a URL a browser can
+            // fetch with no token. The default `local` disk is private: its
+            // /storage/{path} route demands a signature, so a logo stored there
+            // would answer 404 to the browser even though the upload succeeded.
+            // Requires `php artisan storage:link` on the host, once.
+            'disk' => env('COMPANY_LOGO_DISK', 'public'),
         ],
     ],
 
