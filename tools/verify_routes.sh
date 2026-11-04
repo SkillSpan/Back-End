@@ -76,6 +76,15 @@ POST   /api/v1/talent/candidates/1/notes
 POST   /api/v1/talent/candidates/1/contact
 POST   /api/v1/company/profile/logo
 DELETE /api/v1/company/profile/logo
+GET    /api/v1/projects/1/team
+DELETE /api/v1/projects/1/team/assignments/1
+POST   /api/v1/projects/1/team/invitations
+GET    /api/v1/team-invitations/1
+POST   /api/v1/team-invitations/1/response
+PATCH  /api/v1/talent/lists/1
+DELETE /api/v1/talent/lists/1
+DELETE /api/v1/talent/lists/1/candidates/1
+GET    /api/v1/talent/funnel
 LIST
 )
 
