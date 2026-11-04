@@ -17,9 +17,24 @@ import subprocess
 import sys
 
 ROOT = r"E:\SkillSpan\Back-End-feature-authentication"
-FRONT = r"C:\Users\HP\Downloads\SkillSpan-Frontend-FULL-tested\skillspan-frontend\src"
+FRONT = os.environ.get(
+    "FRONT_SRC",
+    r"C:\Users\HP\Downloads\SkillSpan-Frontend-FULL-tested\skillspan-frontend\src",
+)
 
 LITERAL = re.compile(r"""(['"`])(/api/v1/[^'"`\n]*?)\1""")
+
+# A literal that is only a path *prefix* (`path.startsWith('/api/v1/company')`)
+# or that sits in a comment is not a request. Treating them as requests reports
+# phantom missing routes.
+NOT_A_CALL = re.compile(r"startsWith\(|^\s*(//|\*|/\*)")
+
+
+def is_call(text: str, match: re.Match[str]) -> bool:
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    line_end = text.find("\n", match.end())
+    line = text[line_start: line_end if line_end != -1 else len(text)]
+    return NOT_A_CALL.search(line) is None
 
 
 def backend_routes() -> set[str]:
@@ -84,6 +99,8 @@ def frontend_paths() -> dict[str, set[str]]:
             with open(os.path.join(base, name), encoding="utf-8", errors="ignore") as handle:
                 text = handle.read()
             for match in LITERAL.finditer(text):
+                if not is_call(text, match):
+                    continue
                 path = normalise(resolve_templates(match.group(2)))
                 if not path:
                     continue
@@ -96,9 +113,14 @@ def main() -> None:
     frontend = frontend_paths()
 
     missing = {p: f for p, f in frontend.items() if p not in backend}
+    # A literal that is a strict prefix of a real route is a concatenation base
+    # (`BASE + '/projects'`), not a request of its own.
+    prefixes = {p: f for p, f in missing.items() if any(r.startswith(p + "/") for r in backend)}
+    missing = {p: f for p, f in missing.items() if p not in prefixes}
 
     print(f"backend api routes: {len(backend)}")
     print(f"frontend distinct paths: {len(frontend)}")
+    print(f"concat bases (not requests): {len(prefixes)}")
     print()
     if not missing:
         print("MISSING: none — every path the frontend calls exists on the backend.")
