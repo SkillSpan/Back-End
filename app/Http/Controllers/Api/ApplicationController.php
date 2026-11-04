@@ -256,6 +256,39 @@ class ApplicationController extends Controller
             );
         }
 
+        return $this->applyDecision($request, $application, $requestId);
+    }
+
+    /**
+     * POST /api/v1/applications/{application}/decision
+     *
+     * The same decision, addressed by the application alone. Clients that hold
+     * only an application id — from a notification, a shortlist screen, or a
+     * previous decision response — should not have to remember which project it
+     * belongs to. Ownership is still proved inside ApplicationService against
+     * the application's own project, so dropping the project from the URL
+     * removes no protection: it only removes a redundant parameter that a
+     * client could get wrong.
+     */
+    public function decideForApplication(Request $request): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $application = $this->resolveApplication($request);
+
+        if ($application instanceof JsonResponse) {
+            return $application;
+        }
+
+        return $this->applyDecision($request, $application, $requestId);
+    }
+
+    /**
+     * The shared body of both decision routes: validate the target status and
+     * hand off to ApplicationService, which owns the transition rules.
+     */
+    private function applyDecision(Request $request, Application $application, string $requestId): JsonResponse
+    {
         $validator = validator($request->all(), [
             'status' => ['required', 'string', Rule::in([
                 Application::STATUS_SHORTLISTED,
@@ -296,6 +329,43 @@ class ApplicationController extends Controller
             ->additional([
                 'success' => true,
                 'message' => 'Application status updated successfully.',
+                'request_id' => $requestId,
+            ])
+            ->response()
+            ->setStatusCode(200)
+            ->header('X-Request-ID', $requestId);
+    }
+
+    /**
+     * GET /api/v1/applications/{application}
+     *
+     * One application, addressed by its own id. Until this existed the only
+     * ways to read an application were the learner's own list and the project
+     * owner's list, so a client holding an id (from a notification, a decision
+     * response, or a team screen) had to fetch a whole page and filter it.
+     */
+    public function show(Request $request): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $application = $this->resolveApplication($request);
+
+        if ($application instanceof JsonResponse) {
+            return $application;
+        }
+
+        try {
+            $application = $this->applicationService->forViewer($application, $request->user());
+        } catch (ApplicationException $e) {
+            return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
+        }
+
+        return (new ApplicationResource(
+            $application->load(['project.organization:id,name', 'projectRole', 'applicant:id,name'])
+        ))
+            ->additional([
+                'success' => true,
+                'message' => 'Application retrieved successfully.',
                 'request_id' => $requestId,
             ])
             ->response()

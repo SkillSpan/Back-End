@@ -87,10 +87,10 @@ class Project extends Model
      * `changes_requested`), and inventing one would be a product decision this
      * code is not allowed to make.
      *
-     * `open → selection` is declared so the lifecycle is complete for the
-     * Pilot's shortlist/accept phase. It is deliberately NOT exposed as an
-     * endpoint: the required endpoint list stops at `open`, and shortlisting
-     * happens through the existing application decisions.
+     * `open → selection` and `selection → active` are the team-formation and
+     * kick-off edges. They were declared but unreachable until the team
+     * assignment and start endpoints existed; now that they do, `active` is
+     * reachable and the lifecycle no longer dead-ends at `open`.
      *
      * @var array<string, array<int, string>>
      */
@@ -104,7 +104,7 @@ class Project extends Model
         self::STATUS_CHANGES_REQUESTED => [self::STATUS_SUBMITTED],
         self::STATUS_APPROVED => [self::STATUS_OPEN],
         self::STATUS_OPEN => [self::STATUS_SELECTION],
-        self::STATUS_SELECTION => [],
+        self::STATUS_SELECTION => [self::STATUS_ACTIVE],
         self::STATUS_ACTIVE => [],
         self::STATUS_UNDER_REVIEW => [],
         self::STATUS_COMPLETED => [],

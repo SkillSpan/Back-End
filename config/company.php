@@ -123,6 +123,25 @@ return [
             // deployment that screens elsewhere).
             'scan' => filter_var(env('COMPANY_DOCUMENT_SCAN', true), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        /*
+        | The organization logo.
+        |
+        | A separate block from `documents` on purpose: a logo is not an
+        | identity document, it is never reviewed, and it never triggers
+        | re-verification. It does share the upload pipeline — same disk, same
+        | screening — because it is still a file from an untrusted client.
+        |
+        | PNG/JPEG/WebP only. SVG is deliberately excluded: it is XML that can
+        | carry script, and a logo is rendered on every page the company
+        | appears on.
+        */
+        'logo' => [
+            'max_kb' => (int) env('COMPANY_LOGO_MAX_KB', 2048),
+            'mimes' => ['jpg', 'jpeg', 'png', 'webp'],
+            'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
+            'disk' => env('COMPANY_LOGO_DISK', env('COMPANY_DOCUMENT_DISK', null)),
+        ],
     ],
 
 ];

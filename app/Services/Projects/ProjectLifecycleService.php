@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
 use App\Models\ProjectRequiredSkill;
 use App\Models\ProjectRole;
+use App\Models\ProjectTeamMember;
 use App\Models\User;
 use App\Traits\AuditsActions;
 use Illuminate\Support\Facades\DB;
@@ -288,6 +289,133 @@ class ProjectLifecycleService
     }
 
     /**
+     * Clone a project the actor manages into a NEW draft.
+     *
+     * A clone is the SAME project again, not a new one: the type, career role,
+     * required skills, roles and eligibility constraints are copied verbatim,
+     * and ownership stays with the source's owner and organization — an
+     * administrator cloning a company's project produces another project for
+     * THAT company, never one of their own.
+     *
+     * Three things are deliberately NOT copied:
+     *
+     *   - `status` — a clone always starts as `draft`, whatever the source is.
+     *     Cloning an `open` project must not silently publish a second one.
+     *   - `version` — back to 1, because the clone's matching snapshot is its
+     *     own.
+     *   - the review bookkeeping (`approved_by`, `approved_at`, …) — none of it
+     *     is true of a project that has never been reviewed.
+     *
+     * The dates ARE copied, which is why the caller may override them: a clone
+     * of a project that ran last term needs new dates, and making the client
+     * re-send the whole payload just to move three dates would defeat the point
+     * of the endpoint.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function clone(
+        Project $source,
+        User $actor,
+        array $data = [],
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        // Reuses the management rule rather than inventing one: whoever may
+        // edit a project may copy it, and nobody else.
+        $this->assertMayManage($source, $actor);
+
+        $copy = DB::transaction(function () use ($source, $data): Project {
+            $project = new Project($source->only(self::WRITABLE_ATTRIBUTES));
+
+            $project->title = $this->clonedTitle($source, $data['title'] ?? null);
+
+            // Only the fields a re-run genuinely needs to move. Everything else
+            // comes from the source, so the client cannot use `clone` to rewrite
+            // a project it is not allowed to edit.
+            foreach (['capacity', 'start_date', 'end_date', 'application_deadline'] as $field) {
+                if (array_key_exists($field, $data) && $data[$field] !== null) {
+                    $project->{$field} = $data[$field];
+                }
+            }
+
+            $project->owner_id = $source->owner_id;
+            $project->organization_id = $source->organization_id;
+            $project->status = Project::STATUS_DRAFT;
+            $project->version = 1;
+
+            $project->save();
+
+            $this->syncRequiredSkills($project, $source->requiredSkills
+                ->map(fn (ProjectRequiredSkill $skill) => [
+                    'skill_id' => $skill->skill_id,
+                    'minimum_required_level' => $skill->minimum_level,
+                    'is_critical_entry' => (bool) $skill->is_critical_entry,
+                ])
+                ->all());
+
+            $this->syncRoles($project, $source->projectRoles
+                ->map(fn (ProjectRole $role) => [
+                    'title' => $role->title,
+                    'description' => $role->description,
+                    'is_active' => (bool) $role->is_active,
+                ])
+                ->all());
+
+            $this->syncEligibilityConstraints($project, $source->eligibilityConstraints
+                ->map(fn (ProjectEligibilityConstraint $constraint) => [
+                    'constraint_type' => $constraint->constraint_type,
+                    'value' => $constraint->value,
+                ])
+                ->all());
+
+            // Same two guards a create runs, so a clone can never be born in a
+            // state the create endpoint would have refused.
+            $this->assertRequiredSkillsBelongToCareerRole($project);
+            $this->assertDateOrdering($project);
+
+            return $project;
+        });
+
+        $this->audit(
+            $actor->id,
+            'project.cloned',
+            'project',
+            $copy->id,
+            ['source_project_id' => $source->id],
+            [
+                'status' => $copy->status,
+                'type' => $copy->type,
+                'organization_id' => $copy->organization_id,
+                'version' => $copy->version,
+            ],
+            'project_lifecycle',
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+
+        return $this->forResponse($copy);
+    }
+
+    /**
+     * The clone's title: the caller's, or the source's with a `(copy)` suffix.
+     *
+     * Truncated to the column's 255 characters AFTER the suffix is appended, so
+     * a long source title can never produce a title the database rejects.
+     */
+    private function clonedTitle(Project $source, mixed $requested): string
+    {
+        $title = is_string($requested) ? trim($requested) : '';
+
+        if ($title === '') {
+            $title = trim((string) $source->title).' (copy)';
+        }
+
+        return mb_substr($title, 0, 255);
+    }
+
+    /**
      * Submit for review: draft | changes_requested → submitted.
      *
      * A project that is not complete is NOT submitted — the status is left
@@ -400,6 +528,183 @@ class ProjectLifecycleService
         $this->assertTransition($project, Project::STATUS_OPEN);
 
         return $this->transition($project, $actor, Project::STATUS_OPEN, null, 'project.opened', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Close applications and move into team selection: open → selection.
+     *
+     * This is the edge `Project::TRANSITIONS` has always declared and that
+     * nothing could reach until now. It is also what the team-assignment
+     * endpoint calls on its first assignment, so a project that is being
+     * staffed stops accepting applications in the same request that starts
+     * staffing it.
+     */
+    public function beginSelection(
+        Project $project,
+        User $actor,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_SELECTION);
+
+        return $this->transition($project, $actor, Project::STATUS_SELECTION, null, 'project.selection_started', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Kick off the work: selection → active.
+     *
+     * A project with nobody on its team cannot start. Putting an empty project
+     * into `active` would mark it as live work that no one is doing, and the
+     * capacity policy would have nothing to count against `capacity`.
+     */
+    public function start(
+        Project $project,
+        User $actor,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_ACTIVE);
+        $this->assertTeamAssigned($project);
+
+        return $this->transition($project, $actor, Project::STATUS_ACTIVE, null, 'project.started', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * The management rule, exposed so other project services can apply exactly
+     * this one instead of restating it.
+     *
+     * `ProjectTeamService` needs it: whoever may edit a project may staff it,
+     * and a second copy of "owner or platform admin" is a rule that will drift.
+     */
+    public function assertMayManageProject(Project $project, User $actor): void
+    {
+        $this->assertMayManage($project, $actor);
+    }
+
+    /**
+     * At least one active team member must exist before a project can start.
+     */
+    private function assertTeamAssigned(Project $project): void
+    {
+        $members = ProjectTeamMember::query()
+            ->whereHas('team', fn ($query) => $query->where('project_id', $project->id))
+            ->where('assignment_state', 'active')
+            ->count();
+
+        if ($members > 0) {
+            return;
+        }
+
+        throw new ProjectException(
+            'A project cannot start before its team is assigned.',
+            422,
+            'PROJECT_TEAM_EMPTY',
+            ['project_id' => $project->id],
+        );
+    }
+
+    /**
+     * Every lifecycle move the API can actually execute, as
+     * `from status => [to status => the service method that performs it]`.
+     *
+     * This is NOT a second copy of `Project::TRANSITIONS`. The model says which
+     * edges the workflow ALLOWS; this map says which of those edges an endpoint
+     * exists for. They are different questions, and today they have different
+     * answers: `open → selection` is allowed by the model but nothing calls it.
+     *
+     * Keeping the map here means the generic `POST /projects/{id}/transitions`
+     * endpoint can never do something the five explicit routes cannot, and
+     * `details.allowed_transitions` in a refusal is always the truth about what
+     * the caller may actually call next.
+     */
+    private const EXECUTABLE_TRANSITIONS = [
+        Project::STATUS_DRAFT => [
+            Project::STATUS_SUBMITTED => 'submit',
+        ],
+        Project::STATUS_SUBMITTED => [
+            Project::STATUS_APPROVED => 'approve',
+            Project::STATUS_CHANGES_REQUESTED => 'requestChanges',
+            Project::STATUS_REJECTED => 'reject',
+        ],
+        Project::STATUS_CHANGES_REQUESTED => [
+            Project::STATUS_SUBMITTED => 'submit',
+        ],
+        Project::STATUS_APPROVED => [
+            Project::STATUS_OPEN => 'open',
+        ],
+        Project::STATUS_OPEN => [
+            Project::STATUS_SELECTION => 'beginSelection',
+        ],
+        Project::STATUS_SELECTION => [
+            Project::STATUS_ACTIVE => 'start',
+        ],
+    ];
+
+    /**
+     * Move a project to a named status through the ONE service method that
+     * owns that edge.
+     *
+     * A dispatcher, not a sixth implementation: every branch calls the same
+     * method the dedicated route calls, so authorization, completeness, the
+     * audit action and the transition guard are identical no matter which URL
+     * the client used. A client that only knows this endpoint cannot reach a
+     * state the dedicated routes would have refused.
+     *
+     * `reason` is forwarded where the target needs one, and is IGNORED where it
+     * does not — a reason on `submit` is meaningless, and silently recording it
+     * as a decision would be worse than dropping it.
+     */
+    public function transitionTo(
+        Project $project,
+        User $actor,
+        string $to,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $method = self::EXECUTABLE_TRANSITIONS[$project->status][$to] ?? null;
+
+        if ($method === null) {
+            throw new ProjectException(
+                'That lifecycle transition is not allowed.',
+                422,
+                'PROJECT_INVALID_TRANSITION',
+                [
+                    'project_id' => $project->id,
+                    'status' => $project->status,
+                    'requested_status' => $to,
+                    // The executable set, not the model's — this is what the
+                    // client can actually call.
+                    'allowed_transitions' => array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []),
+                ],
+            );
+        }
+
+        return match ($method) {
+            'submit' => $this->submit($project, $actor, $requestId, $ipAddress, $userAgent),
+            'approve' => $this->approve($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'requestChanges' => $this->requestChanges($project, $actor, (string) $reason, $requestId, $ipAddress, $userAgent),
+            'reject' => $this->reject($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'open' => $this->open($project, $actor, $requestId, $ipAddress, $userAgent),
+            'beginSelection' => $this->beginSelection($project, $actor, $requestId, $ipAddress, $userAgent),
+            'start' => $this->start($project, $actor, $requestId, $ipAddress, $userAgent),
+        };
+    }
+
+    /**
+     * The statuses this project can move to right now, i.e. the keys of its
+     * row in EXECUTABLE_TRANSITIONS.
+     *
+     * @return array<int, string>
+     */
+    public function executableTransitions(Project $project): array
+    {
+        return array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []);
     }
 
     /**

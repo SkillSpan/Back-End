@@ -10,6 +10,7 @@ use App\Services\Screening\DocumentScreeningService;
 use Illuminate\Http\UploadedFile as HttpUploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * US-COMP-04 — the organization profile: what it returns, what may change, and
@@ -64,6 +65,131 @@ class OrganizationProfileService
     public function __construct(private readonly DocumentScreeningService $screening) {}
 
     // -----------------------------------------------------------------
+    // Logo
+    // -----------------------------------------------------------------
+
+    /**
+     * Replace the organization logo.
+     *
+     * Shares the document pipeline on purpose — same disk, same screening — but
+     * NOT the document rules: a logo is never reviewed, never versioned and
+     * never triggers re-verification, because it proves nothing about the
+     * company. Its own block in `config/company.php` says so.
+     *
+     * The previous file is deleted only after the new one is safely stored, so a
+     * failed replacement leaves the old logo in place rather than a broken image.
+     */
+    public function uploadLogo(Organization $organization, User $actor, HttpUploadedFile $file): array
+    {
+        $maxKb = (int) config('company.profile.logo.max_kb', 2048);
+
+        if ((int) $file->getSize() > $maxKb * 1024) {
+            throw new ProfileException(
+                "The logo may not be larger than {$maxKb} KB.",
+                422,
+                'LOGO_TOO_LARGE',
+            );
+        }
+
+        // Extension AND detected type, the same two gates the document upload
+        // uses: a `.png` that is really a PHP script fails the second one.
+        $extension = strtolower((string) $file->getClientOriginalExtension());
+        $mime = (string) $file->getMimeType();
+
+        if (! in_array($extension, (array) config('company.profile.logo.mimes', []), true)
+            || ! in_array($mime, (array) config('company.profile.logo.mime_types', []), true)) {
+            throw new ProfileException(
+                'The logo must be a PNG, JPEG or WebP image.',
+                422,
+                'LOGO_TYPE_NOT_SUPPORTED',
+            );
+        }
+
+        $reason = $this->screening->screen($file);
+
+        if ($reason !== null) {
+            throw new ProfileException($reason, 422, 'LOGO_REJECTED_BY_SCAN');
+        }
+
+        $disk = $this->logoDisk();
+        $path = $file->store('logos/'.$organization->id, $disk === null ? [] : $disk);
+
+        if ($path === false) {
+            throw new ProfileException(
+                'The logo could not be stored. Please try again in a moment.',
+                500,
+                'LOGO_STORAGE_FAILED',
+            );
+        }
+
+        $previous = $organization->logo;
+
+        $organization->forceFill(['logo' => $path])->save();
+
+        if (is_string($previous) && $previous !== '' && $previous !== $path) {
+            $this->deleteStoredLogo($previous, $disk);
+        }
+
+        $organization->refresh();
+
+        return [
+            'logo' => $organization->logo,
+            'logo_url' => $this->logoUrl($organization->logo),
+            'profile' => $this->payload($organization),
+        ];
+    }
+
+    /**
+     * Remove the logo. Idempotent: removing one that is not there succeeds and
+     * says so, because a "remove" button pressed twice is not an error.
+     */
+    public function removeLogo(Organization $organization): array
+    {
+        $previous = $organization->logo;
+
+        if (is_string($previous) && $previous !== '') {
+            $organization->forceFill(['logo' => null])->save();
+            $this->deleteStoredLogo($previous, $this->logoDisk());
+        }
+
+        $organization->refresh();
+
+        return [
+            'logo' => null,
+            'logo_url' => null,
+            'profile' => $this->payload($organization),
+        ];
+    }
+
+    private function logoDisk(): ?string
+    {
+        $disk = config('company.profile.logo.disk');
+
+        return is_string($disk) && $disk !== '' ? $disk : null;
+    }
+
+    private function logoUrl(?string $path): ?string
+    {
+        if ($path === null || $path === '') {
+            return null;
+        }
+
+        return Storage::disk($this->logoDisk())->url($path);
+    }
+
+    /**
+     * A stale file left on disk is not worth failing a successful request over.
+     */
+    private function deleteStoredLogo(string $path, ?string $disk): void
+    {
+        try {
+            Storage::disk($disk)->delete($path);
+        } catch (Throwable) {
+            // Intentionally swallowed — see the method docblock.
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Read
     // -----------------------------------------------------------------
 
@@ -89,6 +215,10 @@ class OrganizationProfileService
             'contact_email' => $organization->contact_email,
             'contact_phone' => $organization->contact_phone,
             'logo' => $organization->logo,
+            // The stored value is a disk path, which is not something a browser
+            // can render. `logo_url` is the resolved URL; `logo` keeps its
+            // original meaning so nothing that already reads it changes.
+            'logo_url' => $this->logoUrl($organization->logo),
 
             // BR-03 — read-only, and the client renders them as such.
             'verification_status' => $organization->verification_status,
@@ -633,7 +763,7 @@ class OrganizationProfileService
     {
         try {
             return Storage::disk($this->disk())->exists((string) $file->path);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // A misconfigured disk must not turn a profile read into a 500.
             return false;
         }

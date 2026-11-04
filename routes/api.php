@@ -9,7 +9,9 @@ use App\Http\Controllers\Api\BaselineAssessmentController;
 use App\Http\Controllers\Api\CareerRoleController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\Company\CompanyDashboardController;
+use App\Http\Controllers\Api\Company\CompanyProjectController;
 use App\Http\Controllers\Api\Company\OrganizationProfileController;
+use App\Http\Controllers\Api\Company\TalentEngagementController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
@@ -21,6 +23,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ProjectManagementController;
 use App\Http\Controllers\Api\ProjectMatchingController;
+use App\Http\Controllers\Api\ProjectTeamController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
@@ -197,6 +200,20 @@ Route::prefix('v1')->group(function () {
             ->name('projects.applications.decide')
             ->whereNumber('project')
             ->whereNumber('application');
+
+        // One application by its own id. Serves the applicant and the project
+        // owner on the same route — the two are different roles, so the rule
+        // is ownership, checked in ApplicationService.
+        Route::get('/applications/{application}', [ApplicationController::class, 'show'])
+            ->name('applications.show')
+            ->whereNumber('application');
+
+        // The owner's decision, addressed by the application alone. Same rules
+        // as the PATCH above, which stays for clients that already carry the
+        // project id in the path.
+        Route::post('/applications/{application}/decision', [ApplicationController::class, 'decideForApplication'])
+            ->name('applications.decision')
+            ->whereNumber('application');
     });
 
     // ──────────────────────────────────────────────────────────────
@@ -227,6 +244,33 @@ Route::prefix('v1')->group(function () {
         // lets matching and applications operate.
         Route::post('/projects/{project}/open', [ProjectManagementController::class, 'open'])
             ->name('projects.open')
+            ->whereNumber('project');
+
+        // Copy a project into a new draft. Authorized by the same rule as
+        // update (owner or platform admin) inside the service, so the route
+        // needs no role middleware of its own.
+        Route::post('/projects/{project}/clone', [ProjectManagementController::class, 'duplicate'])
+            ->name('projects.clone')
+            ->whereNumber('project');
+
+        // One URL for every lifecycle move, for clients that would rather send
+        // a target status than remember five paths. A dispatcher over the same
+        // service methods the five routes above call — see
+        // ProjectLifecycleService::EXECUTABLE_TRANSITIONS.
+        Route::post('/projects/{project}/transitions', [ProjectManagementController::class, 'transition'])
+            ->name('projects.transitions')
+            ->whereNumber('project');
+
+        // Kick off the work. Refused while the team is empty, so the project
+        // cannot enter `active` with nobody on it.
+        Route::post('/projects/{project}/start', [ProjectManagementController::class, 'start'])
+            ->name('projects.start')
+            ->whereNumber('project');
+
+        // Staffing: turn accepted applications into the project's team. The
+        // first assignment moves an `open` project into `selection`.
+        Route::post('/projects/{project}/team/assignments', [ProjectTeamController::class, 'store'])
+            ->name('projects.team.assignments.store')
             ->whereNumber('project');
     });
 
@@ -391,6 +435,37 @@ Route::prefix('v1')->group(function () {
             // Registered BEFORE /{student} so the literal wins regardless of the
             // numeric constraint (the constraint alone already protects it).
             Route::get('/filters', [TalentDiscoveryController::class, 'filters']);
+
+            // ── Engagement: the company's own bookkeeping about the people it
+            // found. Same three gates as discovery, so the whole talent surface
+            // refuses a pending or non-company account identically. Every one
+            // of these applies discovery's visibility rule to the student it is
+            // handed — a candidate the list would not show cannot be compared,
+            // noted, shortlisted or contacted either.
+            Route::post('/compare', [TalentEngagementController::class, 'compare'])
+                ->name('talent.compare');
+
+            Route::get('/lists', [TalentEngagementController::class, 'indexLists'])
+                ->name('talent.lists.index');
+            Route::post('/lists', [TalentEngagementController::class, 'storeList'])
+                ->name('talent.lists.store');
+            Route::get('/lists/{list}', [TalentEngagementController::class, 'showList'])
+                ->whereNumber('list')
+                ->name('talent.lists.show');
+            Route::post('/lists/{list}/candidates', [TalentEngagementController::class, 'storeListCandidate'])
+                ->whereNumber('list')
+                ->name('talent.lists.candidates.store');
+
+            Route::get('/candidates/{student}/notes', [TalentEngagementController::class, 'indexNotes'])
+                ->whereNumber('student')
+                ->name('talent.candidates.notes.index');
+            Route::post('/candidates/{student}/notes', [TalentEngagementController::class, 'storeNote'])
+                ->whereNumber('student')
+                ->name('talent.candidates.notes.store');
+            Route::post('/candidates/{student}/contact', [TalentEngagementController::class, 'storeContact'])
+                ->whereNumber('student')
+                ->name('talent.candidates.contact');
+
             Route::get('/{student}', [TalentDiscoveryController::class, 'show'])
                 ->whereNumber('student');
         });
@@ -409,6 +484,17 @@ Route::prefix('v1')->group(function () {
             Route::get('/dashboard', [CompanyDashboardController::class, 'show'])
                 ->name('company.dashboard');
 
+            // The company's OWN projects — the read surface the owner API
+            // cannot provide (it is owner-scoped) and the learner API refuses
+            // outright (`role:learner`). Both routes are scoped to the
+            // organization resolved from the caller's admin membership, and a
+            // project from another organization answers 404, not 403.
+            Route::get('/projects', [CompanyProjectController::class, 'index'])
+                ->name('company.projects.index');
+            Route::get('/projects/{project}', [CompanyProjectController::class, 'show'])
+                ->whereNumber('project')
+                ->name('company.projects.show');
+
             // US-COMP-04 — documents. The upload path is under `company/`
             // because it is a company-only action; the read path is the URL
             // the profile payload hands back in `documents.*.url`, so the
@@ -418,6 +504,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/profile/documents/{document}', [OrganizationProfileController::class, 'downloadDocument'])
                 ->whereNumber('document')
                 ->name('company.profile.documents.show');
+
+            // The logo. A separate action from the document upload because it is
+            // never reviewed and never triggers re-verification — but it goes
+            // through the same disk and the same screening.
+            Route::post('/profile/logo', [OrganizationProfileController::class, 'uploadLogo'])
+                ->name('company.profile.logo.store');
+            Route::delete('/profile/logo', [OrganizationProfileController::class, 'deleteLogo'])
+                ->name('company.profile.logo.destroy');
         });
 
     // ──────────────────────────────────────────────────────────────

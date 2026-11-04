@@ -197,6 +197,93 @@ class OrganizationProfileController extends Controller
     }
 
     /**
+     * Upload or replace the organization logo.
+     *
+     * Field name is `logo`, not `file` — this is a distinct action from the
+     * document upload and reusing `file` would make the two indistinguishable in
+     * logs and in the frontend's FormData.
+     */
+    public function uploadLogo(Request $request): JsonResponse
+    {
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->deny($request, 'company.profile.denied');
+        }
+
+        $file = $request->file('logo');
+
+        if (! $file instanceof UploadedFile) {
+            return $this->documentError('No logo was uploaded.', 'LOGO_MISSING');
+        }
+
+        // PHP-level failures first, for the same reason the document upload
+        // does it: a truncated upload does not look like an image.
+        if (! $file->isValid()) {
+            return $this->documentError(
+                $this->uploadErrorMessage($file->getError()),
+                $file->getError() === UPLOAD_ERR_INI_SIZE || $file->getError() === UPLOAD_ERR_FORM_SIZE
+                    ? 'LOGO_TOO_LARGE'
+                    : 'LOGO_UPLOAD_FAILED',
+            );
+        }
+
+        try {
+            $result = $this->profiles->uploadLogo($organization, $request->user(), $file);
+        } catch (ProfileException $e) {
+            return $this->profileError($e);
+        }
+
+        $this->audit(
+            actorId: $request->user()->id,
+            action: 'organization.logo.uploaded',
+            entityType: 'organization',
+            entityId: $organization->id,
+            after: ['logo' => $result['logo']],
+            requestId: $request->attributes->get('request_id'),
+            ipAddress: $request->ip(),
+            userAgent: (string) $request->userAgent(),
+        );
+
+        return $this->ok([
+            'logo' => $result['logo'],
+            'logo_url' => $result['logo_url'],
+            'profile' => $result['profile'],
+        ], 'Logo updated successfully.');
+    }
+
+    /**
+     * Remove the organization logo. Idempotent.
+     */
+    public function deleteLogo(Request $request): JsonResponse
+    {
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->deny($request, 'company.profile.denied');
+        }
+
+        $result = $this->profiles->removeLogo($organization);
+
+        $this->audit(
+            actorId: $request->user()->id,
+            action: 'organization.logo.removed',
+            entityType: 'organization',
+            entityId: $organization->id,
+            after: ['logo' => null],
+            requestId: $request->attributes->get('request_id'),
+            ipAddress: $request->ip(),
+            userAgent: (string) $request->userAgent(),
+        );
+
+        return $this->ok([
+            'logo' => $result['logo'],
+            'logo_url' => $result['logo_url'],
+            'profile' => $result['profile'],
+        ], 'Logo removed successfully.');
+    }
+
+    /**
      * BR-07 / AC-08 — a document is readable only by the organization that owns
      * it. The lookup goes through that organization's own files(), so another
      * company's document is a 404 rather than a 403: it does not exist for
