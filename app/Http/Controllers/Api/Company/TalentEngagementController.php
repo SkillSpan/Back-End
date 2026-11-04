@@ -166,6 +166,144 @@ class TalentEngagementController extends Controller
     }
 
     /**
+     * PATCH /api/v1/talent/lists/{list}
+     *
+     * Rename a list or change its description. Both fields optional; a body
+     * with neither is a validation error rather than a silent no-op, because a
+     * caller who sent nothing meant to change something.
+     */
+    public function updateList(Request $request, int $list): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->organizationDenied($request, $requestId);
+        }
+
+        $validator = validator($request->all(), [
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse(
+                'VALIDATION_ERROR',
+                'The request could not be processed.',
+                422,
+                $requestId,
+                ['errors' => $validator->errors()->messages()],
+            );
+        }
+
+        $data = $validator->validated();
+
+        if ($data === []) {
+            return $this->errorResponse(
+                'VALIDATION_ERROR',
+                'The request could not be processed.',
+                422,
+                $requestId,
+                ['errors' => ['name' => ['Send at least one of name or description.']]],
+            );
+        }
+
+        try {
+            $model = $this->engagement->updateList($organization, $list, $data);
+        } catch (TalentException $e) {
+            return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
+        }
+
+        return (new TalentListResource($model))
+            ->additional([
+                'success' => true,
+                'message' => 'Talent list updated successfully.',
+                'request_id' => $requestId,
+            ])
+            ->response()
+            ->setStatusCode(200)
+            ->header('X-Request-ID', $requestId);
+    }
+
+    /**
+     * DELETE /api/v1/talent/lists/{list}
+     */
+    public function destroyList(Request $request, int $list): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->organizationDenied($request, $requestId);
+        }
+
+        try {
+            $this->engagement->deleteList($organization, $list);
+        } catch (TalentException $e) {
+            return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Talent list deleted successfully.',
+            'data' => ['id' => $list, 'deleted' => true],
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
+     * DELETE /api/v1/talent/lists/{list}/candidates/{student}
+     */
+    public function destroyListCandidate(Request $request, int $list, int $student): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->organizationDenied($request, $requestId);
+        }
+
+        try {
+            $this->engagement->removeCandidate($organization, $list, $student);
+        } catch (TalentException $e) {
+            return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Candidate removed from the list.',
+            'data' => ['student_id' => $student, 'removed' => true],
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
+     * GET /api/v1/talent/funnel
+     *
+     * saved → contacted → responded, counted per person.
+     */
+    public function funnel(Request $request): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->organizationDenied($request, $requestId);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Talent funnel retrieved successfully.',
+            'data' => $this->engagement->funnel($organization),
+            'request_id' => $requestId,
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
      * POST /api/v1/company/talent/lists/{list}/candidates
      *
      * 201 on a new row, 200 when the candidate was already on the list — the

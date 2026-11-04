@@ -338,9 +338,10 @@ class ProjectCloneAndTransitionTest extends TestCase
     public function test_the_dispatcher_reports_an_empty_executable_set_for_a_dead_end_state(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
-        // `active` has no outgoing edge: nothing in the API can finish or
-        // archive a running project yet, so the set really is empty.
-        $project = $this->completeProject(Project::STATUS_ACTIVE, $owner);
+        // `archived` is the one state nothing leaves: a filed-away project is
+        // history. (`active` used to be the example here, until completing and
+        // archiving became reachable.)
+        $project = $this->completeProject(Project::STATUS_ARCHIVED, $owner);
 
         Sanctum::actingAs($owner);
 

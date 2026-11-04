@@ -9,6 +9,7 @@ use App\Models\TalentList;
 use App\Models\TalentListCandidate;
 use App\Models\TalentNote;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -249,6 +250,110 @@ class TalentEngagementService
         return [
             'candidate' => $candidate->fresh(['student:id,name']),
             'already_listed' => $alreadyListed,
+        ];
+    }
+
+    // -----------------------------------------------------------------
+    // Editing a list
+    // -----------------------------------------------------------------
+
+    /**
+     * Rename a list, or change its description. A list is the company's own
+     * working set, so both fields are freely editable; what is NOT editable is
+     * who created it, and the organization is re-checked here rather than
+     * trusted from the route.
+     */
+    public function updateList(Organization $organization, int $listId, array $data): TalentList
+    {
+        $list = $this->findList($organization, $listId);
+
+        if (array_key_exists('name', $data) && $data['name'] !== null) {
+            $list->name = (string) $data['name'];
+        }
+
+        if (array_key_exists('description', $data)) {
+            $list->description = $data['description'];
+        }
+
+        $list->save();
+
+        return $list->fresh(['creator:id,name', 'candidates.student:id,name']);
+    }
+
+    /**
+     * Delete a list. The candidates go with it — they are rows *in* the list,
+     * not people — and the people themselves are untouched.
+     */
+    public function deleteList(Organization $organization, int $listId): void
+    {
+        $list = $this->findList($organization, $listId);
+
+        DB::transaction(function () use ($list): void {
+            TalentListCandidate::query()->where('talent_list_id', $list->id)->delete();
+            $list->delete();
+        });
+    }
+
+    /**
+     * Remove one candidate from a list.
+     *
+     * 404 rather than a silent success when they were not on it: the caller is
+     * looking at a row that should exist, and "it worked" would hide the stale
+     * screen that made them press it.
+     */
+    public function removeCandidate(Organization $organization, int $listId, int $studentId): void
+    {
+        $list = $this->findList($organization, $listId);
+
+        $deleted = TalentListCandidate::query()
+            ->where('talent_list_id', $list->id)
+            ->where('student_id', $studentId)
+            ->delete();
+
+        if ($deleted === 0) {
+            throw new TalentException(
+                'That candidate is not on this list.',
+                404,
+                'TALENT_LIST_CANDIDATE_NOT_FOUND',
+                ['talent_list_id' => $list->id, 'student_id' => $studentId],
+            );
+        }
+    }
+
+    /**
+     * The funnel the talent screen shows: saved → contacted → responded.
+     *
+     * Counted per PERSON, not per row. A candidate on three shortlists is one
+     * saved candidate, otherwise the numbers would grow every time someone
+     * tidies their lists, and the three stages would not be comparable.
+     *
+     * `responded` counts accepted invitations only — a decline is a response
+     * too, but a funnel that includes it cannot be read as progress.
+     *
+     * @return array<string, int>
+     */
+    public function funnel(Organization $organization): array
+    {
+        $saved = TalentListCandidate::query()
+            ->whereHas('list', fn ($query) => $query->where('organization_id', $organization->id))
+            ->distinct()
+            ->count('student_id');
+
+        $contacted = TalentContactRequest::query()
+            ->where('organization_id', $organization->id)
+            ->distinct()
+            ->count('student_id');
+
+        $responded = TalentContactRequest::query()
+            ->where('organization_id', $organization->id)
+            ->where('status', TalentContactRequest::STATUS_ACCEPTED)
+            ->distinct()
+            ->count('student_id');
+
+        return [
+            'saved' => $saved,
+            'contacted' => $contacted,
+            'responded' => $responded,
         ];
     }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature\Projects;
 use App\Models\Application;
 use App\Models\Organization;
 use App\Models\Project;
+use App\Models\ProjectRole;
 use App\Models\ProjectTeam;
 use App\Models\ProjectTeamMember;
 use App\Models\Role;
@@ -403,5 +404,65 @@ class ProjectTeamAndStartTest extends TestCase
         $this->postJson("/api/v1/projects/{$project->id}/transitions", ['to' => 'selection'])
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_SELECTION);
+    }
+
+    // -----------------------------------------------------------------
+    // Identifying the role instead of naming it
+    // -----------------------------------------------------------------
+
+    public function test_a_role_can_be_identified_by_id(): void
+    {
+        $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
+        $learner = $this->learner('learner@test.com');
+
+        $project = $this->project($owner);
+        $application = $this->application($project, $learner);
+
+        $role = ProjectRole::create([
+            'project_id' => $project->id,
+            'title' => 'Backend Developer',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($owner);
+
+        // A screen renders the project's roles, so it holds the id, not the
+        // title. The server resolves it — and stores the title, which is what
+        // the team payload and the export show.
+        $this->postJson("/api/v1/projects/{$project->id}/team/assignments", [
+            'members' => [
+                ['application_id' => $application->id, 'project_role_id' => $role->id],
+            ],
+        ])->assertStatus(201)
+            ->assertJsonPath('data.members.0.project_role', 'Backend Developer');
+    }
+
+    public function test_a_role_from_another_project_is_refused(): void
+    {
+        $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
+        $learner = $this->learner('learner@test.com');
+
+        $project = $this->project($owner);
+        $other = $this->project($owner, Project::STATUS_DRAFT);
+        $application = $this->application($project, $learner);
+
+        $foreignRole = ProjectRole::create([
+            'project_id' => $other->id,
+            'title' => 'Data Analyst',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($owner);
+
+        // Resolved against THIS project's roles, so an id from another project
+        // cannot be smuggled in and stored as this team's role.
+        $this->postJson("/api/v1/projects/{$project->id}/team/assignments", [
+            'members' => [
+                ['application_id' => $application->id, 'project_role_id' => $foreignRole->id],
+            ],
+        ])->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_ROLE_NOT_FOUND');
+
+        $this->assertSame(0, ProjectTeamMember::count());
     }
 }

@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\SkillsController;
 use App\Http\Controllers\Api\SupportRequestController;
 use App\Http\Controllers\Api\SystemPulseController;
 use App\Http\Controllers\Api\TalentDiscoveryController;
+use App\Http\Controllers\Api\TeamInvitationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -272,6 +273,39 @@ Route::prefix('v1')->group(function () {
         Route::post('/projects/{project}/team/assignments', [ProjectTeamController::class, 'store'])
             ->name('projects.team.assignments.store')
             ->whereNumber('project');
+
+        // The team screen's read. Wider than the write: the people on the team
+        // may read it too, so a participant can open their own project.
+        Route::get('/projects/{project}/team', [ProjectTeamController::class, 'show'])
+            ->name('projects.team.show')
+            ->whereNumber('project');
+
+        // Addressed by the application, which is what the company chose the
+        // person from. The row is marked `removed`, never deleted, so the
+        // assignment stays in the project's history.
+        Route::delete('/projects/{project}/team/assignments/{application}', [ProjectTeamController::class, 'destroy'])
+            ->name('projects.team.assignments.destroy')
+            ->whereNumber('project')
+            ->whereNumber('application');
+
+        // Invite the assigned members. Idempotent: a second press sends nothing
+        // and answers `sent: 0`.
+        Route::post('/projects/{project}/team/invitations', [ProjectTeamController::class, 'invite'])
+            ->name('projects.team.invitations.store')
+            ->whereNumber('project');
+    });
+
+    // The invitee's side. Not role-gated: the invited person is identified by
+    // the invitation row itself, and an administrator has to be able to read one
+    // to support it. Both rules live in ProjectTeamService.
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
+        Route::get('/team-invitations/{invitation}', [TeamInvitationController::class, 'show'])
+            ->name('team-invitations.show')
+            ->whereNumber('invitation');
+
+        Route::post('/team-invitations/{invitation}/response', [TeamInvitationController::class, 'respond'])
+            ->name('team-invitations.respond')
+            ->whereNumber('invitation');
     });
 
     // Review decisions are platform-administrator only. The `admin` middleware
@@ -452,9 +486,23 @@ Route::prefix('v1')->group(function () {
             Route::get('/lists/{list}', [TalentEngagementController::class, 'showList'])
                 ->whereNumber('list')
                 ->name('talent.lists.show');
+            Route::patch('/lists/{list}', [TalentEngagementController::class, 'updateList'])
+                ->whereNumber('list')
+                ->name('talent.lists.update');
+            Route::delete('/lists/{list}', [TalentEngagementController::class, 'destroyList'])
+                ->whereNumber('list')
+                ->name('talent.lists.destroy');
             Route::post('/lists/{list}/candidates', [TalentEngagementController::class, 'storeListCandidate'])
                 ->whereNumber('list')
                 ->name('talent.lists.candidates.store');
+            Route::delete('/lists/{list}/candidates/{student}', [TalentEngagementController::class, 'destroyListCandidate'])
+                ->whereNumber('list')
+                ->whereNumber('student')
+                ->name('talent.lists.candidates.destroy');
+
+            // saved → contacted → responded, counted per person.
+            Route::get('/funnel', [TalentEngagementController::class, 'funnel'])
+                ->name('talent.funnel');
 
             Route::get('/candidates/{student}/notes', [TalentEngagementController::class, 'indexNotes'])
                 ->whereNumber('student')

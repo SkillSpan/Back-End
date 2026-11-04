@@ -554,4 +554,297 @@ class TalentEngagementTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'ORGANIZATION_PENDING');
     }
+
+    // -----------------------------------------------------------------
+    // Editing and deleting a shortlist
+    // -----------------------------------------------------------------
+
+    public function test_a_list_can_be_renamed_without_touching_its_description(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+            'description' => 'Keep me.',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/talent/lists/{$list->id}", ['name' => 'Backend — Spring'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Backend — Spring');
+
+        $this->assertSame('Keep me.', $list->fresh()->description);
+    }
+
+    public function test_a_list_description_can_be_cleared(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+            'description' => 'Remove me.',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        // `null` is a deliberate "empty this field", which is different from
+        // omitting the key ("leave it alone").
+        $this->patchJson("/api/v1/talent/lists/{$list->id}", ['description' => null])
+            ->assertOk();
+
+        $this->assertNull($list->fresh()->description);
+        $this->assertSame('Backend', $list->fresh()->name);
+    }
+
+    public function test_a_patch_with_nothing_in_it_is_a_validation_error(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/talent/lists/{$list->id}", [])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_another_organizations_list_cannot_be_edited_or_deleted(): void
+    {
+        $mine = $this->organization('Acme');
+        $theirs = $this->organization('Globex');
+
+        $admin = $this->companyAdmin($mine);
+        $otherAdmin = $this->companyAdmin($theirs);
+
+        $foreign = TalentList::create([
+            'organization_id' => $theirs->id,
+            'created_by' => $otherAdmin->id,
+            'name' => 'Theirs',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/v1/talent/lists/{$foreign->id}", ['name' => 'Mine now'])
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'TALENT_LIST_NOT_FOUND');
+
+        $this->deleteJson("/api/v1/talent/lists/{$foreign->id}")
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'TALENT_LIST_NOT_FOUND');
+
+        $this->assertSame('Theirs', $foreign->fresh()->name);
+    }
+
+    public function test_deleting_a_list_removes_the_rows_not_the_people(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+        $student = $this->student('Reem');
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+        ]);
+
+        TalentListCandidate::create([
+            'talent_list_id' => $list->id,
+            'student_id' => $student->id,
+            'added_by' => $admin->id,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->deleteJson("/api/v1/talent/lists/{$list->id}")
+            ->assertOk()
+            ->assertJsonPath('data.deleted', true);
+
+        $this->assertSame(0, TalentList::whereKey($list->id)->count());
+        $this->assertSame(0, TalentListCandidate::where('talent_list_id', $list->id)->count());
+
+        // Deleting a shortlist must never delete the candidate.
+        $this->assertSame(1, User::whereKey($student->id)->count());
+    }
+
+    public function test_a_candidate_can_be_removed_from_a_list(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+        $student = $this->student('Reem');
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+        ]);
+
+        TalentListCandidate::create([
+            'talent_list_id' => $list->id,
+            'student_id' => $student->id,
+            'added_by' => $admin->id,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->deleteJson("/api/v1/talent/lists/{$list->id}/candidates/{$student->id}")
+            ->assertOk()
+            ->assertJsonPath('data.removed', true);
+
+        $this->assertSame(0, TalentListCandidate::count());
+        $this->assertSame(1, TalentList::whereKey($list->id)->count());
+    }
+
+    public function test_removing_somebody_who_is_not_on_the_list_is_404(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+        $student = $this->student('Reem');
+
+        $list = TalentList::create([
+            'organization_id' => $organization->id,
+            'created_by' => $admin->id,
+            'name' => 'Backend',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        // Not a silent 200: the row the caller is looking at should exist, so
+        // "it worked" would hide a stale screen.
+        $this->deleteJson("/api/v1/talent/lists/{$list->id}/candidates/{$student->id}")
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'TALENT_LIST_CANDIDATE_NOT_FOUND');
+    }
+
+    // -----------------------------------------------------------------
+    // Funnel
+    // -----------------------------------------------------------------
+
+    public function test_the_funnel_counts_people_not_rows(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+        $student = $this->student('Reem');
+
+        // The same person on two shortlists is one saved candidate, otherwise
+        // tidying your lists would inflate the funnel.
+        foreach (['Backend', 'Fallback'] as $name) {
+            $list = TalentList::create([
+                'organization_id' => $organization->id,
+                'created_by' => $admin->id,
+                'name' => $name,
+            ]);
+
+            TalentListCandidate::create([
+                'talent_list_id' => $list->id,
+                'student_id' => $student->id,
+                'added_by' => $admin->id,
+            ]);
+        }
+
+        TalentContactRequest::create([
+            'organization_id' => $organization->id,
+            'student_id' => $student->id,
+            'requested_by' => $admin->id,
+            'message' => 'Hello.',
+            'status' => TalentContactRequest::STATUS_ACCEPTED,
+            'responded_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/talent/funnel')
+            ->assertOk()
+            ->assertJsonPath('data.saved', 1)
+            ->assertJsonPath('data.contacted', 1)
+            ->assertJsonPath('data.responded', 1);
+    }
+
+    public function test_a_declined_request_counts_as_contacted_but_not_responded(): void
+    {
+        $organization = $this->organization();
+        $admin = $this->companyAdmin($organization);
+        $student = $this->student('Reem');
+
+        TalentContactRequest::create([
+            'organization_id' => $organization->id,
+            'student_id' => $student->id,
+            'requested_by' => $admin->id,
+            'message' => 'Hello.',
+            'status' => TalentContactRequest::STATUS_DECLINED,
+            'responded_at' => now(),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        // A decline is an answer, but a funnel that counts it cannot be read
+        // as progress.
+        $this->getJson('/api/v1/talent/funnel')
+            ->assertOk()
+            ->assertJsonPath('data.contacted', 1)
+            ->assertJsonPath('data.responded', 0);
+    }
+
+    public function test_the_funnel_only_counts_the_callers_organization(): void
+    {
+        $mine = $this->organization('Acme');
+        $theirs = $this->organization('Globex');
+
+        $admin = $this->companyAdmin($mine);
+        $otherAdmin = $this->companyAdmin($theirs);
+        $student = $this->student('Reem');
+
+        $foreignList = TalentList::create([
+            'organization_id' => $theirs->id,
+            'created_by' => $otherAdmin->id,
+            'name' => 'Theirs',
+        ]);
+
+        TalentListCandidate::create([
+            'talent_list_id' => $foreignList->id,
+            'student_id' => $student->id,
+            'added_by' => $otherAdmin->id,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/talent/funnel')
+            ->assertOk()
+            ->assertJsonPath('data.saved', 0)
+            ->assertJsonPath('data.contacted', 0)
+            ->assertJsonPath('data.responded', 0);
+    }
+
+    public function test_the_funnel_refuses_a_learner(): void
+    {
+        $learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
+
+        $learner = User::forceCreate([
+            'name' => 'Learner',
+            'email' => uniqid('learner-').'@example.com',
+            'password' => 'password123',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $learner->roles()->attach($learnerRole->id);
+
+        Sanctum::actingAs($learner->fresh());
+
+        $this->getJson('/api/v1/talent/funnel')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'COMPANY_ADMIN_ONLY');
+    }
 }

@@ -7,7 +7,8 @@
 ## 0. ملخص — إيش صار
 
 النسخة الأولى من هالملف قالت إنه **11 رابط من 17 مش موجودين**. هلق صاروا
-**كلهم موجودين**، بالإضافة لثلاثة روابط قراءة وروابط اللوغو.
+**كلهم موجودين**، بالإضافة لروابط القراءة واللوغو، وروابط الفريق والدعوات
+والقمع اللي طلبتها شاشات الفرونت.
 
 | البند | قبل | بعد |
 |---|---|---|
@@ -15,14 +16,19 @@
 | روابط التقديمات والفريق | 2 من 5 | **5 من 5** |
 | روابط المواهب | 0 من 5 | **5 من 5** |
 | رفع اللوغو | ❌ | ✅ `POST` + `DELETE` |
-| الحالات القابلة للوصول | 6 انتقالات | **8 انتقالات** (`selection` و`active` صاروا reachable) |
+| الحالات القابلة للوصول | 6 انتقالات | **19 انتقال** (`active` ما عاد نهائية) |
 
-**اللي أضفناه فوق الطلب** (لأن الكتابة بلا قراءة ما بتفيد): `GET /talent/lists`،
-`GET /talent/lists/{id}`، `GET /talent/candidates/{id}/notes`.
+**اللي أضفناه فوق الطلب** — لأن الكتابة بلا قراءة ما بتفيد، ولأن شاشات الفرونت
+كانت بتطلب روابط مش موجودة:
 
-**اللي لسا ناقص بصراحة:** لا يوجد رابط لإنهاء مشروع (`active → completed`)
-ولا لأرشفته، ولا يوجد بعد رابط للطالب يرد فيه على طلب التواصل. التفاصيل في
-القسم 11.
+- قراءة: `GET /talent/lists` · `GET /talent/lists/{id}` · `GET /talent/candidates/{id}/notes`
+- الفريق: `GET /projects/{id}/team` · `DELETE /projects/{id}/team/assignments/{application}` 🆕
+- الدعوات: `POST /projects/{id}/team/invitations` · `GET /team-invitations/{id}` · `POST /team-invitations/{id}/response` 🆕
+- القوائم: `PATCH` و`DELETE /talent/lists/{id}` · `DELETE /talent/lists/{id}/candidates/{student}` 🆕
+- القمع: `GET /talent/funnel` 🆕
+
+**اللي لسا ناقص بصراحة:** الحالة `under_review` معرّفة وما في ولا رابط بيوصلها،
+وما في راوت للطالب يرد فيه على طلب التواصل. التفاصيل في القسم 11.
 
 ---
 
@@ -624,6 +630,9 @@ Content-Type: application/json      ← ما عدا رفع الملفات (multi
 - `members` إلزامي، 1–100
 - `members.*.application_id` إلزامي و`distinct` (نفس التقديم مرتين = 422)
 - `members.*.project_role` اختياري — بلاها بياخد عنوان دور التقديم
+- `members.*.project_role_id` اختياري 🆕 — بديل عن الاسم: بتبعته الشاشة اللي
+  عندها ids الأدوار مش عناوينها. بينحلّ لعنوان الدور، ولو الدور مش تابع لهالمشروع
+  بيرجع `422 PROJECT_ROLE_NOT_FOUND`
 - `name` اختياري (اسم الفريق)
 
 **الرد `201`**
@@ -677,6 +686,181 @@ Content-Type: application/json      ← ما عدا رفع الملفات (multi
 
 > كل التعيينات في الطلب الواحد داخل transaction واحدة: لو واحد فشل، **ولا
 > واحد** بينتعيّن.
+
+---
+
+### 3.5 `GET /api/v1/projects/{project}/team` — شاشة الفريق كاملة 🆕
+
+| | |
+|---|---|
+| مين مسموح | المالك، أو `admin`، **أو عضو فعّال على نفس الفريق** |
+| الغرض | كل اللي شاشة Team Formation بتقرأه بطلب واحد |
+
+العضو العادي مسموح له **يقرأ** بس مش يعدّل — لأن الشخص لازم يقدر يفتح المشروع
+اللي انعيّن عليه.
+
+**الرد `200`**
+
+```json
+{
+  "success": true,
+  "message": "Project team retrieved successfully.",
+  "data": {
+    "project": { "id": 41, "title": "Clinic App", "status": "selection", "capacity": 3, "start_date": null },
+    "team": { "id": 7, "name": "دفعة أ", "members_count": 2 },
+    "roles": [
+      { "id": 12, "name": "Data Analyst", "capacity": 2, "assigned": 1, "confirmed": 1, "remaining": 1 }
+    ],
+    "participants": [
+      {
+        "application_id": 512,
+        "user_id": 77,
+        "name": "ريم الحسن",
+        "email": "reem@example.com",
+        "requested_role": "Data Analyst",
+        "assigned": true,
+        "declined_invitation": false,
+        "assignment": {
+          "id": 21,
+          "role": "Data Analyst",
+          "status": "active",
+          "joined_at": "2026-11-04T19:10:00+00:00",
+          "invitation": { "id": 5, "status": "pending", "sent_at": "2026-11-04T19:12:00+00:00", "responded_at": null }
+        }
+      }
+    ],
+    "waitlist": [ { "application_id": 514, "name": "سامي", "requested_role": "Data Analyst" } ],
+    "composition": { "valid": false, "unfilled_roles": [ { "name": "Data Analyst", "needed": 1 } ] }
+  },
+  "request_id": "…"
+}
+```
+
+- `roles` = **الطلب** (عدد التقديمات المقبولة لكل دور) مقابل **المعيّن** فعلياً.
+  لهيك `capacity` هون مش سعة المشروع العامة.
+- `composition.valid = false` معناها المشروع لسا ما بيقدر يبدأ.
+- `confirmed` = اللي قبلوا الدعوة فعلاً (مش بس انعيّنوا).
+
+**الأخطاء:** `404 PROJECT_NOT_FOUND` · `403 PROJECT_TEAM_FORBIDDEN` · `500 PROJECT_REQUEST_FAILED`
+
+---
+
+### 3.6 `DELETE /api/v1/projects/{project}/team/assignments/{application}` — فك تعيين 🆕
+
+| | |
+|---|---|
+| مين مسموح | المالك أو `admin` |
+| العنونة | بـ `application_id` — لأن صفوف الشاشة عندها هالـ id |
+
+**بلا جسم.**
+
+**الرد `200`** — نفس غلاف `ProjectTeamResource` تبع التعيين (الفريق بعد الحذف).
+
+> الصف بينعلّم `removed` مش بينحذف: التعيين جزء من تاريخ المشروع، وأي submission
+> كان بيشير له ما لازم يضيّع صاحبه. السعة بتتحرر من الحالة مش من غياب الصف.
+
+**الأخطاء**
+
+| الحالة | `code` | المعنى |
+|---|---|---|
+| 404 | `PROJECT_NOT_FOUND` | المشروع مش موجود |
+| 403 | `PROJECT_NOT_OWNED` | مش المالك |
+| 404 | `PROJECT_TEAM_NOT_FOUND` | ما في فريق أصلاً |
+| 404 | `TEAM_MEMBER_NOT_FOUND` | هالتقديم مش معيّن على الفريق |
+| 422 | `PROJECT_TEAM_LOCKED` | المشروع `completed`/`archived` — فريقه ما بيتغيّر |
+
+---
+
+### 3.7 `POST /api/v1/projects/{project}/team/invitations` — إرسال الدعوات 🆕
+
+| | |
+|---|---|
+| مين مسموح | المالك أو `admin` |
+| مين بيندعى | كل عضو فعّال على الفريق **وما عندو دعوة `pending`** |
+| التكرار | آمن: الضغط مرتين ما بيبعت شي تاني وبيرجع `sent: 0` |
+
+**الطلب** (اختياري كله)
+
+```json
+{ "message": "نبدأ الأسبوع الجاي، بانتظار موافقتك." }
+```
+
+- `message` حتى 2000 حرف
+
+**الرد `200`**
+
+```json
+{
+  "success": true,
+  "message": "Invitations sent successfully.",
+  "data": {
+    "sent": 2,
+    "invitations": [
+      { "id": 5, "user_id": 77, "project_role": "Data Analyst", "status": "pending", "sent_at": "2026-11-04T19:12:00+00:00" }
+    ]
+  },
+  "request_id": "…"
+}
+```
+
+> **التعيين مش قبول.** الشركة بتعيّن، والشخص بيلزمه يجاوب. لهيك في `pending`
+> وبعدها `accepted` / `declined`.
+
+**الأخطاء:** `404 PROJECT_NOT_FOUND` · `403 PROJECT_NOT_OWNED` · `422 PROJECT_TEAM_EMPTY` · `422 VALIDATION_ERROR`
+
+---
+
+### 3.8 `GET /api/v1/team-invitations/{invitation}` — دعوة واحدة 🆕
+
+| | |
+|---|---|
+| مين مسموح | **المدعو نفسه**، أو `admin`، أو مالك المشروع |
+
+```json
+{
+  "success": true,
+  "message": "Invitation retrieved successfully.",
+  "data": {
+    "id": 5,
+    "status": "pending",
+    "project_role": "Data Analyst",
+    "message": "نبدأ الأسبوع الجاي…",
+    "sent_at": "2026-11-04T19:12:00+00:00",
+    "responded_at": null,
+    "project": {
+      "id": 41, "title": "Clinic App", "status": "selection",
+      "start_date": null, "organization": "Acme"
+    }
+  },
+  "request_id": "…"
+}
+```
+
+**الأخطاء:** `404 INVITATION_NOT_FOUND` · `403 INVITATION_VIEW_FORBIDDEN`
+
+---
+
+### 3.9 `POST /api/v1/team-invitations/{invitation}/response` — قبول / رفض 🆕
+
+**الطلب**
+
+```json
+{ "response": "accepted" }
+```
+
+- `response` إلزامي: `accepted` أو `declined`
+
+**الرد `200`** — نفس شكل 3.8 بعد التحديث (`status` بتبقى `accepted`/`declined`
+و`responded_at` بتتعبّى).
+
+**الأخطاء**
+
+| الحالة | `code` | المعنى |
+|---|---|---|
+| 404 | `INVITATION_NOT_FOUND` | الدعوة مش موجودة |
+| 403 | `INVITATION_RESPONSE_FORBIDDEN` | مش المدعو نفسه |
+| 422 | `INVITATION_INVALID_RESPONSE` | `response` مش `accepted`/`declined` |
+| 422 | `INVITATION_ALREADY_ANSWERED` | تجاوبت من قبل |
 
 ---
 
@@ -959,6 +1143,83 @@ Content-Type: application/json      ← ما عدا رفع الملفات (multi
 
 ---
 
+### 4.12 `PATCH /api/v1/talent/lists/{list}` — تعديل قائمة 🆕
+
+**الطلب**
+
+```json
+{ "name": "Backend — Spring", "description": null }
+```
+
+- `name` و/أو `description` — **واحد منهم عالأقل**، وإلا `422 VALIDATION_ERROR`
+- `description: null` بمعنى "فضّيها"؛ غياب المفتاح بمعنى "ما تلمسها"
+
+**الرد `200`** — نفس شكل القائمة في 4.7.
+
+**الأخطاء:** `404 TALENT_LIST_NOT_FOUND` · `422 VALIDATION_ERROR` · `500 TALENT_REQUEST_FAILED`
+
+---
+
+### 4.13 `DELETE /api/v1/talent/lists/{list}` — حذف قائمة 🆕
+
+**بلا جسم.**
+
+```json
+{
+  "success": true,
+  "message": "Talent list deleted successfully.",
+  "data": { "id": 9, "deleted": true },
+  "request_id": "…"
+}
+```
+
+> صفوف المرشحين بتنحذف معها — هني صفوف **جوّا** القائمة، مش أشخاص. الأشخاص
+> نفسهم ما بينلمسوا.
+
+**الأخطاء:** `404 TALENT_LIST_NOT_FOUND` · `500 TALENT_REQUEST_FAILED`
+
+---
+
+### 4.14 `DELETE /api/v1/talent/lists/{list}/candidates/{student}` — إزالة مرشح 🆕
+
+**بلا جسم.**
+
+```json
+{
+  "success": true,
+  "message": "Candidate removed from the list.",
+  "data": { "student_id": 77, "removed": true },
+  "request_id": "…"
+}
+```
+
+**الأخطاء:** `404 TALENT_LIST_NOT_FOUND` · `404 TALENT_LIST_CANDIDATE_NOT_FOUND`
+(الشخص مش على هاي القائمة) · `500 TALENT_REQUEST_FAILED`
+
+> `404` مش `200` صامت: الشاشة عم تعرض صف لازم يكون موجود، و"نجحت" بتخفي
+> الشاشة القديمة اللي خلّت المستخدم يضغط.
+
+---
+
+### 4.15 `GET /api/v1/talent/funnel` — القمع 🆕
+
+```json
+{
+  "success": true,
+  "message": "Talent funnel retrieved successfully.",
+  "data": { "saved": 12, "contacted": 5, "responded": 2 },
+  "request_id": "…"
+}
+```
+
+- العدّ **بالأشخاص** مش بالصفوف: نفس الشخص على ثلاث قوائم = `saved: 1`
+- `responded` بيعدّ الـ`accepted` بس — الرفض جواب كمان، بس قمع بيعدّه ما بينقرأ
+  كتقدّم
+
+**الأخطاء:** `403 COMPANY_ADMIN_ONLY` · `403 ORGANIZATION_PENDING` · `500 TALENT_REQUEST_FAILED`
+
+---
+
 ## 5. اللوغو 🆕
 
 ### `POST /api/v1/company/profile/logo`
@@ -1051,18 +1312,39 @@ Content-Type: application/json      ← ما عدا رفع الملفات (multi
 | `changes_requested` | `submitted` | المالك / أدمن | `/submit` أو `/transitions` |
 | `approved` | `open` | المالك / أدمن | `/open` أو `/transitions` |
 | `open` | `selection` | المالك / أدمن | `/transitions` أو أول تعيين فريق |
+| `open` | `cancelled` | المالك / أدمن | `/transitions` 🆕 |
 | `selection` | `active` | المالك / أدمن | `/start` أو `/transitions` |
+| `selection` | `open` | المالك / أدمن | `/transitions` 🆕 (رجوع) |
+| `selection` | `cancelled` | المالك / أدمن | `/transitions` 🆕 |
+| `active` | `completed` | المالك / أدمن | `/transitions` 🆕 |
+| `active` | `cancelled` | المالك / أدمن | `/transitions` 🆕 |
+| `under_review` | `completed` | المالك / أدمن | `/transitions` 🆕 |
+| `under_review` | `cancelled` | المالك / أدمن | `/transitions` 🆕 |
+| `rejected` | `draft` | المالك / أدمن | `/transitions` 🆕 (نسخة جديدة) |
+| `rejected` | `archived` | المالك / أدمن | `/transitions` 🆕 |
+| `completed` | `archived` | المالك / أدمن | `/transitions` 🆕 |
+| `cancelled` | `archived` | المالك / أدمن | `/transitions` 🆕 |
+
+**تفاصيل مهمة**
+
+- `rejected → draft` بيزيد `version` واحد: قرار المراجع انطبق على النسخة
+  السابقة، والنسخة الجديدة بتبلّش من 1+.
+- `→ cancelled` من جهة الشركة مسموح من `open`/`selection`/`active`/`under_review`
+  **بس**. الـ`draft` بينلغي بعدم الإرسال، والمنتهي بينأرشف مش بينلغي — لأنه
+  الإلغاء بيعيد كتابة اللي صار.
+- إلغاء المشروع **بيسحب التقديمات المفتوحة** (`submitted`/`shortlisted`/
+  `waitlisted` → `withdrawn`) بنفس الطلب، وجوّا transaction واحدة.
+- الأرشفة هي آخر حركة وبتغيّر الظهور بس. مش طريقة لتخطّي الـworkflow: مشروع
+  حيّ لازم يتقفل أول.
 
 ### 6.3 اللي لسا مسدود
 
 | من | الحالة |
 |---|---|
-| `active` | ما في انتقال خارجي — **لا يوجد رابط لإنهاء المشروع** |
-| `under_review` | غير قابل للوصول إطلاقاً |
-| `completed` · `cancelled` · `archived` · `rejected` | نهائية |
+| `under_review` | **ما في ولا رابط بينقل إله** — الحالة معرّفة ومش قابلة للوصول |
+| `archived` | نهائية: `allowed_transitions: []` |
 
-يعني المشروع بيوصل لـ `active` وبيقف. **إنهاء المشروع (`completed`) وأرشفته
-(`archived`) لسا بلا روابط** — لازم قرار قبل ما تنبني شاشة "المشاريع المنتهية".
+> كل حالة تانية عندها مخرج. المشروع ما عاد بيوقف عند `active`.
 
 ---
 
@@ -1186,14 +1468,14 @@ Content-Type: application/json      ← ما عدا رفع الملفات (multi
 
 | النقص | الأثر |
 |---|---|
-| `active → completed` | ما في طريقة تخلّص مشروع. شاشة "مكتمل" بلا داتا |
-| `under_review` | حالة معرّفة بس ما حدا بيوصلها |
-| أرشفة / إلغاء من جهة الشركة | `cancel` موجود للأدمن فقط (`/admin/projects/{id}/cancel`) |
+| `under_review` | حالة معرّفة بس ما في ولا رابط بيوصلها |
 | رد الطالب على طلب التواصل | الجدول بيدعم `accepted`/`declined`، بس ما في راوت للطالب |
+| سحب التقديم من جهة الشركة | ما في — الشركة بتقرر، والطالب هو اللي بيسحب |
 
 **الأسئلة الثلاثة — الجواب النهائي:**
 
-1. **الحالات:** 12، `draft` … `archived`. **8 انتقالات قابلة للتنفيذ** (جدول
-   6.2). `active` نهائية حالياً.
-2. **قيم القرار:** `shortlisted` / `accepted` / `rejected` / `waitlisted`.
+1. **الحالات:** 12، `draft` … `archived`. **19 انتقال قابل للتنفيذ** (جدول 6.2).
+   `archived` نهائية، و`under_review` الوحيدة اللي ما حدا بيوصلها.
+2. **قيم القرار:** `shortlisted` / `accepted` / `rejected` / `waitlisted` —
+   بالـ`status` مش بالـ`decision`.
 3. **اللوغو:** **نعم** — `POST` و`DELETE` على `/company/profile/logo`.

@@ -34,6 +34,10 @@ class StoreTeamAssignmentRequest extends FormRequest
             'members' => ['required', 'array', 'min:1', 'max:100'],
             'members.*.application_id' => ['required', 'integer', 'gt:0', 'distinct'],
             'members.*.project_role' => ['sometimes', 'nullable', 'string', 'max:255'],
+            // The role may be named or identified. A screen that renders the
+            // project's roles has their ids, not their titles, so demanding a
+            // title would force every client to look the name up first.
+            'members.*.project_role_id' => ['sometimes', 'nullable', 'integer', 'gt:0'],
         ];
     }
 

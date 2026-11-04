@@ -4,6 +4,24 @@
 **الباك:** `8eab8e1` المنشور على `https://skillspan.alwaysdata.net`
 **التاريخ:** 2026-11-04
 
+> ## ✅ الحالة: منتهي — كل اللي تحت هالخط انصلح
+>
+> - **الـ5 أجسام** تصلّحت بالفرونت (مع تحديث الاختبارات اللي كانت بتثبّت الشكل القديم).
+> - **الـ3 فلاتر الصامتة** صارت `q` / `recent|oldest|deadline|title` / `stats.by_status`.
+> - **الـ6 مسارات الناقصة** انعملت بالباك: `GET /projects/{id}/team`،
+>   `DELETE /projects/{id}/team/assignments/{application}`،
+>   `POST /projects/{id}/team/invitations`، `GET`+`POST /team-invitations/{id}*`،
+>   `PATCH`/`DELETE /talent/lists/{id}`، `DELETE /talent/lists/{id}/candidates/{student}`،
+>   `GET /talent/funnel`.
+> - **الـ4 أزرار دورة حياة** صار إلها انتقالات: `reopen` · `revise` · `complete` ·
+>   `cancel` · `archive`.
+>
+> **اللي بيضل من هالتدقيق:** اختبارات الفرونت اللي بتفشل بسبب مكوّنات ناقصة
+> بالنسخة نفسها (22 اختبار في `CompanyProfile` و`CompanyDashboard` و
+> `CompanyNotifications` و`CompanyCache` و`ProjectPublication` و`TalentEvidence`).
+> سببها `Element type is invalid … Check the render method of ProfileEditForm`
+> — مكوّن مش مُصدَّر بالنسخة، **ولا علاقة إلها بالربط**. ما تنلمس من هالجانب.
+
 ---
 
 ## 0. الخلاصة بجملة
