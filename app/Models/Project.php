@@ -82,15 +82,21 @@ class Project extends Model
     /**
      * Allowed transitions, mirroring Application::TRANSITIONS.
      *
-     * `rejected` has no outgoing transition: the Pilot has no agreed
-     * resubmission path after a rejection (the fix-and-resubmit path is
-     * `changes_requested`), and inventing one would be a product decision this
-     * code is not allowed to make.
+     * Two groups of edges were declared but unreachable in the Pilot, and both
+     * now have endpoints:
      *
-     * `open → selection` is declared so the lifecycle is complete for the
-     * Pilot's shortlist/accept phase. It is deliberately NOT exposed as an
-     * endpoint: the required endpoint list stops at `open`, and shortlisting
-     * happens through the existing application decisions.
+     *   open → selection → active   team formation and kick-off
+     *   selection → open            reopening applications (a company that did
+     *                               not fill its roles puts the project back on
+     *                               the market without losing the team)
+     *
+     * The terminal moves are the company's own housekeeping rather than a
+     * workflow step: `rejected → draft` (revise the idea as a new draft),
+     * `→ archived` from every finished state, and `→ cancelled` from the live
+     * ones. They exist so a company can close a project it owns without an
+     * administrator, which is what the screens offer.
+     *
+     * `archived` and `cancelled` stay terminal: nothing leaves them.
      *
      * @var array<string, array<int, string>>
      */
@@ -103,14 +109,18 @@ class Project extends Model
         ],
         self::STATUS_CHANGES_REQUESTED => [self::STATUS_SUBMITTED],
         self::STATUS_APPROVED => [self::STATUS_OPEN],
-        self::STATUS_OPEN => [self::STATUS_SELECTION],
-        self::STATUS_SELECTION => [],
-        self::STATUS_ACTIVE => [],
-        self::STATUS_UNDER_REVIEW => [],
-        self::STATUS_COMPLETED => [],
-        self::STATUS_CANCELLED => [],
+        self::STATUS_OPEN => [self::STATUS_SELECTION, self::STATUS_CANCELLED],
+        self::STATUS_SELECTION => [
+            self::STATUS_ACTIVE,
+            self::STATUS_OPEN,
+            self::STATUS_CANCELLED,
+        ],
+        self::STATUS_ACTIVE => [self::STATUS_COMPLETED, self::STATUS_CANCELLED],
+        self::STATUS_UNDER_REVIEW => [self::STATUS_COMPLETED, self::STATUS_CANCELLED],
+        self::STATUS_COMPLETED => [self::STATUS_ARCHIVED],
+        self::STATUS_CANCELLED => [self::STATUS_ARCHIVED],
         self::STATUS_ARCHIVED => [],
-        self::STATUS_REJECTED => [],
+        self::STATUS_REJECTED => [self::STATUS_DRAFT, self::STATUS_ARCHIVED],
     ];
 
     /**

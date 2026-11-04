@@ -11,7 +11,13 @@ class Organization extends Model
 
     protected $fillable = ['name', 'type', 'contact_email', 'contact_phone', 'website', 'description', 'industry', 'company_size', 'country', 'city', 'address', 'postal_code'];
 
-    protected $casts = ['verified_at' => 'datetime'];
+    protected $casts = [
+        'verified_at' => 'datetime',
+        // US-COMP-04 — the profile metadata the service reads back.
+        'profile_updated_at' => 'datetime',
+        'reverification_required_at' => 'datetime',
+        'profile_completeness' => 'integer',
+    ];
 
     public function members()
     {

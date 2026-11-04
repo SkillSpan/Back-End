@@ -446,6 +446,39 @@ class ApplicationService
             ->paginate($perPage);
     }
 
+    /**
+     * One application, for the three people allowed to see it: the learner who
+     * submitted it, the owner of the project it targets, and a platform
+     * administrator.
+     *
+     * Deliberately NOT a fourth `role:` gate. The applicant is usually a
+     * learner and the reviewer is usually not, so the same route has to serve
+     * both; ownership is the only rule that covers it, and it is checked here
+     * rather than on the route.
+     *
+     * A caller who is none of the three gets 403 with a stable code — the
+     * application id came from somewhere, so pretending it does not exist
+     * would just be confusing.
+     */
+    public function forViewer(Application $application, User $actor): Application
+    {
+        $isApplicant = (int) $application->applicant_id === (int) $actor->id;
+
+        $isProjectOwner = $application->project !== null
+            && (int) $application->project->owner_id === (int) $actor->id;
+
+        if ($isApplicant || $isProjectOwner || $actor->hasRole('admin')) {
+            return $application;
+        }
+
+        throw new ApplicationException(
+            'You are not authorized to view this application.',
+            403,
+            'APPLICATION_VIEW_FORBIDDEN',
+            ['application_id' => $application->id],
+        );
+    }
+
     // -----------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------

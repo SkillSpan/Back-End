@@ -3,6 +3,7 @@
 namespace App\Services\Projects;
 
 use App\Exceptions\ProjectException;
+use App\Models\Application;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
 use App\Models\Organization;
@@ -10,6 +11,7 @@ use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
 use App\Models\ProjectRequiredSkill;
 use App\Models\ProjectRole;
+use App\Models\ProjectTeamMember;
 use App\Models\User;
 use App\Traits\AuditsActions;
 use Illuminate\Support\Facades\DB;
@@ -288,6 +290,133 @@ class ProjectLifecycleService
     }
 
     /**
+     * Clone a project the actor manages into a NEW draft.
+     *
+     * A clone is the SAME project again, not a new one: the type, career role,
+     * required skills, roles and eligibility constraints are copied verbatim,
+     * and ownership stays with the source's owner and organization — an
+     * administrator cloning a company's project produces another project for
+     * THAT company, never one of their own.
+     *
+     * Three things are deliberately NOT copied:
+     *
+     *   - `status` — a clone always starts as `draft`, whatever the source is.
+     *     Cloning an `open` project must not silently publish a second one.
+     *   - `version` — back to 1, because the clone's matching snapshot is its
+     *     own.
+     *   - the review bookkeeping (`approved_by`, `approved_at`, …) — none of it
+     *     is true of a project that has never been reviewed.
+     *
+     * The dates ARE copied, which is why the caller may override them: a clone
+     * of a project that ran last term needs new dates, and making the client
+     * re-send the whole payload just to move three dates would defeat the point
+     * of the endpoint.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function clone(
+        Project $source,
+        User $actor,
+        array $data = [],
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        // Reuses the management rule rather than inventing one: whoever may
+        // edit a project may copy it, and nobody else.
+        $this->assertMayManage($source, $actor);
+
+        $copy = DB::transaction(function () use ($source, $data): Project {
+            $project = new Project($source->only(self::WRITABLE_ATTRIBUTES));
+
+            $project->title = $this->clonedTitle($source, $data['title'] ?? null);
+
+            // Only the fields a re-run genuinely needs to move. Everything else
+            // comes from the source, so the client cannot use `clone` to rewrite
+            // a project it is not allowed to edit.
+            foreach (['capacity', 'start_date', 'end_date', 'application_deadline'] as $field) {
+                if (array_key_exists($field, $data) && $data[$field] !== null) {
+                    $project->{$field} = $data[$field];
+                }
+            }
+
+            $project->owner_id = $source->owner_id;
+            $project->organization_id = $source->organization_id;
+            $project->status = Project::STATUS_DRAFT;
+            $project->version = 1;
+
+            $project->save();
+
+            $this->syncRequiredSkills($project, $source->requiredSkills
+                ->map(fn (ProjectRequiredSkill $skill) => [
+                    'skill_id' => $skill->skill_id,
+                    'minimum_required_level' => $skill->minimum_level,
+                    'is_critical_entry' => (bool) $skill->is_critical_entry,
+                ])
+                ->all());
+
+            $this->syncRoles($project, $source->projectRoles
+                ->map(fn (ProjectRole $role) => [
+                    'title' => $role->title,
+                    'description' => $role->description,
+                    'is_active' => (bool) $role->is_active,
+                ])
+                ->all());
+
+            $this->syncEligibilityConstraints($project, $source->eligibilityConstraints
+                ->map(fn (ProjectEligibilityConstraint $constraint) => [
+                    'constraint_type' => $constraint->constraint_type,
+                    'value' => $constraint->value,
+                ])
+                ->all());
+
+            // Same two guards a create runs, so a clone can never be born in a
+            // state the create endpoint would have refused.
+            $this->assertRequiredSkillsBelongToCareerRole($project);
+            $this->assertDateOrdering($project);
+
+            return $project;
+        });
+
+        $this->audit(
+            $actor->id,
+            'project.cloned',
+            'project',
+            $copy->id,
+            ['source_project_id' => $source->id],
+            [
+                'status' => $copy->status,
+                'type' => $copy->type,
+                'organization_id' => $copy->organization_id,
+                'version' => $copy->version,
+            ],
+            'project_lifecycle',
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+
+        return $this->forResponse($copy);
+    }
+
+    /**
+     * The clone's title: the caller's, or the source's with a `(copy)` suffix.
+     *
+     * Truncated to the column's 255 characters AFTER the suffix is appended, so
+     * a long source title can never produce a title the database rejects.
+     */
+    private function clonedTitle(Project $source, mixed $requested): string
+    {
+        $title = is_string($requested) ? trim($requested) : '';
+
+        if ($title === '') {
+            $title = trim((string) $source->title).' (copy)';
+        }
+
+        return mb_substr($title, 0, 255);
+    }
+
+    /**
      * Submit for review: draft | changes_requested → submitted.
      *
      * A project that is not complete is NOT submitted — the status is left
@@ -403,6 +532,447 @@ class ProjectLifecycleService
     }
 
     /**
+     * Close applications and move into team selection: open → selection.
+     *
+     * This is the edge `Project::TRANSITIONS` has always declared and that
+     * nothing could reach until now. It is also what the team-assignment
+     * endpoint calls on its first assignment, so a project that is being
+     * staffed stops accepting applications in the same request that starts
+     * staffing it.
+     */
+    public function beginSelection(
+        Project $project,
+        User $actor,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_SELECTION);
+
+        return $this->transition($project, $actor, Project::STATUS_SELECTION, null, 'project.selection_started', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Kick off the work: selection → active.
+     *
+     * A project with nobody on its team cannot start. Putting an empty project
+     * into `active` would mark it as live work that no one is doing, and the
+     * capacity policy would have nothing to count against `capacity`.
+     */
+    public function start(
+        Project $project,
+        User $actor,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_ACTIVE);
+        $this->assertTeamAssigned($project);
+
+        return $this->transition($project, $actor, Project::STATUS_ACTIVE, null, 'project.started', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Put a project back on the market without losing its team: selection → open.
+     *
+     * A company that moved to selection and could not fill its roles should be
+     * able to take applications again. The team is deliberately kept: the
+     * people already chosen stay chosen, and the project simply accepts more
+     * applications alongside them.
+     */
+    public function reopen(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_OPEN);
+
+        return $this->transition($project, $actor, Project::STATUS_OPEN, $reason, 'project.reopened', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Turn a rejected project into a fresh draft: rejected → draft.
+     *
+     * The same row, not a copy — `clone` is the endpoint for "copy this into a
+     * new project". This one says "the idea was not refused for good; let me
+     * rework it", so the applications and reviews of the rejected version stay
+     * attached to the version they were made against.
+     */
+    public function revise(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_DRAFT);
+
+        // Back to an editable draft means a new version of the same idea; the
+        // reviewer's decision applied to the previous one.
+        return $this->transition(
+            $project,
+            $actor,
+            Project::STATUS_DRAFT,
+            $reason,
+            'project.revised',
+            ['version' => ((int) $project->version) + 1],
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+    }
+
+    /**
+     * Close the project as done: active / under review → completed.
+     *
+     * Nothing could reach `completed` before, which made "archive a finished
+     * project" a button with no path behind it. Completing is the company's own
+     * statement that the work is over; it is not a review step.
+     */
+    public function complete(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_COMPLETED);
+
+        return $this->transition($project, $actor, Project::STATUS_COMPLETED, $reason, 'project.completed', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Stop a live project the company owns: → cancelled.
+     *
+     * A SEPARATE METHOD FROM `cancel()` ON PURPOSE
+     * --------------------------------------------
+     * `cancel()` below is the administrator's moderation act and answers a
+     * different question: it may retire anything that is not already final,
+     * including a `draft` that never went out. This one is an owner closing a
+     * project that is already in front of people, so it is narrower on purpose —
+     * `open`, `selection`, `active`, `under_review` only. A draft is cancelled by
+     * not submitting it, and a finished project is archived rather than
+     * cancelled, because cancelling it would rewrite what happened.
+     *
+     * Folding the two into one method would have to relax the admin rule or
+     * widen the owner's; either way one caller would silently get the other's
+     * semantics.
+     */
+    public function cancelByOwner(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_CANCELLED);
+
+        if (! in_array($project->status, self::CANCELLABLE_STATUSES, true)) {
+            throw new ProjectException(
+                'A project can only be cancelled while it is open, in selection, active or under review.',
+                422,
+                'PROJECT_NOT_CANCELLABLE',
+                [
+                    'project_id' => $project->id,
+                    'status' => $project->status,
+                    'cancellable_statuses' => self::CANCELLABLE_STATUSES,
+                ],
+            );
+        }
+
+        // Open applications to a project that no longer exists are noise in
+        // every applicant's list, and the decision has already been made.
+        //
+        // ORDER MATTERS. The status change is the act that can fail (a
+        // concurrent request may have moved the project), so it is claimed
+        // FIRST and the applications are only withdrawn once it succeeded —
+        // otherwise a rejected cancel would still have closed every applicant's
+        // row. The count is read before the claim purely so the audit row can
+        // say how many were affected; the write itself happens after.
+        $pending = Application::query()
+            ->where('project_id', $project->id)
+            ->whereIn('status', [Application::STATUS_SUBMITTED, Application::STATUS_SHORTLISTED, Application::STATUS_WAITLISTED]);
+
+        $affected = (clone $pending)->count();
+
+        return DB::transaction(function () use ($project, $actor, $reason, $requestId, $ipAddress, $userAgent, $pending, $affected) {
+            $cancelled = $this->transition(
+                $project,
+                $actor,
+                Project::STATUS_CANCELLED,
+                $reason,
+                'project.cancelled',
+                [],
+                $requestId,
+                $ipAddress,
+                $userAgent,
+                ['cancelled_applications' => $affected],
+            );
+
+            $pending->update(['status' => Application::STATUS_WITHDRAWN]);
+
+            return $cancelled;
+        });
+    }
+
+    /**
+     * File a finished project away: completed / cancelled / rejected → archived.
+     *
+     * Archiving is the last move and changes nothing but visibility; it is
+     * allowed from the three states a company has actually finished with, so
+     * the "Archived" tab is reachable without an administrator.
+     */
+    public function archive(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_ARCHIVED);
+
+        return $this->transition($project, $actor, Project::STATUS_ARCHIVED, $reason, 'project.archived', [], $requestId, $ipAddress, $userAgent);
+    }
+
+    /**
+     * The management rule, exposed so other project services can apply exactly
+     * this one instead of restating it.
+     *
+     * `ProjectTeamService` needs it: whoever may edit a project may staff it,
+     * and a second copy of "owner or platform admin" is a rule that will drift.
+     */
+    public function assertMayManageProject(Project $project, User $actor): void
+    {
+        $this->assertMayManage($project, $actor);
+    }
+
+    /**
+     * The same rule as a question rather than a throw.
+     *
+     * `assertMayManage()` is right when the answer is "refuse this request".
+     * It is wrong when the answer is "show or hide something" — an invitation
+     * the caller may not see must be a 403, not a crash, and a caller who is
+     * neither the invitee nor a manager needs the predicate to decide.
+     */
+    public function mayManageProject(Project $project, User $actor): bool
+    {
+        return $this->isPlatformAdmin($actor)
+            || (int) $project->owner_id === (int) $actor->id;
+    }
+
+    /**
+     * Record a team change in the same audit trail as the lifecycle moves.
+     *
+     * Staffing is not a status transition, so it cannot reuse `transition()`,
+     * but it is exactly the kind of act that has to be attributable later:
+     * who put this person on the team, and when. Exposing one method keeps the
+     * audit shape in a single place instead of letting the team service write
+     * its own rows.
+     *
+     * @param  array<string, mixed>  $after
+     */
+    public function auditTeamChange(
+        ?Project $project,
+        User $actor,
+        string $action,
+        array $after = [],
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): void {
+        $this->audit(
+            $actor->id,
+            $action,
+            'project',
+            $project?->id,
+            null,
+            $after,
+            'project_team',
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+    }
+
+    /**
+     * At least one active team member must exist before a project can start.
+     */
+    private function assertTeamAssigned(Project $project): void
+    {
+        $members = ProjectTeamMember::query()
+            ->whereHas('team', fn ($query) => $query->where('project_id', $project->id))
+            ->where('assignment_state', 'active')
+            ->count();
+
+        if ($members > 0) {
+            return;
+        }
+
+        throw new ProjectException(
+            'A project cannot start before its team is assigned.',
+            422,
+            'PROJECT_TEAM_EMPTY',
+            ['project_id' => $project->id],
+        );
+    }
+
+    /**
+     * Every lifecycle move the API can actually execute, as
+     * `from status => [to status => the service method that performs it]`.
+     *
+     * This is NOT a second copy of `Project::TRANSITIONS`. The model says which
+     * edges the workflow ALLOWS; this map says which of those edges an endpoint
+     * exists for. They are different questions, and today they have different
+     * answers: `open → selection` is allowed by the model but nothing calls it.
+     *
+     * Keeping the map here means the generic `POST /projects/{id}/transitions`
+     * endpoint can never do something the five explicit routes cannot, and
+     * `details.allowed_transitions` in a refusal is always the truth about what
+     * the caller may actually call next.
+     */
+    /**
+     * The states a company may cancel from.
+     *
+     * `draft` and `submitted` are cancelled by not sending them; a finished
+     * project is archived, not cancelled — cancelling it would rewrite what
+     * happened. Kept next to the transition map so the two cannot disagree.
+     *
+     * @var array<int, string>
+     */
+    private const CANCELLABLE_STATUSES = [
+        Project::STATUS_OPEN,
+        Project::STATUS_SELECTION,
+        Project::STATUS_ACTIVE,
+        Project::STATUS_UNDER_REVIEW,
+    ];
+
+    private const EXECUTABLE_TRANSITIONS = [
+        Project::STATUS_DRAFT => [
+            Project::STATUS_SUBMITTED => 'submit',
+        ],
+        Project::STATUS_SUBMITTED => [
+            Project::STATUS_APPROVED => 'approve',
+            Project::STATUS_CHANGES_REQUESTED => 'requestChanges',
+            Project::STATUS_REJECTED => 'reject',
+        ],
+        Project::STATUS_CHANGES_REQUESTED => [
+            Project::STATUS_SUBMITTED => 'submit',
+        ],
+        Project::STATUS_APPROVED => [
+            Project::STATUS_OPEN => 'open',
+        ],
+        Project::STATUS_OPEN => [
+            Project::STATUS_SELECTION => 'beginSelection',
+            Project::STATUS_CANCELLED => 'cancel',
+        ],
+        Project::STATUS_SELECTION => [
+            Project::STATUS_ACTIVE => 'start',
+            Project::STATUS_OPEN => 'reopen',
+            Project::STATUS_CANCELLED => 'cancel',
+        ],
+        Project::STATUS_ACTIVE => [
+            Project::STATUS_COMPLETED => 'complete',
+            Project::STATUS_CANCELLED => 'cancel',
+        ],
+        Project::STATUS_UNDER_REVIEW => [
+            Project::STATUS_COMPLETED => 'complete',
+            Project::STATUS_CANCELLED => 'cancel',
+        ],
+        Project::STATUS_REJECTED => [
+            Project::STATUS_DRAFT => 'revise',
+            Project::STATUS_ARCHIVED => 'archive',
+        ],
+        Project::STATUS_COMPLETED => [
+            Project::STATUS_ARCHIVED => 'archive',
+        ],
+        Project::STATUS_CANCELLED => [
+            Project::STATUS_ARCHIVED => 'archive',
+        ],
+    ];
+
+    /**
+     * Move a project to a named status through the ONE service method that
+     * owns that edge.
+     *
+     * A dispatcher, not a sixth implementation: every branch calls the same
+     * method the dedicated route calls, so authorization, completeness, the
+     * audit action and the transition guard are identical no matter which URL
+     * the client used. A client that only knows this endpoint cannot reach a
+     * state the dedicated routes would have refused.
+     *
+     * `reason` is forwarded where the target needs one, and is IGNORED where it
+     * does not — a reason on `submit` is meaningless, and silently recording it
+     * as a decision would be worse than dropping it.
+     */
+    public function transitionTo(
+        Project $project,
+        User $actor,
+        string $to,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $method = self::EXECUTABLE_TRANSITIONS[$project->status][$to] ?? null;
+
+        if ($method === null) {
+            throw new ProjectException(
+                'That lifecycle transition is not allowed.',
+                422,
+                'PROJECT_INVALID_TRANSITION',
+                [
+                    'project_id' => $project->id,
+                    'status' => $project->status,
+                    'requested_status' => $to,
+                    // The executable set, not the model's — this is what the
+                    // client can actually call.
+                    'allowed_transitions' => array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []),
+                ],
+            );
+        }
+
+        return match ($method) {
+            'submit' => $this->submit($project, $actor, $requestId, $ipAddress, $userAgent),
+            'approve' => $this->approve($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'requestChanges' => $this->requestChanges($project, $actor, (string) $reason, $requestId, $ipAddress, $userAgent),
+            'reject' => $this->reject($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'open' => $this->open($project, $actor, $requestId, $ipAddress, $userAgent),
+            'beginSelection' => $this->beginSelection($project, $actor, $requestId, $ipAddress, $userAgent),
+            'start' => $this->start($project, $actor, $requestId, $ipAddress, $userAgent),
+            'reopen' => $this->reopen($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'revise' => $this->revise($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'complete' => $this->complete($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'cancel' => $this->cancelByOwner($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'archive' => $this->archive($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+        };
+    }
+
+    /**
+     * The statuses this project can move to right now, i.e. the keys of its
+     * row in EXECUTABLE_TRANSITIONS.
+     *
+     * @return array<int, string>
+     */
+    public function executableTransitions(Project $project): array
+    {
+        return array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []);
+    }
+
+    /**
      * Retire a project: cancel it.
      *
      * This is the closet thing the lifecycle has to a delete, and it is
@@ -489,7 +1059,16 @@ class ProjectLifecycleService
      * cannot both apply a transition. The loser gets a 409 describing the real
      * current state instead of silently re-running the side effects.
      *
-     * @param  array<string, mixed>  $extra  extra columns written with the status
+     * @param  array<string, mixed>  $extra  extra COLUMNS written with the status
+     * @param  array<string, mixed>  $auditExtra  facts worth keeping in the audit
+     *                                            row that are NOT columns on
+     *                                            `projects` (e.g. how many
+     *                                            applications were withdrawn).
+     *                                            Kept separate from `$extra`
+     *                                            because that one goes straight
+     *                                            into an UPDATE: a non-column
+     *                                            key there is a SQL error, not a
+     *                                            harmless extra.
      */
     private function transition(
         Project $project,
@@ -501,6 +1080,7 @@ class ProjectLifecycleService
         ?string $requestId = null,
         ?string $ipAddress = null,
         ?string $userAgent = null,
+        array $auditExtra = [],
     ): Project {
         $from = $project->status;
 
@@ -541,6 +1121,7 @@ class ProjectLifecycleService
                     'reason' => $reason,
                 ],
                 $extra,
+                $auditExtra,
             ),
             'project_lifecycle',
             $requestId,
