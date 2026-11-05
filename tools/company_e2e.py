@@ -92,6 +92,22 @@ def main() -> None:
     status, payload = http("GET", "/api/v1/organization/profile", company)
     check("organization profile", status, payload, (200,))
 
+    # --- reference data the project form needs ---------------------------
+    # Both of these used to block "add project": career-roles answered 403
+    # LEARNER_ONLY for a company and /rubrics did not exist at all.
+    status, payload = http("GET", "/api/v1/career-roles", company)
+    roles = payload.get("data")
+    if isinstance(roles, dict):          # paginated: {data: {data: [...], meta}}
+        roles = roles.get("data") or []
+    roles = roles or []
+    career_role_id = (roles[0] or {}).get("id") if roles else None
+    check("career roles readable by company", status, payload, (200,), f"ids={[r.get('id') for r in roles][:3]}")
+
+    status, payload = http("GET", "/api/v1/rubrics", company)
+    rubric_list = payload.get("data") or []
+    rubric_id = (rubric_list[0] or {}).get("id") if rubric_list else None
+    check("rubrics readable by company", status, payload, (200,), f"ids={[r.get('id') for r in rubric_list][:3]}")
+
     # --- create a project ------------------------------------------------
     draft = {
         "type": "company_sponsored",
@@ -100,7 +116,7 @@ def main() -> None:
         "objectives": "Prove the company journey works.",
         "difficulty": 2,
         "work_mode": "remote",
-        "career_role_id": 1,
+        "career_role_id": career_role_id,
         "capacity": 3,
         "start_date": "2026-12-01",
         "end_date": "2027-02-01",
@@ -112,9 +128,25 @@ def main() -> None:
         "required_skills": [{"skill_id": 10, "minimum_required_level": 2}],
         "roles": [{"title": "Frontend Developer", "description": "E2E role"}],
     }
-    status, payload = http("POST", "/api/v1/projects", company, draft)
-    project_id = (payload.get("data") or {}).get("id")
-    check("create project", status, payload, (200, 201), f"id={project_id}")
+    if rubric_id:
+        draft["rubric_id"] = rubric_id
+    project_id = None
+
+    # A project's required skills must be mapped to the chosen career role, and
+    # not every seeded role has a mapping. A rejected create writes nothing, so
+    # trying the next role is safe — and it mirrors what the form does when the
+    # company picks a different role.
+    tried = []
+    status, payload = 0, {}
+    for role in roles[:5]:
+        tried.append(role.get("id"))
+        draft["career_role_id"] = role.get("id")
+        status, payload = http("POST", "/api/v1/projects", company, draft)
+        project_id = (payload.get("data") or {}).get("id")
+        if project_id:
+            break
+
+    check("create project", status, payload, (200, 201), f"id={project_id} role tried={tried}")
     if not project_id:
         return
 
