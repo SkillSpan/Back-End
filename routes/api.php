@@ -444,10 +444,11 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('career-roles')->group(function () {
         Route::get('/', [CareerRoleController::class, 'index']);
         Route::get('/{id}', [CareerRoleController::class, 'show']);
-        // Still learner-only: this one is not plain reference data, it answers
-        // in terms of the caller's own skill levels.
-        Route::get('/{id}/skills', [CareerRoleController::class, 'skills'])
-            ->middleware('role:learner');
+        // Also company-readable: the payload is the role's own skill mapping
+        // (required level, importance, prerequisites), not the caller's levels.
+        // A company needs it to pick `required_skills` that the server will
+        // accept — `SkillMappedToCareerRole` rejects any skill outside this map.
+        Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
     });
 
     // The rubric versions a company may attach to a project (US-PRJ-01). The

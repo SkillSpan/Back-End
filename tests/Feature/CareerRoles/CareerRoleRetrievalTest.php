@@ -14,8 +14,9 @@ use Tests\TestCase;
 
 /**
  * US-INT-01 — the career role retrieval API
- * (GET /api/v1/career-roles, /{id}, /{id}/skills): learner-only
- * authorization, approved-only visibility, the paginator contract the
+ * (GET /api/v1/career-roles, /{id}, /{id}/skills): authorization (any active
+ * account — companies need the same reference data to publish a project),
+ * approved-only visibility, the paginator contract the
  * frontend is written against, and the decision-snapshot payload that
  * Readiness/Intelligence depend on.
  *
@@ -71,16 +72,29 @@ class CareerRoleRetrievalTest extends TestCase
         $this->getJson('/api/v1/career-roles/'.$role->id)->assertStatus(200);
     }
 
-    public function test_the_skills_view_stays_learner_only(): void
+    public function test_a_company_admin_can_read_the_role_skill_map(): void
     {
         $role = $this->approvedRole('Data Analyst');
+        $this->attachSkill($role, 'SQL', 3.0, 0.8, true);
 
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
-        // Not plain reference data: it is answered against the caller's levels.
-        $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'LEARNER_ONLY');
+        /*
+         * The payload is the role's own mapping — required level, importance,
+         * prerequisites — not the caller's levels, so a company needs it to
+         * pick `required_skills` the server will accept: SkillMappedToCareerRole
+         * rejects any skill outside this map. It used to be learner-only, which
+         * left the project form picking from the whole taxonomy and failing 422.
+         */
+        $response = $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')
+            ->assertStatus(200)
+            ->assertJsonPath('data.career_role.id', $role->id)
+            ->assertJsonPath('data.skills.0.skill_name', 'SQL');
+
+        $this->assertSame(
+            ['skill_id', 'skill_name', 'slug', 'required_level', 'importance_weight', 'is_critical', 'prerequisites'],
+            array_keys($response->json('data.skills.0')),
+        );
     }
 
     // ------------------------------------------------ index
