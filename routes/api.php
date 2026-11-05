@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
+use App\Http\Controllers\Api\RubricController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
@@ -432,15 +433,29 @@ Route::prefix('v1')->group(function () {
             ->middleware('role:admin');
     });
 
-    // Career Role Retrieval API
+    // Career Role Retrieval API.
+    //
+    // Readable by ANY active authenticated account, not learners only: a company
+    // representative cannot create a project without picking a career role
+    // (`career_role_id` is required), and the project form fills that select
+    // from this endpoint. With `role:learner` the company got 403 LEARNER_ONLY,
+    // the select came back empty and "add project" was impossible from the UI.
+    // The payload is global reference data — no learner or company records.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('career-roles')->group(function () {
-        Route::get('/', [CareerRoleController::class, 'index'])
-            ->middleware('role:learner');
-        Route::get('/{id}', [CareerRoleController::class, 'show'])
-            ->middleware('role:learner');
+        Route::get('/', [CareerRoleController::class, 'index']);
+        Route::get('/{id}', [CareerRoleController::class, 'show']);
+        // Still learner-only: this one is not plain reference data, it answers
+        // in terms of the caller's own skill levels.
         Route::get('/{id}/skills', [CareerRoleController::class, 'skills'])
             ->middleware('role:learner');
     });
+
+    // The rubric versions a company may attach to a project (US-PRJ-01). The
+    // project form treats the picker as required, so without this route the
+    // form could never be submitted.
+    Route::middleware(['auth:sanctum', 'account.active', 'role:company_admin'])
+        ->get('/rubrics', [RubricController::class, 'index'])
+        ->name('rubrics.index');
 
     // Self-service organization APIs. 'organization.approved' is the second,
     // independent line of defense against a pending/rejected organization

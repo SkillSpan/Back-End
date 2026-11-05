@@ -213,15 +213,17 @@ class CareerRoleSpecializationTest extends TestCase
         $this->getJson('/api/v1/career-roles?specialization_id=1')->assertStatus(401);
     }
 
-    public function test_non_learner_cannot_use_the_specialization_filter(): void
+    public function test_a_company_admin_can_use_the_specialization_filter(): void
     {
         $specialization = $this->specialization('Computer Science');
 
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
+        // The project form filters career roles by specialization, so a company
+        // account must be able to call this. It used to answer 403 LEARNER_ONLY,
+        // which left the "new project" form without a career role to pick.
         $this->getJson('/api/v1/career-roles?specialization_id='.$specialization->id)
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'LEARNER_ONLY');
+            ->assertStatus(200);
     }
 
     // ------------------------------------------------ baseline cross-check

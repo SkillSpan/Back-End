@@ -47,23 +47,40 @@ class CareerRoleRetrievalTest extends TestCase
         $this->getJson('/api/v1/career-roles/1/skills')->assertStatus(401);
     }
 
-    public function test_non_learner_cannot_list_career_roles(): void
+    // A company representative must be able to read career roles: `career_role_id`
+    // is required to create a project and the project form fills its select from
+    // this endpoint. While these routes were learner-only the company got
+    // 403 LEARNER_ONLY, the select was empty, and "add project" was impossible.
+    public function test_a_company_admin_can_list_career_roles(): void
     {
+        $this->approvedRole('Data Analyst');
+
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
         $this->getJson('/api/v1/career-roles')
-            ->assertStatus(403)
-            ->assertJsonPath('code', 'LEARNER_ONLY');
+            ->assertStatus(200)
+            ->assertJsonPath('success', true);
     }
 
-    public function test_non_learner_cannot_read_a_single_career_role(): void
+    public function test_a_company_admin_can_read_a_single_career_role(): void
     {
         $role = $this->approvedRole('Data Analyst');
 
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
-        $this->getJson('/api/v1/career-roles/'.$role->id)->assertStatus(403);
-        $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')->assertStatus(403);
+        $this->getJson('/api/v1/career-roles/'.$role->id)->assertStatus(200);
+    }
+
+    public function test_the_skills_view_stays_learner_only(): void
+    {
+        $role = $this->approvedRole('Data Analyst');
+
+        Sanctum::actingAs($this->createUserWithRole($this->companyRole));
+
+        // Not plain reference data: it is answered against the caller's levels.
+        $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'LEARNER_ONLY');
     }
 
     // ------------------------------------------------ index
