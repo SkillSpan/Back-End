@@ -528,6 +528,13 @@ class ProjectLifecycleService
         $this->assertMayManage($project, $actor);
         $this->assertTransition($project, Project::STATUS_OPEN);
 
+        // Opening is the last moment a bad date can be caught. `approve()`
+        // already runs this check, but a project approved days ago can expire
+        // while it waits in `approved` — and once it is `open`, editing is
+        // refused, so it would stay invisible to learners forever. See
+        // completenessGaps() for the date rules.
+        $this->assertComplete($project, 'opened');
+
         return $this->transition($project, $actor, Project::STATUS_OPEN, null, 'project.opened', [], $requestId, $ipAddress, $userAgent);
     }
 
@@ -1308,6 +1315,21 @@ class ProjectLifecycleService
         // could be opened while already past its own deadline.
         if ($project->application_deadline !== null && $project->start_date !== null && $project->application_deadline->gt($project->start_date)) {
             $gaps[] = 'application_deadline_after_start_date';
+        }
+
+        // A date already in the past makes the project permanently invisible to
+        // learners — ProjectAccessService filters on `application_deadline` and
+        // `end_date`, so `status = open` is not enough on its own. Blocking it
+        // at submit/open time is the ONLY moment it can still be fixed: once
+        // the project is open, `assertEditable()` refuses every edit, and there
+        // is no route back to draft. Without this gap a project could be
+        // approved and opened with yesterday's deadline and then be stuck.
+        if ($project->application_deadline !== null && $project->application_deadline->lt(today())) {
+            $gaps[] = 'application_deadline_in_the_past';
+        }
+
+        if ($project->end_date !== null && $project->end_date->lt(today())) {
+            $gaps[] = 'end_date_in_the_past';
         }
 
         return $gaps;
