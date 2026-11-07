@@ -95,6 +95,27 @@ class TalentDiscoveryService
     }
 
     /**
+     * The user ids of every student THIS viewer may see, ignoring pagination
+     * and filters.
+     *
+     * Used by the company's "send to all" action, which must reach exactly the
+     * people the list would show — never a wider set. Delegating to
+     * `permittedQuery()` keeps that true by construction: if a future rule
+     * hides somebody from the list, it hides them from the broadcast too.
+     *
+     * @return array<int, int>
+     */
+    public function visibleStudentIds(User $viewer): array
+    {
+        return $this->permittedQuery($viewer)
+            ->with('user:id')
+            ->get()
+            ->map(fn (StudentProfile $profile) => (int) $profile->user_id)
+            ->values()
+            ->all();
+    }
+
+    /**
      * One student's detail payload.
      *
      * A student the viewer may not see is reported as **404, not 403**: a 403
@@ -380,9 +401,43 @@ class TalentDiscoveryService
             'contactable' => (bool) $profile->consent_given,
             'readiness' => [
                 'score' => $score === null ? null : round((float) $score, 2),
-                'band' => $profile->latest_readiness_band,
+                'band' => $this->bandFor($score === null ? null : (float) $score, $profile->latest_readiness_band),
             ],
         ];
+    }
+
+    /**
+     * The stored band, or the band the score falls into.
+     *
+     * `readiness_results.band` is nullable (migration
+     * 2026_08_13_000001_make_readiness_band_nullable), so a row can carry a
+     * real score with no band. Both talent screens treat a null band as "not
+     * rated yet", which hid a genuine 29.35 behind that label — the student HAD
+     * been scored, the band simply was not stored.
+     *
+     * The score is authoritative, so the band is derived from it using the SAME
+     * thresholds the readiness engine uses (config/readiness.php). Never a
+     * second copy of the numbers: a tuned boundary must move both together.
+     */
+    private function bandFor(?float $score, ?string $band): ?string
+    {
+        if ($band !== null && $band !== '') {
+            return $band;
+        }
+
+        if ($score === null) {
+            return null;
+        }
+
+        foreach (config('readiness.bands', []) as $name => $range) {
+            if ($score >= (float) $range['min'] && $score <= (float) $range['max']) {
+                return $name;
+            }
+        }
+
+        // Out of range (a score above 100 or below 0): report no band rather
+        // than assert one the engine would not have produced.
+        return null;
     }
 
     /**

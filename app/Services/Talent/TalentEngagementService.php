@@ -9,6 +9,7 @@ use App\Models\TalentList;
 use App\Models\TalentListCandidate;
 use App\Models\TalentNote;
 use App\Models\User;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -390,12 +391,15 @@ class TalentEngagementService
     // -----------------------------------------------------------------
 
     /**
-     * Record a request to contact a candidate.
+     * Record a message from this company to a candidate.
      *
-     * A second pending request to the same person from the same company is
-     * refused: the learner already has one unanswered request, and piling more
-     * on is not a feature. An ACCEPTED or DECLINED one does not block a new
-     * request — circumstances change.
+     * ⚠️ A previous version refused a second request while one was still
+     * `pending`, on the theory that "the learner already has an unanswered
+     * request". In practice NOTHING could ever move a request out of `pending`
+     * — there is no learner accept/decline endpoint and no company cancel — so
+     * the first message locked that candidate out of contact forever. The
+     * company may now write as often as it needs to; every message is its own
+     * row and the learner sees them in order.
      */
     public function requestContact(
         Organization $organization,
@@ -405,21 +409,6 @@ class TalentEngagementService
     ): TalentContactRequest {
         $this->assertVisible($actor, $studentId);
 
-        $pending = TalentContactRequest::query()
-            ->where('organization_id', $organization->id)
-            ->where('student_id', $studentId)
-            ->where('status', TalentContactRequest::STATUS_PENDING)
-            ->exists();
-
-        if ($pending) {
-            throw new TalentException(
-                'A contact request to this candidate is already pending.',
-                422,
-                'TALENT_CONTACT_PENDING',
-                ['student_id' => $studentId],
-            );
-        }
-
         return TalentContactRequest::create([
             'organization_id' => $organization->id,
             'student_id' => $studentId,
@@ -427,6 +416,58 @@ class TalentEngagementService
             'message' => $message,
             'status' => TalentContactRequest::STATUS_PENDING,
         ])->fresh(['student:id,name', 'requester:id,name']);
+    }
+
+    /**
+     * Send the same message to every student this company may see.
+     *
+     * One row per student rather than one broadcast row: the learner inbox is a
+     * list of messages TO ME, and it must not have to know that a message was
+     * addressed to a crowd. It also means a student who becomes visible later
+     * simply was not part of this send, which is the honest outcome.
+     *
+     * Returns the number of recipients. Zero is a legitimate answer (a company
+     * that can see nobody), not an error.
+     */
+    public function broadcastContact(Organization $organization, User $actor, string $message): int
+    {
+        $studentIds = $this->talent->visibleStudentIds($actor);
+
+        if ($studentIds === []) {
+            return 0;
+        }
+
+        $now = now();
+        $rows = array_map(fn (int $studentId) => [
+            'organization_id' => $organization->id,
+            'student_id' => $studentId,
+            'requested_by' => $actor->id,
+            'message' => $message,
+            'status' => TalentContactRequest::STATUS_PENDING,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ], $studentIds);
+
+        TalentContactRequest::insert($rows);
+
+        return count($rows);
+    }
+
+    /**
+     * The messages THIS learner has received from companies, newest first.
+     *
+     * Read-only by design: the learner sees who wrote and what they said, and
+     * the company's e-mail is never included. There is no accept/decline —
+     * a message is a message, not a request the learner has to answer.
+     */
+    public function messagesFor(User $student, int $perPage = 20): LengthAwarePaginator
+    {
+        return TalentContactRequest::query()
+            ->where('student_id', $student->id)
+            ->with(['organization:id,name', 'requester:id,name'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate($perPage);
     }
 
     // -----------------------------------------------------------------

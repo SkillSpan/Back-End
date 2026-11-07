@@ -141,7 +141,7 @@ class TalentDiscoveryTest extends TestCase
         return $user;
     }
 
-    private function readiness(User $student, float $score = 70.0, string $band = 'near_ready'): ReadinessResult
+    private function readiness(User $student, float $score = 70.0, ?string $band = 'near_ready'): ReadinessResult
     {
         $profile = StudentProfile::where('user_id', $student->id)->firstOrFail();
 
@@ -315,6 +315,77 @@ class TalentDiscoveryTest extends TestCase
                 'success', 'message', 'data', 'request_id',
                 'meta' => ['current_page', 'last_page', 'per_page', 'total'],
             ]);
+    }
+
+    /**
+     * `readiness_results.band` is nullable, so a row can carry a real score with
+     * no band. The talent screens read a null band as "not rated yet", which
+     * hid a genuine score — the student HAD been scored, the band was just not
+     * stored. The score is authoritative, so the band is derived from it with
+     * the readiness engine's own thresholds.
+     */
+    public function test_a_stored_score_without_a_band_still_reports_the_band_it_falls_into(): void
+    {
+        $admin = $this->companyAdmin();
+        $student = $this->student('Banded By Score');
+        $this->readiness($student, 29.35, null);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/talent')
+            ->assertOk()
+            ->assertJsonPath('data.0.readiness.score', 29.35)
+            // 0-39.99 is foundation_needed, per config/readiness.php.
+            ->assertJsonPath('data.0.readiness.band', 'foundation_needed');
+    }
+
+    public function test_each_band_boundary_is_derived_the_same_way_as_the_engine(): void
+    {
+        $admin = $this->companyAdmin();
+
+        $cases = [
+            [0.0, 'foundation_needed'],
+            [39.99, 'foundation_needed'],
+            [40.0, 'developing'],
+            [59.99, 'developing'],
+            [60.0, 'moderate_readiness'],
+            [74.99, 'moderate_readiness'],
+            [75.0, 'near_ready'],
+            [89.99, 'near_ready'],
+            [90.0, 'highly_ready'],
+            [100.0, 'highly_ready'],
+        ];
+
+        foreach ($cases as $index => [$score, $expected]) {
+            $student = $this->student('Boundary '.$index);
+            $this->readiness($student, $score, null);
+        }
+
+        Sanctum::actingAs($admin);
+
+        $rows = collect($this->getJson('/api/v1/talent?per_page=50')->json('data'))
+            ->keyBy('name');
+
+        foreach ($cases as $index => [$score, $expected]) {
+            $this->assertSame(
+                $expected,
+                $rows['Boundary '.$index]['readiness']['band'],
+                "score {$score} should band as {$expected}",
+            );
+        }
+    }
+
+    public function test_a_student_with_no_readiness_row_has_no_band(): void
+    {
+        $admin = $this->companyAdmin();
+        $this->student('Unscored');
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/talent')
+            ->assertOk()
+            ->assertJsonPath('data.0.readiness.score', null)
+            ->assertJsonPath('data.0.readiness.band', null);
     }
 
     public function test_a_student_who_did_not_consent_is_absent(): void

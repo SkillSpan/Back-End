@@ -52,6 +52,11 @@ class CareerRoleController extends Controller
         // Present-and-valid, or null when the filter was omitted.
         $specializationId = $request->validated('specialization_id');
 
+        // Same contract for the free-text filter: trimmed, and null when it was
+        // omitted or is nothing but whitespace, so `?search=` keeps the original
+        // unfiltered behaviour instead of returning an empty page.
+        $search = trim((string) $request->validated('search', ''));
+
         $specialization = $specializationId !== null
             ? Specialization::find($specializationId)
             : null;
@@ -67,6 +72,24 @@ class CareerRoleController extends Controller
          */
         $careerRoles = CareerRole::where('status', 'approved')
             ->withCount('roleSkills as skills_count')
+            /*
+             * Server-side search, applied to the WHOLE approved set before
+             * pagination. The learner page used to filter the page it had
+             * already loaded, so a role sitting on page 2 was unreachable.
+             *
+             * LIKE is used rather than a full-text index because the catalog is
+             * small and the `%term%` semantics are what a search box implies;
+             * escaping `%` and `_` keeps a literal search for those characters
+             * from turning into a wildcard.
+             */
+            ->when(
+                $search !== '',
+                fn ($query) => $query->where(
+                    fn ($searchQuery) => $searchQuery
+                        ->where('title', 'like', '%'.$this->escapeLike($search).'%')
+                        ->orWhere('description', 'like', '%'.$this->escapeLike($search).'%'),
+                ),
+            )
             ->when(
                 $specialization !== null && ! $specialization->isFreeTrack(),
                 fn ($query) => $query->whereHas(
@@ -84,6 +107,18 @@ class CareerRoleController extends Controller
             'data' => $careerRoles,
             'request_id' => $requestId,
         ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    /**
+     * Neutralise LIKE wildcards in user input.
+     *
+     * Without this, searching for `_` or `%` would match every row, because
+     * both are wildcards inside a LIKE pattern. `\` itself has to be escaped
+     * first, otherwise it would escape the escapes we add.
+     */
+    private function escapeLike(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $value);
     }
 
     /**

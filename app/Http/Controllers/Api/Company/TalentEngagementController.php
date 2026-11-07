@@ -486,6 +486,45 @@ class TalentEngagementController extends Controller
         ], 201, ['X-Request-ID' => $requestId]);
     }
 
+    /**
+     * POST /api/v1/talent/contact-all
+     *
+     * Send one message to EVERY student this company may see.
+     *
+     * `sent_to` is the number of students actually reached, which is the only
+     * thing the caller needs to report back. It can legitimately be 0 — a
+     * verified company that can currently see nobody.
+     */
+    public function storeContactAll(StoreTalentContactRequest $request): JsonResponse
+    {
+        $requestId = $this->requestId($request);
+
+        $organization = $this->resolveOrganization($request);
+
+        if ($organization === null) {
+            return $this->organizationDenied($request, $requestId);
+        }
+
+        try {
+            $sentTo = $this->engagement->broadcastContact(
+                $organization,
+                $request->user(),
+                (string) $request->validated()['message'],
+            );
+        } catch (Throwable $e) {
+            return $this->unexpected($e, $requestId, ['user_id' => $request->user()->id]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $sentTo === 1
+                ? 'Message sent to 1 candidate.'
+                : "Message sent to {$sentTo} candidates.",
+            'data' => ['sent_to' => $sentTo],
+            'request_id' => $requestId,
+        ], 201, ['X-Request-ID' => $requestId]);
+    }
+
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------

@@ -35,6 +35,9 @@ use Illuminate\Validation\Rule;
  * with `after_or_equal` here: on an update a field may be omitted and taken
  * from the stored row, which a request-level comparison against a missing
  * sibling cannot see. The service validates ordering against the final state.
+ *
+ * The one exception is the LOWER bound: every date must be today or later, and
+ * that needs no sibling, so it is enforced here — see the note on the rules.
  */
 class StoreProjectRequest extends FormRequest
 {
@@ -114,9 +117,17 @@ class StoreProjectRequest extends FormRequest
             'schedule' => ['sometimes', 'nullable', 'string', 'max:255'],
             'capacity' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'min_team_size' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
-            'start_date' => ['sometimes', 'nullable', 'date'],
-            'end_date' => ['sometimes', 'nullable', 'date'],
-            'application_deadline' => ['sometimes', 'nullable', 'date'],
+            // A project that is already past its own dates is invisible to
+            // every learner even while its status reads `open`, because
+            // ProjectAccessService drops expired rows. Allowing such a date
+            // through here produced exactly that trap: a project could be
+            // submitted, approved and opened with `application_deadline` in
+            // the past, and NOTHING could fix it afterwards — editing is only
+            // permitted in `draft` / `changes_requested`, so the row was
+            // permanently dead. Dates are therefore rejected at the door.
+            'start_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
+            'end_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
+            'application_deadline' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
             'confidentiality' => ['sometimes', 'string', Rule::in(['public', 'restricted'])],
             'organization_id' => ['sometimes', 'nullable', 'integer', 'gt:0', 'exists:organizations,id'],
 

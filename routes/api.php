@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
+use App\Http\Controllers\Api\LearnerMessageController;
 use App\Http\Controllers\Api\MentorStudentController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
+use App\Http\Controllers\Api\RubricController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
@@ -417,6 +419,11 @@ Route::prefix('v1')->group(function () {
             Route::delete('/skills/{skill}', [SkillsController::class, 'removeFromLearner'])
                 ->name('learner.skills.destroy')
                 ->whereNumber('skill');
+
+            // Messages from companies. READ-ONLY: a message is not a request
+            // the learner has to answer, and there is nothing to accept.
+            Route::get('/messages', [LearnerMessageController::class, 'index'])
+                ->name('learner.messages.index');
         });
 
     // Evidence Submission API
@@ -432,15 +439,30 @@ Route::prefix('v1')->group(function () {
             ->middleware('role:admin');
     });
 
-    // Career Role Retrieval API
+    // Career Role Retrieval API.
+    //
+    // Readable by ANY active authenticated account, not learners only: a company
+    // representative cannot create a project without picking a career role
+    // (`career_role_id` is required), and the project form fills that select
+    // from this endpoint. With `role:learner` the company got 403 LEARNER_ONLY,
+    // the select came back empty and "add project" was impossible from the UI.
+    // The payload is global reference data — no learner or company records.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('career-roles')->group(function () {
-        Route::get('/', [CareerRoleController::class, 'index'])
-            ->middleware('role:learner');
-        Route::get('/{id}', [CareerRoleController::class, 'show'])
-            ->middleware('role:learner');
-        Route::get('/{id}/skills', [CareerRoleController::class, 'skills'])
-            ->middleware('role:learner');
+        Route::get('/', [CareerRoleController::class, 'index']);
+        Route::get('/{id}', [CareerRoleController::class, 'show']);
+        // Also company-readable: the payload is the role's own skill mapping
+        // (required level, importance, prerequisites), not the caller's levels.
+        // A company needs it to pick `required_skills` that the server will
+        // accept — `SkillMappedToCareerRole` rejects any skill outside this map.
+        Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
     });
+
+    // The rubric versions a company may attach to a project (US-PRJ-01). The
+    // project form treats the picker as required, so without this route the
+    // form could never be submitted.
+    Route::middleware(['auth:sanctum', 'account.active', 'role:company_admin'])
+        ->get('/rubrics', [RubricController::class, 'index'])
+        ->name('rubrics.index');
 
     // Self-service organization APIs. 'organization.approved' is the second,
     // independent line of defense against a pending/rejected organization
@@ -513,6 +535,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/candidates/{student}/contact', [TalentEngagementController::class, 'storeContact'])
                 ->whereNumber('student')
                 ->name('talent.candidates.contact');
+
+            // Same message to every student this company may see. Registered
+            // BEFORE `/{student}` so the literal cannot be read as an id.
+            Route::post('/contact-all', [TalentEngagementController::class, 'storeContactAll'])
+                ->name('talent.contact.all');
 
             Route::get('/{student}', [TalentDiscoveryController::class, 'show'])
                 ->whereNumber('student');
