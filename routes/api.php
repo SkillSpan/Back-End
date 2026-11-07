@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
+use App\Http\Controllers\Api\LearnerMessageController;
 use App\Http\Controllers\Api\MentorStudentController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
@@ -418,6 +419,11 @@ Route::prefix('v1')->group(function () {
             Route::delete('/skills/{skill}', [SkillsController::class, 'removeFromLearner'])
                 ->name('learner.skills.destroy')
                 ->whereNumber('skill');
+
+            // Messages from companies. READ-ONLY: a message is not a request
+            // the learner has to answer, and there is nothing to accept.
+            Route::get('/messages', [LearnerMessageController::class, 'index'])
+                ->name('learner.messages.index');
         });
 
     // Evidence Submission API
@@ -529,6 +535,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/candidates/{student}/contact', [TalentEngagementController::class, 'storeContact'])
                 ->whereNumber('student')
                 ->name('talent.candidates.contact');
+
+            // Same message to every student this company may see. Registered
+            // BEFORE `/{student}` so the literal cannot be read as an id.
+            Route::post('/contact-all', [TalentEngagementController::class, 'storeContactAll'])
+                ->name('talent.contact.all');
 
             Route::get('/{student}', [TalentDiscoveryController::class, 'show'])
                 ->whereNumber('student');

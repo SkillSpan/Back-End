@@ -463,7 +463,16 @@ class TalentEngagementTest extends TestCase
         $this->assertSame(1, TalentContactRequest::where('organization_id', $organization->id)->count());
     }
 
-    public function test_a_second_pending_request_is_refused(): void
+    /**
+     * A company may write to the same candidate more than once.
+     *
+     * It used to be refused with TALENT_CONTACT_PENDING, on the theory that the
+     * learner already had an unanswered request. But nothing could ever answer
+     * it — there is no learner accept/decline and no company cancel — so the
+     * first message locked that candidate out permanently. Now each message is
+     * its own row.
+     */
+    public function test_a_second_message_to_the_same_candidate_is_allowed(): void
     {
         $organization = $this->organization();
         $admin = $this->companyAdmin($organization);
@@ -480,8 +489,10 @@ class TalentEngagementTest extends TestCase
         Sanctum::actingAs($admin);
 
         $this->postJson("/api/v1/talent/candidates/{$student->id}/contact", ['message' => 'Second.'])
-            ->assertStatus(422)
-            ->assertJsonPath('code', 'TALENT_CONTACT_PENDING');
+            ->assertStatus(201)
+            ->assertJsonPath('data.message', 'Second.');
+
+        $this->assertSame(2, TalentContactRequest::where('organization_id', $organization->id)->count());
     }
 
     public function test_a_declined_request_does_not_block_a_new_one(): void

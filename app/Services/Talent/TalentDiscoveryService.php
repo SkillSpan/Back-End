@@ -95,6 +95,27 @@ class TalentDiscoveryService
     }
 
     /**
+     * The user ids of every student THIS viewer may see, ignoring pagination
+     * and filters.
+     *
+     * Used by the company's "send to all" action, which must reach exactly the
+     * people the list would show — never a wider set. Delegating to
+     * `permittedQuery()` keeps that true by construction: if a future rule
+     * hides somebody from the list, it hides them from the broadcast too.
+     *
+     * @return array<int, int>
+     */
+    public function visibleStudentIds(User $viewer): array
+    {
+        return $this->permittedQuery($viewer)
+            ->with('user:id')
+            ->get()
+            ->map(fn (StudentProfile $profile) => (int) $profile->user_id)
+            ->values()
+            ->all();
+    }
+
+    /**
      * One student's detail payload.
      *
      * A student the viewer may not see is reported as **404, not 403**: a 403
