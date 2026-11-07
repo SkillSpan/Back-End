@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ListCareerRolesRequest;
 use App\Models\CareerRole;
 use App\Models\Specialization;
+use App\Services\CareerRoles\CareerRoleCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -33,13 +34,25 @@ class CareerRoleController extends Controller
 
     /**
      * GET /api/v1/career-roles
-     * List all approved career roles.
+     * List every career role a learner may currently pick.
      *
-     * Optional `?specialization_id={id}` narrows the list to the approved
-     * roles linked to that specialization (via career_role_specialization).
-     * The "Self-Learning / Free Track" specialization is the exception: it
-     * carries no links and returns EVERY approved role, so a self-taught
-     * learner is not restricted to one academic track.
+     * WHAT CHANGED IN THE MVP
+     * -----------------------
+     * The list is now driven by ACTIVATION, not by the specialization pivot:
+     * a role is returned when it is `approved` AND `is_active`. Every active
+     * specialization therefore returns the SAME set of roles — the
+     * specialization only decides the ORDER, with its closest roles first
+     * (config/mvp.php). A role that is not on a specialization's priority list
+     * is still returned, after the priority block.
+     *
+     * The "Self-Learning / Free Track" specialization has no priority list, so
+     * it returns the same set in a neutral order — which is also what the
+     * endpoint returns when `specialization_id` is omitted, so existing
+     * consumers keep their previous list and ordering.
+     *
+     * Ordering is applied in the query, before pagination, and is total
+     * (`priority rank`, then `version DESC`, then `id DESC`), so pages are
+     * stable and no role is skipped or duplicated.
      *
      * Optional `?per_page={n}` sets the page size (default 15, clamped to
      * 1..100). Without it the original behaviour is unchanged, so existing
@@ -62,26 +75,22 @@ class CareerRoleController extends Controller
             : null;
 
         /*
-         * `version` alone is not a total order. Most approved roles share
-         * version 1, and with no tie-breaker the engine is free to return
-         * equal rows in any order — so a role could appear on two pages or
-         * be skipped entirely, which is exactly how an unstable sort breaks
-         * a paginated list. Ordering by `id` descending as well makes the
-         * order (and therefore the pagination) deterministic; the same rule
-         * is used by the project catalog and the assistant's roadmap lookup.
+         * The catalogue service owns BOTH decisions — which roles are
+         * selectable (approved + active) and in what order — so the controller
+         * cannot drift from the policy the rest of the app uses.
+         *
+         * `withCount` is applied after the base query is built because it only
+         * adds a correlated sub-select; it never affects the ordering, and the
+         * paginator's count query drops the ORDER BY while keeping the
+         * selectable filters.
+         *
+         * Server-side search stays as it was: applied to the WHOLE selectable
+         * set before pagination, with LIKE wildcards escaped, so a role on a
+         * later page is reachable and a literal `%` does not match everything.
          */
-        $careerRoles = CareerRole::where('status', 'approved')
+        $careerRoles = app(CareerRoleCatalogService::class)
+            ->selectableQuery($specialization)
             ->withCount('roleSkills as skills_count')
-            /*
-             * Server-side search, applied to the WHOLE approved set before
-             * pagination. The learner page used to filter the page it had
-             * already loaded, so a role sitting on page 2 was unreachable.
-             *
-             * LIKE is used rather than a full-text index because the catalog is
-             * small and the `%term%` semantics are what a search box implies;
-             * escaping `%` and `_` keeps a literal search for those characters
-             * from turning into a wildcard.
-             */
             ->when(
                 $search !== '',
                 fn ($query) => $query->where(
@@ -90,15 +99,6 @@ class CareerRoleController extends Controller
                         ->orWhere('description', 'like', '%'.$this->escapeLike($search).'%'),
                 ),
             )
-            ->when(
-                $specialization !== null && ! $specialization->isFreeTrack(),
-                fn ($query) => $query->whereHas(
-                    'specializations',
-                    fn ($specializationQuery) => $specializationQuery->whereKey($specialization->id),
-                ),
-            )
-            ->latest('version')
-            ->orderByDesc('id')
             ->paginate($this->perPage($request));
 
         return response()->json([
@@ -250,6 +250,13 @@ class CareerRoleController extends Controller
      * role: only approved roles are ever visible through this API, and
      * "not found" vs "exists but not approved" are reported distinctly
      * (matching ReadinessService's error codes) rather than a blanket 404.
+     *
+     * `is_active` is deliberately NOT part of this lookup. Deactivating a role
+     * only removes it from the pickers — a learner who already selected it (or
+     * a project that already targets it) must still be able to read the role
+     * and its skill snapshot. Blocking new selections happens where a
+     * selection is made (StartBaselineAssessmentRequest, UpdateProfileRequest),
+     * never on a read.
      */
     private function findApprovedCareerRole(mixed $id, string $requestId, array $with = []): CareerRole|JsonResponse
     {
