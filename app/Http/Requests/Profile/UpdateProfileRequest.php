@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Profile;
 
+use App\Models\CareerRole;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -41,12 +42,38 @@ class UpdateProfileRequest extends FormRequest
 
             // US-INT-01 §24: a career-role change must target an
             // approved role — draft/retired roles can't drive decisions.
+            //
+            // MVP: a NEW choice must also be active, so a role the product has
+            // switched off cannot be picked again. The learner's CURRENT role
+            // is exempt: clients commonly PUT the whole profile back, and a
+            // deactivation must never turn an existing profile into an invalid
+            // one. Only an actual change is validated against `is_active`.
             'primary_career_role_id' => [
                 'sometimes',
                 'nullable',
                 'integer',
                 'gt:0',
                 'exists:career_roles,id,status,approved',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    if (! is_numeric($value)) {
+                        return; // already reported by the rules above
+                    }
+
+                    $currentRoleId = $this->user()?->studentProfile?->primary_career_role_id;
+
+                    if ($currentRoleId !== null && (int) $currentRoleId === (int) $value) {
+                        return; // unchanged — keep the historical choice valid
+                    }
+
+                    $isSelectable = CareerRole::query()
+                        ->selectable()
+                        ->whereKey((int) $value)
+                        ->exists();
+
+                    if (! $isSelectable) {
+                        $fail('The selected career role is not available.');
+                    }
+                },
             ],
             'visibility' => ['sometimes', 'in:public,organization_only,private'],
         ];
