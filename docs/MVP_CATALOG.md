@@ -273,3 +273,22 @@ the live activation flag.
 
 No data migration, no backfill, no destructive statement. Safe on SQLite
 (tests) and MySQL (production).
+
+## 8. Applying it to an existing deployment
+
+```
+php artisan migrate --force
+php artisan db:seed --class="Database\Seeders\MvpCatalogSeeder" --force
+```
+
+`MvpCatalogSeeder` also drops the cached reference lists
+(`ReferenceCache::flush()`), because `/api/v1/reference/specializations` is
+cached for twelve hours: without it the learner-facing dropdown would keep
+serving the old track list after the policy had already been applied in the
+database. A redeploy is unaffected — a fresh container starts with an empty
+file cache.
+
+Rollback: `php artisan migrate:rollback --path=database/migrations/2026_11_07_000001_add_is_active_to_career_roles_table.php`
+restores the previous schema. Note that it drops the activation flag, so every
+role becomes "offered" again; deactivate the MVP scope again by re-running the
+seeder after a re-migrate.

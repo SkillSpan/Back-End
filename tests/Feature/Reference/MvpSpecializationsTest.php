@@ -3,6 +3,7 @@
 namespace Tests\Feature\Reference;
 
 use App\Models\Specialization;
+use App\Support\ReferenceCache;
 use Database\Seeders\CareerRoleSeeder;
 use Database\Seeders\CareerRoleSpecializationSeeder;
 use Database\Seeders\MvpCatalogSeeder;
@@ -132,6 +133,33 @@ class MvpSpecializationsTest extends TestCase
 
         $this->assertSame($specializationCount, Specialization::count());
         $this->assertSame($activeCount, Specialization::where('is_active', true)->count());
+    }
+
+    public function test_applying_the_policy_invalidates_the_cached_track_list(): void
+    {
+        $legacy = Specialization::where('name', 'Cybersecurity')->firstOrFail();
+        $legacy->update(['is_active' => true]);
+
+        // Prime the twelve-hour reference cache with the pre-policy list.
+        cache()->forget(ReferenceCache::SPECIALIZATIONS);
+
+        $before = array_column(
+            $this->getJson('/api/v1/reference/specializations')->assertOk()->json('data'),
+            'name',
+        );
+
+        $this->assertContains('Cybersecurity', $before);
+
+        $this->seed(MvpCatalogSeeder::class);
+
+        // Without the cache flush this would still return the stale list.
+        $after = array_column(
+            $this->getJson('/api/v1/reference/specializations')->assertOk()->json('data'),
+            'name',
+        );
+
+        $this->assertNotContains('Cybersecurity', $after);
+        $this->assertContains(config('mvp.free_track'), $after);
     }
 
     public function test_the_seeder_can_reactivate_a_track_without_recreating_it(): void

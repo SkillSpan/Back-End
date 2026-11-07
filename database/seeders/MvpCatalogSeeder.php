@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\CareerRole;
 use App\Models\Specialization;
+use App\Support\ReferenceCache;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -51,7 +52,27 @@ class MvpCatalogSeeder extends Seeder
         $this->deactivateOutOfScopeSpecializations();
         $this->deactivateOutOfScopeCareerRoles();
 
+        $this->flushReferenceCache();
+
         $this->report();
+    }
+
+    /**
+     * Drop the cached reference lists.
+     *
+     * `/api/v1/reference/specializations` is cached for twelve hours (the
+     * database sits on another provider, so the round trip is the whole cost of
+     * the endpoint). Without this call, running the seeder on an already-running
+     * deployment would leave the learner-facing dropdown serving the OLD track
+     * list until the TTL expired or the container was replaced — the policy
+     * would look applied in the database and unapplied in the product.
+     *
+     * A redeploy is unaffected (a fresh container starts with an empty file
+     * cache); this covers the "seed without redeploy" case.
+     */
+    private function flushReferenceCache(): void
+    {
+        ReferenceCache::flush();
     }
 
     /**
