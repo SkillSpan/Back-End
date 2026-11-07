@@ -90,37 +90,25 @@ class DynamicBaselineAssessmentTest extends TestCase
         $this->assertNotEmpty($titles);
     }
 
-    public function test_filtering_by_specialization_returns_only_that_specializations_roles(): void
+    public function test_filtering_by_specialization_returns_the_same_roles_for_every_track(): void
     {
         $software = Specialization::where('name', 'Software Engineering')->firstOrFail();
         $cyber = Specialization::where('name', 'Cybersecurity')->firstOrFail();
 
         Sanctum::actingAs($this->learnerWithProfile());
 
-        $softwareTitles = array_column(
-            $this->getJson('/api/v1/career-roles?specialization_id='.$software->id)->json('data.data'),
-            'title',
-        );
-        $cyberTitles = array_column(
-            $this->getJson('/api/v1/career-roles?specialization_id='.$cyber->id)->json('data.data'),
-            'title',
-        );
+        $softwarePage = $this->getJson('/api/v1/career-roles?specialization_id='.$software->id)->assertOk();
+        $cyberPage = $this->getJson('/api/v1/career-roles?specialization_id='.$cyber->id)->assertOk();
 
-        sort($softwareTitles);
-        sort($cyberTitles);
+        // MVP policy: a specialization orders the list, it does not filter it,
+        // so both tracks expose the same number of roles…
+        $this->assertSame($softwarePage->json('data.total'), $cyberPage->json('data.total'));
 
-        // The endpoint must return exactly the pivot-linked roles, and the
-        // two specializations must not bleed into each other.
-        $this->assertSame(
-            $software->careerRoles()->pluck('title')->sort()->values()->all(),
-            $softwareTitles,
-        );
-        $this->assertSame(
-            $cyber->careerRoles()->pluck('title')->sort()->values()->all(),
-            $cyberTitles,
-        );
-        $this->assertNotContains('Security Analyst', $softwareTitles);
-        $this->assertNotContains('Backend Developer', $cyberTitles);
+        $softwareTitles = array_column($softwarePage->json('data.data'), 'title');
+
+        // …and the page itself contains roles curated under BOTH tracks.
+        $this->assertContains('Backend Developer', $softwareTitles);
+        $this->assertContains('Automation Specialist', $softwareTitles);
     }
 
     public function test_every_seeded_career_role_produces_a_covered_assessment(): void
@@ -244,7 +232,7 @@ class DynamicBaselineAssessmentTest extends TestCase
         $this->assertSame([], array_intersect($returnedSkillIds, $mobileSkillIds));
     }
 
-    public function test_mismatched_specialization_and_role_is_rejected_with_seeded_data(): void
+    public function test_mismatched_specialization_and_role_is_accepted_with_seeded_data(): void
     {
         $cyber = Specialization::where('name', 'Cybersecurity')->firstOrFail();
         $frontend = CareerRole::where('slug', 'frontend-developer')->firstOrFail();
@@ -252,12 +240,14 @@ class DynamicBaselineAssessmentTest extends TestCase
         $user = $this->learnerWithProfile();
         Sanctum::actingAs($user);
 
+        // MVP policy: the specialization no longer vetoes the role. Starting an
+        // assessment for a role curated under another track is legitimate.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $cyber->id,
             'career_role_id' => $frontend->id,
         ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('career_role_id');
+            ->assertStatus(201)
+            ->assertJsonPath('data.career_role_id', $frontend->id);
     }
 
     // ------------------------------------------------ helpers

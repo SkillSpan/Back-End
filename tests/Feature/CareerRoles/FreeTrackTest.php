@@ -22,8 +22,11 @@ use Tests\TestCase;
  *
  * Its available career roles are EVERY role in the system, resolved from its
  * `is_free_track` flag rather than from pivot rows, so a learner who studied
- * outside a formal academic track can pick any role. A normal specialization
- * keeps the restrictive behaviour.
+ * outside a formal academic track can pick any role.
+ *
+ * MVP NOTE: every specialization now offers every active role, so the free
+ * track's distinguishing property is that it carries NO priority list (its
+ * list is the neutral order) and needs no pivot rows at all.
  */
 class FreeTrackTest extends TestCase
 {
@@ -68,7 +71,7 @@ class FreeTrackTest extends TestCase
         $this->assertSame(0, $free->careerRoles()->count());
     }
 
-    public function test_the_free_track_returns_every_approved_career_role(): void
+    public function test_the_free_track_returns_every_selectable_career_role(): void
     {
         $free = Specialization::where('is_free_track', true)->firstOrFail();
         $software = Specialization::where('name', 'Software Engineering')->firstOrFail();
@@ -78,24 +81,51 @@ class FreeTrackTest extends TestCase
         $freeTotal = $this->getJson('/api/v1/career-roles?specialization_id='.$free->id)->assertOk()->json('data.total');
         $softwareTotal = $this->getJson('/api/v1/career-roles?specialization_id='.$software->id)->assertOk()->json('data.total');
 
-        $this->assertSame(CareerRole::where('status', 'approved')->count(), $freeTotal);
-        $this->assertSame($software->careerRoles()->count(), $softwareTotal);
-        $this->assertLessThan($freeTotal, $softwareTotal, 'A normal specialization must stay restrictive.');
+        $selectable = CareerRole::where('status', 'approved')->where('is_active', true)->count();
+
+        $this->assertSame($selectable, $freeTotal);
+        // MVP policy: a normal specialization offers the SAME set as the free
+        // track — the specialization decides the order, not the availability.
+        $this->assertSame($selectable, $softwareTotal);
     }
 
-    public function test_a_normal_specialization_still_returns_only_its_linked_roles(): void
+    public function test_a_normal_specialization_offers_roles_outside_its_pivot(): void
     {
         $cyber = Specialization::where('name', 'Cybersecurity')->firstOrFail();
 
         Sanctum::actingAs($this->learnerWithProfile());
 
-        $titles = array_column(
-            $this->getJson('/api/v1/career-roles?specialization_id='.$cyber->id)->json('data.data'),
-            'title',
-        );
+        // The catalog is larger than one page, so walk it rather than assuming
+        // the role we look for lands on page 1.
+        $titles = $this->allTitles('?specialization_id='.$cyber->id.'&per_page=100');
 
         $this->assertContains('Security Analyst', $titles);
-        $this->assertNotContains('Frontend Developer', $titles);
+        // Not linked to Cybersecurity, but active — still offered (in the
+        // neutral "rest" block after the priority roles).
+        $this->assertContains('Frontend Developer', $titles);
+    }
+
+    /**
+     * Every title the endpoint returns, across all pages.
+     *
+     * @return list<string>
+     */
+    private function allTitles(string $query): array
+    {
+        $titles = [];
+        $page = 1;
+
+        do {
+            $payload = $this->getJson('/api/v1/career-roles'.$query.'&page='.$page)
+                ->assertOk()
+                ->json('data');
+
+            $titles = array_merge($titles, array_column($payload['data'] ?? [], 'title'));
+            $lastPage = (int) ($payload['last_page'] ?? 1);
+            $page++;
+        } while ($page <= $lastPage);
+
+        return $titles;
     }
 
     public function test_the_free_track_accepts_any_career_role_for_an_assessment(): void
@@ -113,19 +143,21 @@ class FreeTrackTest extends TestCase
             ->assertJsonPath('data.career_role_id', $role->id);
     }
 
-    public function test_a_normal_specialization_rejects_a_role_it_does_not_offer(): void
+    public function test_a_normal_specialization_accepts_a_role_outside_its_pivot(): void
     {
         $cyber = Specialization::where('name', 'Cybersecurity')->firstOrFail();
         $frontend = CareerRole::where('slug', 'frontend-developer')->firstOrFail();
 
         Sanctum::actingAs($this->learnerWithProfile());
 
+        // MVP policy: the specialization no longer gates the assessment. The
+        // only remaining gate is the role being approved AND active.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $cyber->id,
             'career_role_id' => $frontend->id,
         ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('career_role_id');
+            ->assertStatus(201)
+            ->assertJsonPath('data.career_role_id', $frontend->id);
     }
 
     public function test_the_public_reference_endpoint_exposes_the_free_track(): void

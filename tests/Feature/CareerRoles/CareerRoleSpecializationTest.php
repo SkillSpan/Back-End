@@ -19,11 +19,15 @@ use Tests\TestCase;
 /**
  * Specialization -> Career Role -> Required Skills -> Baseline Questions.
  *
- * Covers the many-to-many link between specializations and career roles,
- * the `?specialization_id=` filter on the existing career roles endpoint,
- * the optional specialization cross-check on baseline start, and the
- * guarantee that learner-facing assessment payloads never leak grading
- * keys.
+ * Covers the many-to-many link between specializations and career roles, the
+ * `?specialization_id=` parameter on the career roles endpoint, and the
+ * guarantee that learner-facing assessment payloads never leak grading keys.
+ *
+ * MVP NOTE: the pivot is a curation mapping, not an access list. A
+ * specialization now only ORDERS the career-role list, so the tests below
+ * assert that every active role is offered under every specialization, while
+ * still asserting that draft/retired roles are never offered. The ordering
+ * rules themselves live in MvpCareerRoleCatalogTest.
  */
 class CareerRoleSpecializationTest extends TestCase
 {
@@ -102,7 +106,7 @@ class CareerRoleSpecializationTest extends TestCase
         $this->assertSame(15, $response->json('data.per_page'));
     }
 
-    public function test_index_with_specialization_filter_returns_only_matching_roles(): void
+    public function test_index_with_specialization_returns_every_active_role_whatever_the_pivot(): void
     {
         $software = $this->specialization('Software Engineering');
         $cyber = $this->specialization('Cybersecurity');
@@ -123,11 +127,14 @@ class CareerRoleSpecializationTest extends TestCase
         $titles = array_column($response->json('data.data'), 'title');
         sort($titles);
 
-        $this->assertSame(['Backend Developer', 'Frontend Developer'], $titles);
-        $this->assertNotContains('Security Analyst', $titles);
+        // MVP policy: the specialization no longer filters the list. It only
+        // decides the ORDER, so a role curated under another track is still
+        // offered — that is what lets a learner cross tracks.
+        $this->assertSame(['Backend Developer', 'Frontend Developer', 'Security Analyst'], $titles);
+        $this->assertSame(3, $response->json('data.total'));
     }
 
-    public function test_different_specializations_return_different_roles(): void
+    public function test_different_specializations_return_the_same_roles(): void
     {
         $software = $this->specialization('Software Engineering');
         $cyber = $this->specialization('Cybersecurity');
@@ -149,8 +156,11 @@ class CareerRoleSpecializationTest extends TestCase
             'title',
         );
 
-        $this->assertSame(['Frontend Developer'], $softwareTitles);
-        $this->assertSame(['Security Analyst'], $cyberTitles);
+        sort($softwareTitles);
+        sort($cyberTitles);
+
+        $this->assertSame(['Frontend Developer', 'Security Analyst'], $softwareTitles);
+        $this->assertSame($softwareTitles, $cyberTitles);
     }
 
     public function test_draft_and_retired_roles_are_never_returned_even_when_linked(): void
@@ -228,7 +238,7 @@ class CareerRoleSpecializationTest extends TestCase
 
     // ------------------------------------------------ baseline cross-check
 
-    public function test_baseline_start_rejects_career_role_from_another_specialization(): void
+    public function test_baseline_start_accepts_an_active_role_from_another_specialization(): void
     {
         $software = $this->specialization('Software Engineering');
         $cyber = $this->specialization('Cybersecurity');
@@ -239,19 +249,19 @@ class CareerRoleSpecializationTest extends TestCase
         $software->careerRoles()->attach($frontend->id);
         $cyber->careerRoles()->attach($security->id);
 
-        // Give the security role a valid skill + question so the ONLY thing
-        // that can fail the request is the specialization mismatch.
         $this->attachSkillWithQuestion($security, 'Cybersecurity Fundamentals');
 
         [$user] = $this->learnerWithProfile();
         Sanctum::actingAs($user);
 
+        // MVP policy: the specialization orders the list, it does not gate the
+        // choice. A Software Engineering learner may assess a security role.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $software->id,
             'career_role_id' => $security->id,
         ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('career_role_id');
+            ->assertStatus(201)
+            ->assertJsonPath('data.career_role_id', $security->id);
     }
 
     public function test_baseline_start_accepts_matching_specialization_and_career_role(): void
