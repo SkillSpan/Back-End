@@ -67,6 +67,24 @@ class BaselineAssessmentService
             );
         }
 
+        /*
+         * MVP: a role switched off for the product cannot start a NEW
+         * assessment. Checked here as well as in StartBaselineAssessmentRequest
+         * because this service is the real entry point — a future caller (an
+         * admin tool, a console command, an internal route) must not be able to
+         * bypass the rule by skipping the HTTP request.
+         *
+         * Existing assessments are untouched: this guard runs only on start().
+         */
+        if (! $careerRole->is_active) {
+            throw new BaselineAssessmentException(
+                'The selected career role is not available for baseline assessment.',
+                422,
+                'CAREER_ROLE_INACTIVE',
+                ['career_role_id' => $careerRole->id],
+            );
+        }
+
         $exists = BaselineAssessment::query()
             ->where('student_profile_id', $studentProfile->id)
             ->where('assessment_type', self::ASSESSMENT_TYPE)

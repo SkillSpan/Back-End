@@ -264,7 +264,13 @@ class AdminSpecializationTest extends TestCase
             ->assertJsonPath('data.title', 'Smart Contract Developer')
             ->assertJsonPath('data.skills_count', 1);
 
-        $this->assertDatabaseHas('career_roles', ['slug' => 'smart-contract-developer', 'status' => 'approved']);
+        // Approved, but NOT published: activation is a separate, explicit step
+        // (POST /admin/api/career-roles/{id}/activate).
+        $this->assertDatabaseHas('career_roles', [
+            'slug' => 'smart-contract-developer',
+            'status' => 'approved',
+            'is_active' => false,
+        ]);
     }
 
     public function test_a_duplicate_career_role_title_is_rejected(): void

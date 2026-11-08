@@ -48,13 +48,18 @@ class SkillSeeder extends Seeder
     {
         return [
             // ---- Languages / general ----
-            ['Python', null],
-            ['JavaScript', null],
-            ['TypeScript', null],
-            ['Java', null],
-            ['SQL', null],
-            ['C++', null],
-            ['Rust', null],
+            // MVP audit: these seven were the only skills with a NULL
+            // category. The category is display metadata only (it is shown in
+            // talent discovery, never used to filter or score), so filling it
+            // in is a safe, reversible improvement — no skill was renamed,
+            // re-slugged or removed.
+            ['Python', 'Programming'],
+            ['JavaScript', 'Programming'],
+            ['TypeScript', 'Programming'],
+            ['Java', 'Programming'],
+            ['SQL', 'Databases'],
+            ['C++', 'Programming'],
+            ['Rust', 'Programming'],
             ['PHP', 'Web Development'],
             ['C#', 'Game Development', 'csharp'],
 

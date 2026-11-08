@@ -4,6 +4,7 @@ namespace App\Services\Assessment;
 
 use App\Exceptions\QuestionBankException;
 use App\Models\BaselineAssessmentItem;
+use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
 use App\Models\Skill;
 use App\Models\Specialization;
@@ -72,10 +73,15 @@ class QuestionBankService
     /**
      * Career roles reachable from a specialization, for the second
      * dropdown. All statuses are returned so an operator can see the full
-     * mapping; the assessment flow still only uses approved roles.
+     * mapping; the assessment flow still only uses approved, active roles.
      *
      * The "Self-Learning / Free Track" specialization returns EVERY role,
      * because any role is valid under it.
+     *
+     * This is the CURATION view (specialization -> linked roles), so it keeps
+     * reading the `career_role_specialization` pivot even though the learner's
+     * picker no longer uses it as a filter — see
+     * Specialization::selectableCareerRolesQuery() for that side.
      *
      * @return array<int, array{id:int,title:string,status:string}>
      */
@@ -87,7 +93,11 @@ class QuestionBankService
             return [];
         }
 
-        return $specialization->availableCareerRolesQuery()
+        $query = $specialization->isFreeTrack()
+            ? CareerRole::query()
+            : $specialization->mappedCareerRolesQuery();
+
+        return $query
             ->orderBy('title')
             ->get(['career_roles.id', 'career_roles.title', 'career_roles.status'])
             ->map(fn ($role) => [

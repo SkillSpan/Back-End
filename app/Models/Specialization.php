@@ -2,9 +2,27 @@
 
 namespace App\Models;
 
+use App\Services\CareerRoles\CareerRoleCatalogService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * An academic specialization (Computer Science, Data Science, …) or the
+ * special "Self-Learning / Free Track".
+ *
+ * WHAT A SPECIALIZATION DECIDES — AND WHAT IT DOES NOT
+ * ----------------------------------------------------
+ * It used to decide WHICH career roles a learner could pick: a role was only
+ * available when a `career_role_specialization` pivot row linked it. Since the
+ * MVP it decides only the ORDER of the list — every approved + active role is
+ * offered under every active specialization, and the specialization's own
+ * roles are simply shown first (see config/mvp.php).
+ *
+ * The pivot is still maintained because it is the curation view the admin
+ * panel edits and the mapping the question bank is browsed through. It is no
+ * longer an access-control list, so removing a pivot row never removes a role
+ * from a learner's options.
+ */
 class Specialization extends Model
 {
     protected $fillable = ['name', 'description', 'is_active', 'is_free_track'];
@@ -12,12 +30,23 @@ class Specialization extends Model
     protected $casts = ['is_active' => 'boolean', 'is_free_track' => 'boolean'];
 
     /**
-     * Career roles relevant to this specialization. Many-to-many: a role
-     * such as "Backend Developer" belongs to several specializations.
+     * Career roles linked to this specialization in the curation pivot.
+     *
+     * This is the ADMIN mapping ("which roles does this track cover?"), not
+     * the learner's option list — use {@see selectableCareerRolesQuery()} for
+     * anything a learner sees.
      */
     public function careerRoles()
     {
         return $this->belongsToMany(CareerRole::class, 'career_role_specialization')->withTimestamps();
+    }
+
+    /**
+     * Only specializations that may be offered to a learner.
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('specializations.is_active', true);
     }
 
     /**
@@ -33,36 +62,45 @@ class Specialization extends Model
     }
 
     /**
-     * The career roles a learner may pick under this specialization, as a
-     * CareerRole query builder the caller can further constrain.
+     * The career roles offered under this specialization.
      *
-     * A normal specialization is limited to the `career_role_specialization`
-     * pivot; the free track is deliberately UNCONSTRAINED — this is the
-     * special case the spec asks for, instead of inserting a pivot row for
-     * every (free track, career role) pair.
+     * Under the MVP policy this is the same set for every active
+     * specialization — every approved + active role — and the specialization
+     * only changes the ORDER (its priority roles first). The free track has no
+     * priority list, so it gets the same set in a neutral order.
+     *
+     * The result is already ordered, so callers must not add another
+     * `orderBy` before paginating unless they intend to override the priority.
      */
-    public function availableCareerRolesQuery(): Builder
+    public function selectableCareerRolesQuery(): Builder
     {
-        if ($this->isFreeTrack()) {
-            return CareerRole::query();
-        }
+        return app(CareerRoleCatalogService::class)->selectableQuery($this);
+    }
 
+    /**
+     * Whether the given career role may be chosen under this specialization.
+     *
+     * The specialization no longer restricts the choice: any role that is
+     * approved and active is valid, whatever the learner's track. An inactive
+     * or unapproved role is never valid — that is the only remaining rule.
+     */
+    public function allowsCareerRole(int $careerRoleId): bool
+    {
+        return CareerRole::query()
+            ->selectable()
+            ->whereKey($careerRoleId)
+            ->exists();
+    }
+
+    /**
+     * The pivot-restricted roles, ordered for display. Used by the admin
+     * "Manage Career Roles" screens, which curate the mapping.
+     */
+    public function mappedCareerRolesQuery(): Builder
+    {
         return CareerRole::query()->whereHas(
             'specializations',
             fn (Builder $query) => $query->whereKey($this->id),
         );
-    }
-
-    /**
-     * Whether the given career role may be chosen under this
-     * specialization. Any existing role is valid for the free track.
-     */
-    public function allowsCareerRole(int $careerRoleId): bool
-    {
-        if ($this->isFreeTrack()) {
-            return CareerRole::whereKey($careerRoleId)->exists();
-        }
-
-        return $this->careerRoles()->whereKey($careerRoleId)->exists();
     }
 }

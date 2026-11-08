@@ -83,6 +83,11 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'CareerRole',
     title: 'CareerRole',
+    description: 'A career role definition. `status` is the review state of the definition (draft / approved / '
+        .'retired). Whether the role is OFFERED to learners is a separate, internal flag (`career_roles.is_active`, '
+        .'not serialised): a role appears in the list endpoints only when it is `approved` AND active, while a '
+        .'single-role read keeps working for an inactive role so existing selections stay readable. Activation is '
+        .'independent of approval — a role can be approved and still be outside the current product scope.',
     type: 'object',
     properties: [
         new OA\Property(property: 'id', type: 'integer', example: 3),
