@@ -191,6 +191,20 @@ class SpecializationService
      * Refuses a title that already maps to an existing role slug, so the
      * panel can never silently overwrite a role by reusing its name.
      *
+     * THE NEW ROLE IS CREATED INACTIVE (`is_active = false`).
+     *
+     * Creating a role used to publish it to every learner immediately, because
+     * the column defaults to TRUE. That made "add a role" and "offer this role
+     * to the whole student body" the same button, with no review step and no
+     * way back other than a manual UPDATE — a half-authored role (no skills
+     * yet, skills still being attached) would appear in every picker the moment
+     * it was saved.
+     *
+     * Activation is now an explicit, separate decision taken by an
+     * administrator through `POST /admin/api/career-roles/{id}/activate`. Roles
+     * that already existed keep whatever activation state they had; only new
+     * rows start hidden.
+     *
      * @param  array<int, mixed>  $skillIds
      */
     public function createCareerRole(string $title, array $skillIds): CareerRole
@@ -207,6 +221,9 @@ class SpecializationService
             'version' => 1,
             'status' => 'approved',
             'effective_date' => now()->toDateString(),
+            // Explicit, not inherited from the column default: publishing a
+            // role is a separate, deliberate step.
+            'is_active' => false,
         ]);
 
         $validSkillIds = Skill::query()
