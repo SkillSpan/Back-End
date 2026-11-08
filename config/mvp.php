@@ -223,9 +223,15 @@ return [
     |  - `network-engineer`, `cloud-engineer`, `devops-engineer`,
     |    `site-reliability-engineer` — hands-on engineering roles that the MVP
     |    priority lists ask for by name;
-    |  - `systems-analyst`, `security-testing-engineer`, the digital-forensics
-    |    roles and the UI/UX roles — technical roles the brief does not exclude;
-    |    they stay available in the neutral "rest" part of every list.
+    |  - `network-security-engineer` and `cloud-security-engineer` — curated
+    |    under the Computer Networks / Cloud Computing tracks, which ARE part of
+    |    the MVP; they are network and cloud engineering roles, not members of
+    |    the cybersecurity family;
+    |  - `systems-analyst` — systems design work, not business analysis.
+    |
+    | The UI/UX design family and the cybersecurity family are deactivated as
+    | whole tracks (see the two blocks at the end of the list): the MVP offers
+    | neither, so no role from either family may stay in a learner's picker.
     |
     */
     'inactive_career_role_slugs' => [
@@ -262,6 +268,50 @@ return [
         'digital-solutions-specialist',
         'automation-specialist',
         'business-systems-analyst',
+
+        /*
+         * UI/UX and design — the MVP has no design track.
+         *
+         * These are the roles curated under the "UI/UX Design" specialization,
+         * plus the two game-design roles (a design role, not an engineering
+         * one). Deactivating them keeps the learner's list to engineering,
+         * data, infrastructure and product roles.
+         */
+        'ui-designer',
+        'ux-designer',
+        'product-designer',
+        'ux-researcher',
+        'interaction-designer',
+        'design-system-designer',
+        'game-designer',
+        'technical-game-designer',
+
+        /*
+         * Cybersecurity — the MVP has no security track.
+         *
+         * The complete family, i.e. every role curated under the
+         * "Cybersecurity", "Offensive Security" and "Digital Forensics"
+         * specializations. `network-security-engineer` (Computer Networks) and
+         * `cloud-security-engineer` (Cloud Computing) are deliberately NOT
+         * here: they belong to tracks that are in the MVP and are network /
+         * cloud engineering roles, not security-specialist roles.
+         */
+        'security-analyst',
+        'soc-analyst',
+        'cybersecurity-engineer',
+        'security-engineer',
+        'incident-response-analyst',
+        'threat-intelligence-analyst',
+        'security-consultant',
+        'penetration-tester',
+        'ethical-hacker',
+        'red-team-operator',
+        'vulnerability-analyst',
+        'security-testing-engineer',
+        'digital-forensics-analyst',
+        'dfir-analyst',
+        'cybercrime-analyst',
+        'incident-response-specialist',
     ],
 
     /*

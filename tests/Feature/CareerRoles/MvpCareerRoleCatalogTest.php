@@ -333,6 +333,75 @@ class MvpCareerRoleCatalogTest extends TestCase
             ->assertJsonValidationErrors('primary_career_role_id');
     }
 
+    // ------------------------------------------------ policy integrity
+
+    /**
+     * Every slug in the policy list must be a real role.
+     *
+     * A typo in config/mvp.php would silently deactivate nothing — the role it
+     * was meant to hide would keep appearing — so the config is checked against
+     * the catalog rather than trusted. The only exception is an explicitly
+     * documented "not in the catalog yet" role.
+     */
+    public function test_every_configured_inactive_slug_exists_in_the_catalog(): void
+    {
+        $knownMissing = array_keys((array) config('mvp.missing_career_roles', []));
+
+        foreach (config('mvp.inactive_career_role_slugs') as $slug) {
+            if (in_array($slug, $knownMissing, true)) {
+                continue;
+            }
+
+            $this->assertTrue(
+                CareerRole::where('slug', $slug)->exists(),
+                "The policy lists [{$slug}], but no such career role exists.",
+            );
+        }
+    }
+
+    public function test_the_design_and_cybersecurity_families_are_offered_to_nobody(): void
+    {
+        $blocked = [
+            // UI/UX and design
+            'ui-designer', 'ux-designer', 'product-designer', 'ux-researcher',
+            'interaction-designer', 'design-system-designer',
+            'game-designer', 'technical-game-designer',
+            // Cybersecurity family
+            'security-analyst', 'soc-analyst', 'cybersecurity-engineer',
+            'security-engineer', 'incident-response-analyst',
+            'threat-intelligence-analyst', 'security-consultant',
+            'penetration-tester', 'ethical-hacker', 'red-team-operator',
+            'vulnerability-analyst', 'security-testing-engineer',
+            'digital-forensics-analyst', 'dfir-analyst', 'cybercrime-analyst',
+            'incident-response-specialist',
+        ];
+
+        $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
+
+        foreach ($blocked as $slug) {
+            $role = CareerRole::where('slug', $slug)->first();
+
+            $this->assertNotNull($role, "Career role [{$slug}] is missing from the catalog.");
+            $this->assertFalse((bool) $role->is_active, "[{$slug}] must not be offered in the MVP.");
+            $this->assertNotContains($role->title, $offeredTitles, "[{$slug}] still appears in the learner list.");
+
+            // Deactivation never removes the role's data.
+            $this->assertGreaterThan(0, $role->roleSkills()->count(), "[{$slug}] lost its skills.");
+        }
+    }
+
+    public function test_the_network_and_cloud_security_roles_stay_offered(): void
+    {
+        // These two are engineering roles of the Computer Networks / Cloud
+        // Computing tracks (both in the MVP), not members of the cybersecurity
+        // family, so the family-wide deactivation must not sweep them up.
+        foreach (['network-security-engineer', 'cloud-security-engineer'] as $slug) {
+            $role = CareerRole::where('slug', $slug)->firstOrFail();
+
+            $this->assertTrue((bool) $role->is_active, "[{$slug}] must stay offered.");
+        }
+    }
+
     // ------------------------------------------------ response contract
 
     public function test_the_career_role_payload_shape_is_unchanged(): void
