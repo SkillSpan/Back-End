@@ -77,12 +77,12 @@ A role is offered only when **both** hold. Deactivating never touches `status`.
 | | Count |
 |---|---|
 | Career roles seeded by `CareerRoleSeeder` | 146 |
-| Deactivated for the MVP | 27 |
-| Still offered | 119 |
+| Deactivated for the MVP | 51 |
+| Still offered | 95 |
 
 (A development database that also ran `E2eRoadmapFixtureSeeder` has two extra
 test roles — `e2e-roadmap-primary`, `e2e-roadmap-allmet` — so it reports
-148 / 121. They are created only outside production.)
+148 / 97. They are created only outside production.)
 
 ### Deactivated (row, skills, questions and pivot links all preserved)
 
@@ -102,14 +102,37 @@ Administrative / operational roles: `system-administrator`,
 `digital-solutions-specialist`, `automation-specialist`,
 `business-systems-analyst`.
 
+UI/UX and design — the MVP has no design track: `ui-designer`, `ux-designer`,
+`product-designer`, `ux-researcher`, `interaction-designer`,
+`design-system-designer`, plus the two game-design roles `game-designer` and
+`technical-game-designer` (design roles, not engineering ones).
+
+Cybersecurity — the MVP has no security track: the complete family, i.e. every
+role curated under the *Cybersecurity*, *Offensive Security* and *Digital
+Forensics* specializations — `security-analyst`, `soc-analyst`,
+`cybersecurity-engineer`, `security-engineer`, `incident-response-analyst`,
+`threat-intelligence-analyst`, `security-consultant`, `penetration-tester`,
+`ethical-hacker`, `red-team-operator`, `vulnerability-analyst`,
+`security-testing-engineer`, `digital-forensics-analyst`, `dfir-analyst`,
+`cybercrime-analyst`, `incident-response-specialist`.
+
 `api-developer` is in the policy list but does not exist in the catalog, so the
-update is a no-op; it is recorded as a future role instead (§3).
+update is a no-op; it is recorded as a future role instead (§3). A test asserts
+that every other configured slug really exists, so a typo cannot silently leave
+a role visible.
 
 ### Deliberately NOT deactivated
 
 `network-engineer`, `cloud-engineer`, `devops-engineer`,
 `site-reliability-engineer` — hands-on engineering roles the brief asks for by
 name, despite the resemblance to the administrative roles above.
+
+`network-security-engineer` (curated under *Computer Networks*) and
+`cloud-security-engineer` (curated under *Cloud Computing*) — network and cloud
+engineering roles of tracks that ARE in the MVP, not members of the
+cybersecurity family. A test pins both as still offered, so a future
+"deactivate everything matching `security`" sweep cannot take them out by
+accident.
 
 ### Ambiguous cases — documented, left active
 
@@ -119,10 +142,8 @@ were reviewed and kept active:
 | Role | Why it stays |
 |---|---|
 | `systems-analyst` | Systems analysis is technical design work; the brief only excludes *Business* Analyst |
-| `security-testing-engineer` | A security-engineering role, not a QA role |
-| `digital-forensics-analyst`, `dfir-analyst`, `cybercrime-analyst` | Technical investigation roles, not administrative |
-| `ui-designer`, `ux-designer`, `product-designer`, `ux-researcher`, `interaction-designer`, `design-system-designer` | Product design, not administration |
-| `product-data-analyst`, `marketing-data-analyst` | Data analysis specialisms |
+| `product-data-analyst`, `marketing-data-analyst` | Data analysis specialisms, not design or security |
+| `data-visualization-specialist` | A data role (Data Analytics track), despite the "visualisation" wording |
 
 They appear in the neutral "rest" block of every list, after the priority roles.
 
@@ -130,7 +151,8 @@ They appear in the neutral "rest" block of every list, after the priority roles.
 
 `CareerRoleSeeder` writes `title`, `status`, `effective_date` and the role's
 skill set; it never writes `is_active`, so a deactivation survives a re-seed.
-`MvpCatalogSeeder` is the only place that changes activation.
+`MvpCatalogSeeder` is the only *bulk* writer of the flag; a single role can also
+be switched from the admin panel (§9).
 
 ---
 
@@ -155,7 +177,7 @@ produce a role that can never start an assessment:
 
 ## 4. Ordering and availability
 
-Every active specialization returns **all** 119 active roles (121 in a dev
+Every active specialization returns **all** 95 active roles (97 in a dev
 database with the E2E fixtures). The specialization decides only the order:
 
 1. its priority slugs from `config/mvp.php`, in the configured order;
@@ -292,3 +314,57 @@ Rollback: `php artisan migrate:rollback --path=database/migrations/2026_11_07_00
 restores the previous schema. Note that it drops the activation flag, so every
 role becomes "offered" again; deactivate the MVP scope again by re-running the
 seeder after a re-migrate.
+
+---
+
+## 9. Admin control of a single career role
+
+The policy file governs the MVP in bulk, but two operations need to happen
+between deploys: publishing a role that was just created, and retiring one role
+without touching the policy. Both are session-authenticated admin endpoints —
+the route group already carries `auth` + `account.active` + `admin`, so they are
+administrator-only, and they are **additive**: no existing route, payload or
+behaviour changes.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/admin/api/career-roles` | Paginated roles with `is_active`. Filters: `q` (title/slug), `status`, `is_active` (0/1), `per_page` |
+| `POST` | `/admin/api/career-roles/{id}/activate` | Offer the role to learners |
+| `POST` | `/admin/api/career-roles/{id}/deactivate` | Remove it from every picker |
+
+Rules:
+
+* **Activation requires `status = approved`.** Otherwise the request is refused
+  with `409 CAREER_ROLE_ACTIVATION_REFUSED` and the role stays inactive —
+  publishing an unreviewed definition would put unapproved required skills in
+  front of students. Deactivation is always allowed.
+* Neither endpoint deletes anything. A deactivated role keeps its row, its
+  required skills, its questions, its pivot links and every assessment,
+  readiness result or project that references it.
+* `is_active` is exposed in *these* payloads only. The public career-role
+  payload still hides it, so the frontend contract is untouched.
+
+### Creating a role no longer publishes it
+
+`SpecializationService::createCareerRole()` now writes `is_active = false`
+explicitly. Before, the column default published a brand-new role to every
+learner the moment it was saved — including a half-authored role with no skills
+yet. "Create" and "offer to the whole student body" are now two separate
+decisions; the role is approved but hidden until an administrator activates it.
+
+Roles that already existed keep whatever activation state they had.
+
+---
+
+## 10. Reference cache invalidation on admin writes
+
+`GET /api/v1/reference/specializations` is cached for twelve hours. Every
+mutating method of `SpecializationService` (`create`, `update`, `setActive`,
+`delete`) now ends with `ReferenceCache::flush()`, so an operator's change is
+visible on the very next public request instead of after the TTL — the class
+docblock says the cache must be invalidated by the writer, and this is that
+writer.
+
+Covered by `AdminSpecializationCacheTest`, which primes the cache with a real
+request, mutates through the admin API, and asserts the next public request
+already reflects it. Removing the flush makes five of those seven tests fail.
