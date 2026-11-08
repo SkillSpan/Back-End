@@ -374,6 +374,8 @@ class MvpCareerRoleCatalogTest extends TestCase
             'vulnerability-analyst', 'security-testing-engineer',
             'digital-forensics-analyst', 'dfir-analyst', 'cybercrime-analyst',
             'incident-response-specialist',
+            // Security roles that sit under the network / cloud tracks
+            'network-security-engineer', 'cloud-security-engineer',
         ];
 
         $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
@@ -390,15 +392,49 @@ class MvpCareerRoleCatalogTest extends TestCase
         }
     }
 
-    public function test_the_network_and_cloud_security_roles_stay_offered(): void
+    /**
+     * The security roles of the network and cloud tracks are out of MVP, while
+     * the plain engineering roles of the SAME tracks stay offered.
+     *
+     * `network-security-engineer` and `cloud-security-engineer` were initially
+     * kept because they are curated under Computer Networks / Cloud Computing.
+     * The product decision is that cybersecurity is out of the MVP, and a
+     * "security engineer" is a security role whatever its domain — so they are
+     * deactivated, and this test pins the boundary in both directions: the two
+     * security roles must NOT be offered, the four engineering roles named by
+     * the MVP priority lists must still be.
+     */
+    public function test_the_network_and_cloud_security_roles_are_out_but_their_engineering_roles_stay(): void
     {
-        // These two are engineering roles of the Computer Networks / Cloud
-        // Computing tracks (both in the MVP), not members of the cybersecurity
-        // family, so the family-wide deactivation must not sweep them up.
+        $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
+
+        // Out: security specialisms, whatever track curates them.
         foreach (['network-security-engineer', 'cloud-security-engineer'] as $slug) {
             $role = CareerRole::where('slug', $slug)->firstOrFail();
 
+            $this->assertFalse((bool) $role->is_active, "[{$slug}] must not be offered in the MVP.");
+            $this->assertNotContains($role->title, $offeredTitles, "[{$slug}] still appears in the learner list.");
+
+            // Deactivated, not deleted: skills, questions and pivot links stay.
+            $this->assertGreaterThan(0, $role->roleSkills()->count(), "[{$slug}] lost its skills.");
+            $this->assertGreaterThan(
+                0,
+                $this->questionsForRole($role),
+                "[{$slug}] lost its questions.",
+            );
+            $this->assertGreaterThan(
+                0,
+                $role->specializations()->count(),
+                "[{$slug}] lost its specialization links.",
+            );
+        }
+
+        // In: the engineering roles of the network and cloud tracks.
+        foreach (['network-engineer', 'cloud-engineer', 'devops-engineer', 'site-reliability-engineer'] as $slug) {
+            $role = CareerRole::where('slug', $slug)->firstOrFail();
+
             $this->assertTrue((bool) $role->is_active, "[{$slug}] must stay offered.");
+            $this->assertContains($role->title, $offeredTitles, "[{$slug}] is missing from the learner list.");
         }
     }
 

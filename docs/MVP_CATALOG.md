@@ -77,12 +77,12 @@ A role is offered only when **both** hold. Deactivating never touches `status`.
 | | Count |
 |---|---|
 | Career roles seeded by `CareerRoleSeeder` | 146 |
-| Deactivated for the MVP | 51 |
-| Still offered | 95 |
+| Deactivated for the MVP | 53 |
+| Still offered | 93 |
 
 (A development database that also ran `E2eRoadmapFixtureSeeder` has two extra
 test roles — `e2e-roadmap-primary`, `e2e-roadmap-allmet` — so it reports
-148 / 97. They are created only outside production.)
+148 / 95. They are created only outside production.)
 
 ### Deactivated (row, skills, questions and pivot links all preserved)
 
@@ -114,7 +114,11 @@ Forensics* specializations — `security-analyst`, `soc-analyst`,
 `threat-intelligence-analyst`, `security-consultant`, `penetration-tester`,
 `ethical-hacker`, `red-team-operator`, `vulnerability-analyst`,
 `security-testing-engineer`, `digital-forensics-analyst`, `dfir-analyst`,
-`cybercrime-analyst`, `incident-response-specialist`.
+`cybercrime-analyst`, `incident-response-specialist` — plus the two security
+roles curated under other tracks: `network-security-engineer` (*Computer
+Networks*) and `cloud-security-engineer` (*Cloud Computing*). Their domain is
+network / cloud, but a "security engineer" is a security specialism, so the MVP
+decision applies to them as well.
 
 `api-developer` is in the policy list but does not exist in the catalog, so the
 update is a no-op; it is recorded as a future role instead (§3). A test asserts
@@ -125,7 +129,10 @@ a role visible.
 
 `network-engineer`, `cloud-engineer`, `devops-engineer`,
 `site-reliability-engineer` — hands-on engineering roles the brief asks for by
-name, despite the resemblance to the administrative roles above.
+name, despite the resemblance to the administrative roles above and to the two
+security roles now excluded. A test pins all four as still offered, in the same
+assertion that pins the two security roles as not offered, so the boundary
+cannot drift in either direction.
 
 `network-security-engineer` (curated under *Computer Networks*) and
 `cloud-security-engineer` (curated under *Cloud Computing*) — network and cloud
@@ -177,7 +184,7 @@ produce a role that can never start an assessment:
 
 ## 4. Ordering and availability
 
-Every active specialization returns **all** 95 active roles (97 in a dev
+Every active specialization returns **all** 93 active roles (95 in a dev
 database with the E2E fixtures). The specialization decides only the order:
 
 1. its priority slugs from `config/mvp.php`, in the configured order;
