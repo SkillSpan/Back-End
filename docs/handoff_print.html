@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تدقيق الربط — الفرونت مع الباك (واجهة الشركة)</title>
+<style>
+@page { size: A4; margin: 13mm 12mm 15mm 12mm; }
+
+* { box-sizing: border-box; }
+
+body {
+  direction: rtl;
+  text-align: right;
+  font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.75;
+  color: #1c1c1c;
+  margin: 0;
+}
+
+h1 {
+  font-size: 20pt; font-weight: 600; color: #0b3d5c;
+  margin: 0 0 6px; padding-bottom: 10px;
+  border-bottom: 2.5px solid #0b3d5c;
+}
+h2 {
+  font-size: 14pt; font-weight: 600; color: #0b3d5c;
+  margin: 20px 0 10px; padding: 6px 10px 6px 0;
+  border-right: 4px solid #2f7fa8; background: #eef6fa;
+  page-break-after: avoid;
+}
+h3 {
+  font-size: 11.5pt; font-weight: 600; color: #14506e;
+  margin: 18px 0 8px; page-break-after: avoid;
+}
+
+p { margin: 6px 0; }
+
+blockquote {
+  margin: 10px 0; padding: 9px 14px;
+  background: #f4f7f9; border-right: 4px solid #9db8c7;
+  color: #3a4a54; font-size: 9.5pt;
+}
+blockquote p { margin: 3px 0; }
+
+ul, ol { margin: 8px 0; padding-right: 22px; }
+li { margin: 5px 0; }
+
+code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 9pt; direction: ltr; unicode-bidi: embed;
+  background: #f0f2f4; color: #a4232b;
+  padding: 1px 4px; border-radius: 3px;
+}
+
+pre {
+  direction: ltr; text-align: left;
+  background: #f6f8fa; border: 1px solid #d8dee4;
+  border-radius: 6px; padding: 10px 12px; margin: 10px 0;
+  /* NOT `page-break-inside: avoid`: a 60-line JSON payload cannot fit on one
+     page, so Chrome honours the request by pushing the whole block to the next
+     one and leaving a third of the previous page blank. Let it flow. */
+  page-break-inside: auto; overflow-wrap: break-word;
+}
+pre code {
+  background: none; color: #1c1c1c; padding: 0;
+  font-size: 8pt; line-height: 1.36; white-space: pre-wrap;
+}
+
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 12px 0; font-size: 9pt;
+  page-break-inside: auto;
+}
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th {
+  background: #0b3d5c; color: #fff; font-weight: 600;
+  padding: 7px 9px; text-align: right; border: 1px solid #0b3d5c;
+}
+td {
+  padding: 5px 9px; border: 1px solid #cdd7de;
+  vertical-align: top; text-align: right;
+}
+tbody tr:nth-child(even) td { background: #f7fafc; }
+
+strong { font-weight: 600; color: #10334a; }
+
+hr { border: none; border-top: 1px solid #d8dee4; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>تدقيق الربط — الفرونت مع الباك (واجهة الشركة)</h1>
+<p><strong>النسخة المفحوصة:</strong> <code dir="ltr">SkillSpan-Frontend-FULL-tested/skillspan-frontend</code>
+<strong>الباك:</strong> <code dir="ltr">8eab8e1</code> المنشور على <code dir="ltr">https://skillspan.alwaysdata.net</code>
+<strong>التاريخ:</strong> 2026-11-04</p>
+<hr />
+<h2>0. الخلاصة بجملة</h2>
+<p><strong>المسارات (paths) كلها صح</strong> — ولا مسار مكتوب غلط. بس في <strong>5 نداءات جسمها (body)
+مختلف عن اللي بيستناه الباك</strong> فبترجع 422، و<strong>6 مسارات ناقصة بالباك</strong> بترجع 404،
+و<strong>3 مسارات دعوات</strong> ما إلها وجود بالباك أصلاً، و<strong>3 فلاتر بتشتغل بالصامت</strong> (ما
+بترجع خطأ بس ما بتعمل شي).</p>
+<p>الترتيب بالأولوية: القسم 1 قبل 2 قبل 3.</p>
+<hr />
+<h2>1. نداءات بتفشل — 5</h2>
+<p>كل واحد إله تعديل بسطر واحد بالفرونت. العمود الأخير هو الحل الأدق.</p>
+<h3>1.1 قرار التقديم — أخطرها</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>المسار</td>
+<td><code dir="ltr">POST /api/v1/applications/{id}/decision</code> ✅ موجود</td>
+</tr>
+<tr>
+<td>الفرونت يبعت</td>
+<td><code dir="ltr">{ "decision": "shortlist", "reason": "..." }</code></td>
+</tr>
+<tr>
+<td>الباك يستنى</td>
+<td><code dir="ltr">{ "status": "shortlisted", "reason": "..." }</code></td>
+</tr>
+<tr>
+<td>النتيجة</td>
+<td><strong>422 <code dir="ltr">VALIDATION_ERROR</code></strong> — <code dir="ltr">status</code> مطلوب</td>
+</tr>
+</tbody>
+</table>
+<p>الفرونت عندو الخريطة جاهزة أصلاً في <code dir="ltr">applicationReviewApi.js</code>:</p>
+<pre><code class="language-js">export const DECISION_RESULT = { shortlist: 'shortlisted', waitlist: 'waitlisted', accept: 'accepted', reject: 'rejected' };
+</code></pre>
+<p>فالتعديل:</p>
+<pre><code class="language-js">// كان
+const body = { decision, ...(reason ? { reason } : {}) };
+// صار
+const body = { status: DECISION_RESULT[decision], ...(reason ? { reason } : {}) };
+</code></pre>
+<p><strong>يعني كل أزرار القرار (shortlist / waitlist / accept / reject) ما بتشتغل اليوم.</strong></p>
+<h3>1.2 تعيين الفريق</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>المسار</td>
+<td><code dir="ltr">POST /api/v1/projects/{id}/team/assignments</code> ✅ موجود</td>
+</tr>
+<tr>
+<td>الفرونت يبعت</td>
+<td><code dir="ltr">{ "assignments": [ { "application_id": 1, "role_id": 2 } ] }</code></td>
+</tr>
+<tr>
+<td>الباك يستنى</td>
+<td><code dir="ltr">{ "members": [ { "application_id": 1, "project_role": "Data Analyst" } ] }</code></td>
+</tr>
+<tr>
+<td>النتيجة</td>
+<td><strong>422</strong> — <code dir="ltr">members</code> مطلوب</td>
+</tr>
+</tbody>
+</table>
+<p>اسم الحقل، واسم حقل الدور، ونوع الدور (الباك بياخد <strong>نص</strong> حر، مش <code dir="ltr">role_id</code>):</p>
+<pre><code class="language-js">const body = {
+  members: assignments.map((a) =&gt; ({
+    application_id: a.applicationId,
+    ...(a.roleName ? { project_role: a.roleName } : {}),
+  })),
+};
+</code></pre>
+<h3>1.3 مقارنة المواهب</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>المسار</td>
+<td><code dir="ltr">POST /api/v1/talent/compare</code> ✅ موجود</td>
+</tr>
+<tr>
+<td>الفرونت يبعت</td>
+<td><code dir="ltr">{ "candidate_ids": [2,3] }</code></td>
+</tr>
+<tr>
+<td>الباك يستنى</td>
+<td><code dir="ltr">{ "student_ids": [2,3] }</code></td>
+</tr>
+<tr>
+<td>النتيجة</td>
+<td><strong>422</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>1.4 إضافة مرشح لقائمة</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>المسار</td>
+<td><code dir="ltr">POST /api/v1/talent/lists/{id}/candidates</code> ✅ موجود</td>
+</tr>
+<tr>
+<td>الفرونت يبعت</td>
+<td><code dir="ltr">{ "candidate_ids": [2,3,4] }</code></td>
+</tr>
+<tr>
+<td>الباك يستنى</td>
+<td><code dir="ltr">{ "student_id": 2 }</code> — <strong>واحد لكل طلب</strong></td>
+</tr>
+<tr>
+<td>النتيجة</td>
+<td><strong>422</strong></td>
+</tr>
+</tbody>
+</table>
+<p>الحل: لفة على المصفوفة، طلب لكل مرشح. المكرر بيرجع <code dir="ltr">200</code> مع
+<code dir="ltr">already_listed: true</code> فما في مشكلة لو انعاد.</p>
+<h3>1.5 إنشاء قائمة مع مرشحين — صامت</h3>
+<p><code dir="ltr">POST /api/v1/talent/lists</code> بيقبل <code dir="ltr">name</code> بس. الفرونت بيبعت <code dir="ltr">candidate_ids</code> كمان
+والباك بيتجاهلها → <strong>القائمة بتنعمل فاضية</strong>. لازم نداء 1.4 بعدها.</p>
+<hr />
+<h2>2. فلاتر بتشتغل بالصامت — 3</h2>
+<p>ما بترجع خطأ، بس ما بتعمل شي. أخطر من الخطأ لأنه ما بينتبه عليها حدا.</p>
+<table>
+<thead>
+<tr>
+<th>الشاشة</th>
+<th>الفرونت بيبعت</th>
+<th>الباك بيقرأ</th>
+<th>الأثر</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>بحث المشاريع</td>
+<td><code dir="ltr">search</code></td>
+<td><code dir="ltr">q</code></td>
+<td>البحث ما بيرجّع نتائج مفلترة</td>
+</tr>
+<tr>
+<td>ترتيب المشاريع</td>
+<td><code dir="ltr">updated_desc</code> · <code dir="ltr">deadline_asc</code> · <code dir="ltr">title_asc</code> · <code dir="ltr">created_desc</code></td>
+<td><code dir="ltr">recent</code> · <code dir="ltr">oldest</code> · <code dir="ltr">deadline</code> · <code dir="ltr">title</code></td>
+<td>كل الترتيب بيرجع <code dir="ltr">recent</code></td>
+</tr>
+<tr>
+<td>عدّادات الفلاتر</td>
+<td><code dir="ltr">meta.status_counts</code></td>
+<td><code dir="ltr">stats.by_status</code> (برّا <code dir="ltr">meta</code>)</td>
+<td>الشيبس بلا أرقام</td>
+</tr>
+</tbody>
+</table>
+<p>الحل بالفرونت: <code dir="ltr">search</code> → <code dir="ltr">q</code>، وخريطة قيم للترتيب، و<code dir="ltr">statusCounts</code> تُقرأ من
+<code dir="ltr">payload.stats.by_status</code> بدل <code dir="ltr">meta.status_counts</code>.</p>
+<hr />
+<h2>3. مسارات ناقصة بالباك — 6</h2>
+<p>الفرونت بيناديها، الباك بيرجّع <strong>404</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>المسار</th>
+<th>مين بيستعمله</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code dir="ltr">GET /api/v1/projects/{id}/team</code></td>
+<td>شاشة الفريق — بتحمّل الفريق أول ما تفتح</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code dir="ltr">DELETE /api/v1/projects/{id}/team/assignments/{applicationId}</code></td>
+<td>إزالة تعيين</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code dir="ltr">PATCH /api/v1/talent/lists/{id}</code></td>
+<td>إعادة تسمية قائمة</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code dir="ltr">DELETE /api/v1/talent/lists/{id}</code></td>
+<td>حذف قائمة</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code dir="ltr">DELETE /api/v1/talent/lists/{id}/candidates/{studentId}</code></td>
+<td>إزالة مرشح من قائمة</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code dir="ltr">GET /api/v1/talent/funnel</code></td>
+<td>عدّادات المسار (محفوظ/تواصل/ردّ)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>4. الدعوات — 3 مسارات بلا جدول أصلاً</h2>
+<p>الفرونت فيه تدفّق دعوات كامل، والباك ما عندو <code dir="ltr">team_invitations</code> ولا جدول ولا
+موديل. يعني هاد <strong>ميزة كاملة</strong>، مش راوت ناقص:</p>
+<ul>
+<li><code dir="ltr">POST /api/v1/projects/{id}/team/invitations</code></li>
+<li><code dir="ltr">GET /api/v1/team-invitations/{id}</code></li>
+<li><code dir="ltr">POST /api/v1/team-invitations/{id}/response</code></li>
+</ul>
+<p>قرار مطلوب قبل التنفيذ: مين بيقبل الدعوة، ووين بتظهر للطالب، وشو بيصير للتعيين
+إذا انرفضت.</p>
+<hr />
+<h2>5. أفعال دورة الحياة — 4 أزرار ما إلها انتقال</h2>
+<p>الفرونت بيعرضها حسب جدول Sprint، والباك بيرفضها <strong>422 <code dir="ltr">PROJECT_INVALID_TRANSITION</code></strong>
+(والفرونت بيعرض الرفض، فالشاشة ما بتنهار — بس الزر ما بينفع أبداً).</p>
+<table>
+<thead>
+<tr>
+<th>الفعل</th>
+<th>من → إلى</th>
+<th>موجود بالباك؟</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="ltr">reopen</code></td>
+<td><code dir="ltr">selection</code> → <code dir="ltr">open</code></td>
+<td>❌</td>
+</tr>
+<tr>
+<td><code dir="ltr">revise</code></td>
+<td><code dir="ltr">rejected</code> → <code dir="ltr">draft</code></td>
+<td>❌</td>
+</tr>
+<tr>
+<td><code dir="ltr">archive</code></td>
+<td><code dir="ltr">rejected</code> / <code dir="ltr">cancelled</code> / <code dir="ltr">completed</code> → <code dir="ltr">archived</code></td>
+<td>❌</td>
+</tr>
+<tr>
+<td><code dir="ltr">cancel</code></td>
+<td>أي حالة → <code dir="ltr">cancelled</code></td>
+<td>❌ (موجود للأدمن بس: <code dir="ltr">/admin/projects/{id}/cancel</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>اللي بيشتغل من نفس الشاشة:</strong> <code dir="ltr">submit</code> · <code dir="ltr">resubmit</code> · <code dir="ltr">open</code> · <code dir="ltr">move_to_selection</code> · <code dir="ltr">start</code>.</p>
+<hr />
+<h2>6. اللي مربوط صح — تأكيد</h2>
+<p>مفحوص مسار + فعل + جسم، وكلو مطابق:</p>
+<p><strong>المشاريع:</strong> <code dir="ltr">POST /projects</code> · <code dir="ltr">PATCH /projects/{id}</code> · <code dir="ltr">POST /projects/{id}/submit</code> ·
+<code dir="ltr">POST /projects/{id}/clone</code> · <code dir="ltr">GET /company/projects</code> · <code dir="ltr">GET /company/projects/{id}</code> ·
+<code dir="ltr">POST /projects/{id}/transitions</code> (لأفعال القسم 5 اللي إلها انتقال)</p>
+<p><strong>التقديمات:</strong> <code dir="ltr">GET /projects/{id}/applications</code> · <code dir="ltr">GET /applications/{id}</code> ·
+<code dir="ltr">POST /projects/{id}/start</code></p>
+<p><strong>المواهب:</strong> <code dir="ltr">GET /talent</code> · <code dir="ltr">GET /talent/{id}</code> · <code dir="ltr">GET /talent/filters</code> ·
+<code dir="ltr">GET /talent/lists</code> · <code dir="ltr">GET /talent/lists/{id}</code> · <code dir="ltr">GET</code>/<code dir="ltr">POST /talent/candidates/{id}/notes</code> ·
+<code dir="ltr">POST /talent/candidates/{id}/contact</code></p>
+<p><strong>الملف واللوحة:</strong> <code dir="ltr">GET</code>/<code dir="ltr">PATCH /profile/me</code> · <code dir="ltr">POST /company/profile/documents</code> ·
+<code dir="ltr">GET /company/profile/documents/{id}</code> · <code dir="ltr">GET /company/dashboard</code> ·
+<code dir="ltr">GET /organization/profile</code> · مسارات الإشعارات الأربعة</p>
+<p><strong>اللوغو:</strong> <code dir="ltr">logo_url</code> بينعرض بـ <code dir="ltr">&lt;img src&gt;</code> <strong>بلا</strong> <code dir="ltr">Authorization</code> — بعكس روابط
+المستندات.</p>
+<hr />
+<h2>7. الخلاصة التنفيذية</h2>
+<table>
+<thead>
+<tr>
+<th>الجهة</th>
+<th>الشغل</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>الفرونت</td>
+<td>5 تعديلات جسم (القسم 1) + 3 فلاتر (القسم 2) — كلها دقائق</td>
+</tr>
+<tr>
+<td>الباك</td>
+<td>6 راوتات (القسم 3) + 4 انتقالات (القسم 5)</td>
+</tr>
+<tr>
+<td>قرار</td>
+<td>تدفّق الدعوات (القسم 4)</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
