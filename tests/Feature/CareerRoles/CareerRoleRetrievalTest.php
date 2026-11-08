@@ -304,8 +304,10 @@ class CareerRoleRetrievalTest extends TestCase
             '/api/v1/career-roles?specialization_id='.$specialization->id.'&per_page=2'
         )->assertOk();
 
-        // The filter still applies and the page size still applies to it.
-        $this->assertSame(4, $response->json('data.total'));
+        // Since the MVP the specialization only ORDERS the list, so all five
+        // active roles are in scope (4 curated + 1 outside the pivot) and the
+        // page size still applies to that whole set.
+        $this->assertSame(5, $response->json('data.total'));
         $this->assertSame(2, $response->json('data.per_page'));
         $this->assertCount(2, $response->json('data.data'));
     }

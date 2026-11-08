@@ -196,27 +196,33 @@ class EvidenceCareerRoleEndpoints
         path: '/v1/career-roles',
         operationId: 'careerRolesIndex',
         tags: ['Career Roles'],
-        summary: 'List approved career roles',
-        description: 'Returns approved career roles ordered by version (descending) with a deterministic '
-            .'`id` tie-breaker, paginated (page size `per_page`, default 15, clamped to 1..100 — BA-04). '
-            .'Each item carries a `skills_count`. '
-            .'The response echoes (or generates) a `request_id`, also returned in the `X-Request-ID` header. '
-            .'When `specialization_id` is supplied, only the approved career roles linked to that '
-            .'specialization (via the career_role_specialization pivot) are returned — this is the filter '
-            .'the frontend uses to drive the specialization -> career role -> skills -> questions flow. '
-            .'The "Self-Learning / Free Track" specialization is the exception: it carries no pivot rows and '
-            .'returns EVERY approved career role, so a self-taught learner can pick any role. '
-            .'Omitting the filter preserves the original "list every approved role" behaviour.',
+        summary: 'List career roles available to learners',
+        description: 'Returns every career role a learner may currently choose: `status = approved` AND '
+            .'`is_active = true`. The two flags are independent — `status` is the review state of the role '
+            .'definition (draft / approved / retired), while `is_active` is whether the product offers the role '
+            .'right now. A role can be approved and still not offered (e.g. an out-of-MVP role), and an inactive '
+            .'role is never returned here even though it stays fully readable through '
+            .'`GET /v1/career-roles/{id}` and `GET /v1/career-roles/{id}/skills`. '
+            .'Since the MVP, a specialization no longer RESTRICTS the list: every active specialization returns '
+            .'the same set of roles, and `specialization_id` only changes the ORDER — the roles configured as '
+            .'closest to that specialization come first, in their configured order, and every other active role '
+            .'follows in a stable neutral order (`version` descending, then `id` descending). '
+            .'The "Self-Learning / Free Track" has no priority list and therefore returns the same set in the '
+            .'neutral order; omitting `specialization_id` produces exactly that neutral order too, so existing '
+            .'consumers keep their previous list. '
+            .'Ordering is applied before pagination and is total, so a role can never appear on two pages or be '
+            .'skipped. Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, '
+            .'also returned in the `X-Request-ID` header.',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(
                 name: 'specialization_id',
                 in: 'query',
                 required: false,
-                description: 'Optional filter. Must be a positive integer referencing an existing specialization. '
-                    .'When present, only approved career roles linked to that specialization are returned — except '
-                    .'for the "Self-Learning / Free Track", which returns every approved role. '
-                    .'When omitted, every approved career role is returned (unchanged behaviour).',
+                description: 'Optional. Must be a positive integer referencing an existing AND ACTIVE '
+                    .'specialization. When present, the roles closest to that specialization are listed first; '
+                    .'the rest of the active roles follow. It never hides a role. An inactive specialization is '
+                    .'rejected with a 422 validation error. When omitted, the neutral order is returned.',
                 schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
             ),
             new OA\Parameter(
@@ -261,7 +267,7 @@ class EvidenceCareerRoleEndpoints
             ),
             new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 403, description: 'Forbidden — the account is not a learner.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
-            new OA\Response(response: 422, description: 'Validation error — `specialization_id` is not a positive integer or does not reference an existing specialization.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
+            new OA\Response(response: 422, description: 'Validation error — `specialization_id` is not a positive integer, does not reference an existing specialization, or references an inactive one.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationErrorResponse')),
         ],
     )]
     public function careerRolesIndex(): void {}
@@ -273,7 +279,10 @@ class EvidenceCareerRoleEndpoints
         summary: 'Retrieve an approved career role',
         description: 'Returns a single approved career role. Only approved roles are visible through this API; '
             .'an unknown id returns `CAREER_ROLE_NOT_FOUND`, while an existing but non-approved role returns '
-            .'`CAREER_ROLE_NOT_APPROVED`. The response echoes a `request_id`.',
+            .'`CAREER_ROLE_NOT_APPROVED`. '
+            .'A role that is approved but currently INACTIVE (`is_active = false`, i.e. not offered to learners) '
+            .'is still returned: deactivating a role only removes it from the pickers, it must never lock a '
+            .'learner or a project out of a role they already reference. The response echoes a `request_id`.',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(name: 'id', in: 'path', required: true, description: 'Career role id.', schema: new OA\Schema(type: 'integer'), example: 3),
