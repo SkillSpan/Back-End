@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Web\AdminAuthController;
+use App\Http\Controllers\Web\AdminCareerRoleController;
 use App\Http\Controllers\Web\AdminOrganizationController;
 use App\Http\Controllers\Web\AdminProfileController;
 use App\Http\Controllers\Web\AdminProjectController;
@@ -182,6 +183,24 @@ Route::middleware(['auth', 'account.active', 'admin'])->prefix('admin')->group(f
         ->whereNumber('specialization');
     Route::delete('/api/specializations/{specialization}', [AdminSpecializationController::class, 'destroy'])
         ->whereNumber('specialization');
+
+    /*
+     * Career-role activation — the switch behind `career_roles.is_active`.
+     *
+     * Creating a role from the panel above now leaves it INACTIVE, and
+     * retiring a single role used to require editing config/mvp.php and
+     * re-seeding. These two endpoints are the missing half: an administrator
+     * publishes a role (activation is refused for a role that is not approved)
+     * or takes it out of every learner picker without deleting anything.
+     *
+     * Additive only: no existing route, payload or behaviour changes, and the
+     * group's `auth` + `account.active` + `admin` middleware is unchanged.
+     */
+    Route::get('/api/career-roles', [AdminCareerRoleController::class, 'index']);
+    Route::post('/api/career-roles/{careerRole}/activate', [AdminCareerRoleController::class, 'activate'])
+        ->whereNumber('careerRole');
+    Route::post('/api/career-roles/{careerRole}/deactivate', [AdminCareerRoleController::class, 'deactivate'])
+        ->whereNumber('careerRole');
 });
 
 /*
