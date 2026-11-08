@@ -93,7 +93,10 @@ class AdminQuestionController extends Controller
     /**
      * GET /admin/api/questions/career-roles?specialization_id={id}
      *
-     * Second dropdown — only the career roles linked to the specialization.
+     * Second dropdown. The chosen specialization sets the ORDER, not the
+     * filter: the roles mapped to it come first, every other active role
+     * follows, so an operator can author a question for any role a learner
+     * could be assessed on. See QuestionBankService::careerRoles().
      */
     public function careerRoles(Request $request): JsonResponse
     {

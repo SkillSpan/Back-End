@@ -71,17 +71,35 @@ class QuestionBankService
     }
 
     /**
-     * Career roles reachable from a specialization, for the second
-     * dropdown. All statuses are returned so an operator can see the full
-     * mapping; the assessment flow still only uses approved, active roles.
+     * Career roles for the second dropdown, ORDERED BY the chosen
+     * specialization.
      *
-     * The "Self-Learning / Free Track" specialization returns EVERY role,
-     * because any role is valid under it.
+     * WHY THIS IS NOT THE LEARNER-FACING LIST
+     * ---------------------------------------
+     * The learner picker (GET /api/v1/career-roles) is ordered by the curated
+     * priority in config/mvp.php. The question-bank screen has a different
+     * job: an operator picks a specialization and then a role to author
+     * questions for, so the roles that specialization actually covers must be
+     * at the top of the list — and "covers" means the
+     * `career_role_specialization` mapping an operator maintains on the
+     * specializations screen. Reusing the learner ordering here would put the
+     * MVP's product priority on an authoring screen, which is not what the
+     * operator selected.
      *
-     * This is the CURATION view (specialization -> linked roles), so it keeps
-     * reading the `career_role_specialization` pivot even though the learner's
-     * picker no longer uses it as a filter — see
-     * Specialization::selectableCareerRolesQuery() for that side.
+     * THE SPECIALIZATION ORDERS, IT DOES NOT FILTER
+     * ---------------------------------------------
+     * Every selectable role (approved AND active) is returned, because an
+     * operator may need to author a question for a role outside the chosen
+     * track. The linked roles come first, in title order; every other role
+     * follows, also in title order. The two blocks are ordered independently so
+     * the list is stable and the boundary is visible.
+     *
+     * The "Self-Learning / Free Track" carries no mapping of its own — every
+     * role is equally valid under it — so it gets the neutral order (title)
+     * over the same complete set.
+     *
+     * Deactivated and non-approved roles are excluded: they are not offered to
+     * learners, so a question authored against them would be unreachable.
      *
      * @return array<int, array{id:int,title:string,status:string}>
      */
@@ -93,12 +111,36 @@ class QuestionBankService
             return [];
         }
 
-        $query = $specialization->isFreeTrack()
-            ? CareerRole::query()
-            : $specialization->mappedCareerRolesQuery();
+        $query = CareerRole::query()->selectable();
+
+        /*
+         * Rank the mapped roles ahead of the rest in SQL rather than sorting in
+         * PHP: the list is a dropdown over the whole catalog, and doing it in
+         * the query keeps one definition of the order (and stays correct if a
+         * page size is ever added).
+         *
+         * The ids are bound as parameters, never interpolated.
+         */
+        $linkedIds = $specialization->isFreeTrack()
+            ? []
+            : $specialization->careerRoles()
+                ->pluck('career_roles.id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+        if ($linkedIds !== []) {
+            $placeholders = implode(', ', array_fill(0, count($linkedIds), '?'));
+
+            $query->orderByRaw(
+                "CASE WHEN career_roles.id IN ({$placeholders}) THEN 0 ELSE 1 END ASC",
+                $linkedIds,
+            );
+        }
 
         return $query
-            ->orderBy('title')
+            // Deterministic order inside each block, and the whole order for
+            // the free track (which adds no rank).
+            ->orderBy('career_roles.title')
             ->get(['career_roles.id', 'career_roles.title', 'career_roles.status'])
             ->map(fn ($role) => [
                 'id' => (int) $role->id,

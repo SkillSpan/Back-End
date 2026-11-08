@@ -91,16 +91,4 @@ class Specialization extends Model
             ->whereKey($careerRoleId)
             ->exists();
     }
-
-    /**
-     * The pivot-restricted roles, ordered for display. Used by the admin
-     * "Manage Career Roles" screens, which curate the mapping.
-     */
-    public function mappedCareerRolesQuery(): Builder
-    {
-        return CareerRole::query()->whereHas(
-            'specializations',
-            fn (Builder $query) => $query->whereKey($this->id),
-        );
-    }
 }
