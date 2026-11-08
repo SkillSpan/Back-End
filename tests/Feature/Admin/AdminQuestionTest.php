@@ -90,7 +90,7 @@ class AdminQuestionTest extends TestCase
         $this->assertContains('Cybersecurity', $names);
     }
 
-    public function test_career_roles_endpoint_returns_only_the_specializations_roles(): void
+    public function test_career_roles_endpoint_puts_the_specializations_roles_first(): void
     {
         $this->actingAs($this->admin());
 
@@ -98,6 +98,7 @@ class AdminQuestionTest extends TestCase
         $cyber = $this->specialization('Cybersecurity');
 
         $frontend = $this->careerRole('Frontend Developer');
+        $backend = $this->careerRole('Backend Developer');
         $security = $this->careerRole('Security Analyst');
 
         $software->careerRoles()->attach($frontend->id);
@@ -108,7 +109,13 @@ class AdminQuestionTest extends TestCase
             'title',
         );
 
-        $this->assertSame(['Frontend Developer'], $titles);
+        // The chosen specialization ORDERS the list, it does not filter it:
+        // its own role is first, every other active role still follows so an
+        // operator can author a question for any of them.
+        $this->assertSame('Frontend Developer', $titles[0]);
+        $this->assertContains('Backend Developer', $titles);
+        $this->assertContains('Security Analyst', $titles);
+        $this->assertCount(3, $titles);
     }
 
     public function test_skills_endpoint_returns_only_the_roles_skills(): void
