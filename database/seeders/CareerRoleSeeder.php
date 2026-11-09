@@ -67,6 +67,8 @@ class CareerRoleSeeder extends Seeder
                     ->whereNotIn('skill_id', $resolvedSkillIds)
                     ->delete();
             }
+
+            $this->ensureDescription($careerRole, $title, count($resolvedSkillIds));
         }
     }
 
@@ -82,6 +84,49 @@ class CareerRoleSeeder extends Seeder
     {
         return Skill::where('name', $name)->first()
             ?? Skill::where('slug', Str::slug($name))->first();
+    }
+
+    /**
+     * Give a role a description the first time it is seeded.
+     *
+     * Reported from the live server: every career role came back with a null
+     * description, so the picker had nothing to show under the title and all
+     * roles read the same. The column existed and was already exposed by the
+     * API — nothing ever wrote to it, because this seeder only sets the title,
+     * status and effective date.
+     *
+     * Written only when the column is blank, so a description edited in the
+     * admin panel survives every reseed.
+     */
+    private function ensureDescription(CareerRole $careerRole, string $title, int $skillCount): void
+    {
+        if (trim((string) $careerRole->description) !== '') {
+            return;
+        }
+
+        $careerRole->forceFill([
+            'description' => self::describe($title, $skillCount),
+        ])->save();
+    }
+
+    /**
+     * Deterministic one-sentence description for a role.
+     *
+     * Public and static so the same wording can be reused by a backfill, and
+     * deliberately free of skill names: `GET /api/v1/career-roles?search=`
+     * matches the description as well as the title, so listing the role's
+     * skills here made a search for "engineer" return "Data Scientist"
+     * (because one of its skills is Data Engineering). A description is copy,
+     * not a keyword dump.
+     */
+    public static function describe(string $title, int $skillCount): string
+    {
+        if ($skillCount === 0) {
+            return "{$title} — the skills this role requires are not catalogued yet.";
+        }
+
+        return "{$title} — readiness for this role is scored from a baseline assessment across "
+            ."{$skillCount} core ".($skillCount === 1 ? 'skill' : 'skills').'.';
     }
 
     /**

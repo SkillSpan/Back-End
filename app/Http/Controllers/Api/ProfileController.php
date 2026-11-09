@@ -327,24 +327,49 @@ class ProfileController extends Controller
      * from a stable URL (versioned by `avatar_updated_at`) so the browser can
      * cache it; 404 when there is none.
      */
-    public function avatar(Request $request): Response
+    public function avatar(Request $request): Response|JsonResponse
     {
         $profile = $request->user()->studentProfile;
 
         if ($profile === null) {
-            abort(404);
+            return $this->avatarMissing('PROFILE_NOT_FOUND', 'This learner has no profile yet.');
         }
 
         $binary = $this->avatarService()->avatarBinary($profile);
 
         if ($binary === null) {
-            abort(404);
+            return $this->avatarMissing(
+                'PROFILE_AVATAR_NOT_FOUND',
+                'This learner has no profile photo.',
+            );
         }
 
         return response($binary, 200, [
             'Content-Type' => (string) $profile->avatar_mime,
             'Content-Length' => (string) strlen($binary),
             'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * A learner without a photo is a normal state, not a failure, but the
+     * response still has to be readable: a bare `abort(404)` sends an empty
+     * body, so the frontend cannot tell "no photo yet" from "this endpoint
+     * does not exist" and has nothing to show the learner.
+     *
+     * `no-store` matters as much as the body. The success response above is
+     * cached for 300s; without an explicit no-store on the miss, a browser
+     * that asked before the upload keeps serving its own cached 404 and the
+     * new photo appears not to have saved.
+     */
+    private function avatarMissing(string $code, string $message): JsonResponse
+    {
+        return response()->json([
+            'code' => $code,
+            'message' => $message,
+        ], 404, [
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }

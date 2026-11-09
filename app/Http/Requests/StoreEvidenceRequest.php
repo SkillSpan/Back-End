@@ -174,6 +174,26 @@ class StoreEvidenceRequest extends FormRequest
                 'nullable',
                 'date',
             ],
+
+            /*
+             * The learner's own claim of the level this evidence demonstrates,
+             * on the same 0–5 scale the assessment uses.
+             *
+             * Optional, and it stays optional: an older client that sends
+             * nothing keeps the previous behaviour. But without it the row is
+             * stored with `normalized_value = 0`, and `SkillEvaluationService`
+             * averages `normalized_value` across verified evidence — so five
+             * accepted proofs of a skill produced a final level of exactly
+             * 0.00 and the skills matrix looked empty. A proof has to carry a
+             * value to move a level.
+             */
+            'level' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'min:0',
+                'max:5',
+            ],
         ];
     }
 

@@ -325,7 +325,30 @@ class ProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->getJson('/api/v1/profile/avatar')->assertStatus(404);
+        /*
+         * A learner without a photo is a normal state, but the answer still has
+         * to be readable: a bare `abort(404)` sends an empty body, so the
+         * frontend could not tell "no photo yet" from "wrong URL" and had no
+         * message to show. `no-store` matters too — the success response is
+         * cached for 300s, and a browser that asked before the upload would
+         * keep serving its own cached 404.
+         */
+        $response = $this->getJson('/api/v1/profile/avatar')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROFILE_AVATAR_NOT_FOUND')
+            ->assertJsonPath('message', 'This learner has no profile photo.');
+
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function test_avatar_get_reports_a_missing_profile_separately(): void
+    {
+        $user = $this->learner();
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/v1/profile/avatar')
+            ->assertStatus(404)
+            ->assertJsonPath('code', 'PROFILE_NOT_FOUND');
     }
 
     public function test_avatar_upload_rejects_non_image(): void

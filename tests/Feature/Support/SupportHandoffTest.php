@@ -142,6 +142,45 @@ class SupportHandoffTest extends TestCase
         $this->assertSame('Billing question', SupportRequest::query()->firstOrFail()->subject);
     }
 
+    // ------------------------------------------------------------ envelope
+
+    /**
+     * Support used to answer `{data: …}` while every other learner endpoint
+     * answers `{success, message, data}`, so a client written against the
+     * common shape read `success` as undefined and treated a good reply as a
+     * failure. The fix is additive: `data` (and `meta` on collections) stay
+     * exactly where they were, so existing consumers keep working.
+     */
+    public function test_support_responses_use_the_same_envelope_as_the_rest_of_the_api(): void
+    {
+        [$learner] = $this->learner();
+        Sanctum::actingAs($learner);
+
+        $id = $this->postJson('/api/v1/support/requests', ['reason' => 'learner_requested'])
+            ->assertStatus(201)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Support request created successfully.')
+            ->assertJsonStructure(['success', 'message', 'data' => ['id']])
+            ->json('data.id');
+
+        $this->getJson('/api/v1/support/requests')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['success', 'message', 'data', 'meta']);
+
+        $this->getJson('/api/v1/support/requests/'.$id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Support request retrieved successfully.')
+            ->assertJsonStructure(['success', 'message', 'data' => ['id']]);
+
+        $this->postJson('/api/v1/support/requests/'.$id.'/messages', ['body' => 'Still stuck, please help.'])
+            ->assertStatus(201)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Message sent successfully.')
+            ->assertJsonStructure(['success', 'message', 'data']);
+    }
+
     // ------------------------------------------------------------ idempotency
 
     public function test_a_second_request_returns_the_first_one_instead_of_creating_a_duplicate(): void

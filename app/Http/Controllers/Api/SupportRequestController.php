@@ -63,10 +63,13 @@ class SupportRequestController extends Controller
                 requestId: $requestId,
             );
 
-            return (new SupportRequestResource($supportRequest->load('assignee')))
-                ->response()
-                ->setStatusCode(201)
-                ->header('X-Request-ID', $requestId);
+            return $this->envelope(
+                (new SupportRequestResource($supportRequest->load('assignee')))
+                    ->response()
+                    ->setStatusCode(201)
+                    ->header('X-Request-ID', $requestId),
+                'Support request created successfully.',
+            );
         } catch (ReadinessException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         } catch (ValidationException $e) {
@@ -102,9 +105,12 @@ class SupportRequestController extends Controller
             ->latest('id')
             ->paginate($this->perPage($request));
 
-        return SupportRequestResource::collection($requests)
-            ->response()
-            ->header('X-Request-ID', $requestId);
+        return $this->envelope(
+            SupportRequestResource::collection($requests)
+                ->response()
+                ->header('X-Request-ID', $requestId),
+            'Support requests retrieved successfully.',
+        );
     }
 
     /** One of the caller's own requests, with the thread. */
@@ -128,9 +134,12 @@ class SupportRequestController extends Controller
             );
         }
 
-        return (new SupportRequestResource($found))
-            ->response()
-            ->header('X-Request-ID', $requestId);
+        return $this->envelope(
+            (new SupportRequestResource($found))
+                ->response()
+                ->header('X-Request-ID', $requestId),
+            'Support request retrieved successfully.',
+        );
     }
 
     /** Add a message to the caller's own open request. */
@@ -158,10 +167,13 @@ class SupportRequestController extends Controller
                 body: (string) $request->validated('body'),
             );
 
-            return (new SupportMessageResource($message->load('sender')))
-                ->response()
-                ->setStatusCode(201)
-                ->header('X-Request-ID', $requestId);
+            return $this->envelope(
+                (new SupportMessageResource($message->load('sender')))
+                    ->response()
+                    ->setStatusCode(201)
+                    ->header('X-Request-ID', $requestId),
+                'Message sent successfully.',
+            );
         } catch (ReadinessException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         }
@@ -255,6 +267,31 @@ class SupportRequestController extends Controller
     private function requestId(Request $request): string
     {
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
+    }
+
+    /**
+     * Put a resource response into the envelope the rest of the API uses.
+     *
+     * Every other learner endpoint answers `{success, message, data}`, while a
+     * bare `JsonResource::response()` answers `{data}` — so a client written
+     * against the common shape read `success` as `undefined` on support and
+     * treated a perfectly good reply as a failure.
+     *
+     * The merge is deliberately *additive*: `data`, `links` and `meta` stay
+     * exactly where they were, so a client that already reads `body.data`
+     * (or `body.data.data` through axios) keeps working unchanged. Only the
+     * two missing keys are added.
+     */
+    private function envelope(JsonResponse $response, string $message): JsonResponse
+    {
+        $payload = $response->getData(true);
+
+        $response->setData(array_merge(
+            ['success' => true, 'message' => $message],
+            is_array($payload) ? $payload : [],
+        ));
+
+        return $response;
     }
 
     private function errorResponse(

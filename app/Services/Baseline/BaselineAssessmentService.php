@@ -123,6 +123,22 @@ class BaselineAssessmentService
         ) {
             $coverage = $this->buildCoverage($selectedQuestions);
 
+            /*
+             * The role the learner chose to be assessed against IS their
+             * current career goal — this is the one moment they state it
+             * explicitly. It used to be recorded nowhere: the column was only
+             * written by `PUT /profile`, so a learner who started an assessment
+             * and never opened the profile form kept a null
+             * `primary_career_role_id`. Everything that falls back to it then
+             * behaved as if no path had been chosen — readiness and
+             * intelligence answered CAREER_ROLE_REQUIRED, the assistant had no
+             * goal to talk about, and talent discovery skipped the learner.
+             *
+             * Inside the transaction on purpose: a failed assessment must not
+             * leave the goal changed.
+             */
+            $this->recordPrimaryCareerRole($studentProfile, $careerRole);
+
             $assessment = BaselineAssessment::forceCreate([
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
@@ -610,5 +626,22 @@ class BaselineAssessmentService
     private function activeVersion(): string
     {
         return (string) config('services.data_science.baseline.version', 'v1.0');
+    }
+
+    /**
+     * Make the assessed role the learner's primary career goal.
+     *
+     * Only writes when it actually differs, so re-running a start for the same
+     * role does not touch `updated_at`. `forceFill` is used because
+     * `primary_career_role_id` is fillable but the profile instance here was
+     * loaded through the relationship and may carry stale attributes.
+     */
+    private function recordPrimaryCareerRole(StudentProfile $studentProfile, CareerRole $careerRole): void
+    {
+        if ((int) $studentProfile->primary_career_role_id === (int) $careerRole->id) {
+            return;
+        }
+
+        $studentProfile->forceFill(['primary_career_role_id' => $careerRole->id])->save();
     }
 }

@@ -119,13 +119,17 @@ class EvidenceController extends Controller
          * but SkillEvaluationService recalculates it dynamically
          * during every recalculate().
          */
+        $declaredLevel = $request->filled('level')
+            ? round((float) $request->input('level'), 2)
+            : 0.0;
+
         $evidence = SkillEvidence::create([
             'student_profile_id' => $studentProfile->id,
             'skill_id' => $skillId,
             'source' => SkillEvidence::LEARNER_SUBMISSION_SOURCE,
             'evidence_type' => $evidenceType,
-            'value' => 0,
-            'normalized_value' => 0,
+            'value' => $declaredLevel,
+            'normalized_value' => $declaredLevel,
             'reference' => $reference,
 
             /*
@@ -303,6 +307,22 @@ class EvidenceController extends Controller
                 'string',
                 'max:500',
             ],
+
+            /*
+             * The reviewer's correction of the level this proof demonstrates.
+             *
+             * Evidence submitted before `level` existed on the request carries
+             * `normalized_value = 0`, and no amount of re-reviewing changes a
+             * 0 — the level average is computed from that column. This lets an
+             * admin fix such a row at review time instead of asking the learner
+             * to delete and re-upload the proof.
+             */
+            'level' => [
+                'sometimes',
+                'numeric',
+                'min:0',
+                'max:5',
+            ],
         ]);
 
         /*
@@ -344,6 +364,20 @@ class EvidenceController extends Controller
             'reviewer_id' => $request->user()->id,
             'reviewer_notes' => $request->reviewer_notes,
         ]);
+
+        /*
+         * A corrected level is written before the recalculation below, so the
+         * new value is what the projection is computed from — writing it after
+         * would leave `learner_skills` one review behind.
+         */
+        if ($request->filled('level')) {
+            $corrected = round((float) $request->input('level'), 2);
+
+            $evidence->update([
+                'value' => $corrected,
+                'normalized_value' => $corrected,
+            ]);
+        }
 
         /*
          * Recalculate skill level and confidence after
