@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install pdo pdo_mysql mbstring zip gd opcache \
     && rm -rf /var/lib/apt/lists/*
 
-
 RUN { \
         echo 'opcache.enable=1'; \
         echo 'opcache.enable_cli=1'; \
@@ -20,7 +19,6 @@ RUN { \
         echo 'opcache.validate_timestamps=0'; \
         echo 'opcache.revalidate_freq=0'; \
     } > /usr/local/etc/php/conf.d/zz-opcache.ini
-
 
 RUN { \
         echo 'upload_max_filesize=12M'; \
@@ -34,17 +32,16 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
+
+RUN composer install --optimize-autoloader --no-scripts --no-interaction
 
 COPY . .
-
 
 RUN composer dump-autoload --optimize --no-scripts \
     && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 10000
-
 
 CMD php artisan migrate --force \
     && php artisan config:cache \
