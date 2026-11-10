@@ -4,13 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the self-service organization profile endpoint
- * (App\Http\Controllers\Api\OrganizationController) and the mentor-student
- * communication system (App\Http\Controllers\Api\MentorStudentController).
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class OrganizationMentorEndpoints
 {
     #[OA\Get(

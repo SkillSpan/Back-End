@@ -6,43 +6,12 @@ use App\Exceptions\AssistantException;
 use App\Models\AssistantInteraction;
 use App\Models\StudentProfile;
 use App\Services\Intelligence\DecisionSnapshotService;
-use App\Services\Intelligence\IntelligenceService;
 use App\Support\SafeLog;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * US-REC-01 — assistant orchestration, mirroring
- * {@see IntelligenceService}:
- *
- *  1. refuse an intent outside the permitted assistant scope (§12.5, BR-01)
- *  2. assert the §12.5 governance gate — before any learner data is read
- *  3. verify the requested context really belongs to this learner (BR-11)
- *  4. build the approved context snapshot (no fabrication, no recomputation)
- *  5. persist the interaction as PENDING (pre-call)
- *  6. call FastAPI through the §12.5-gated client
- *  7. persist SUCCEEDED, or FAILED with a stable failure code
- *  8. return the reply to the caller **without storing it**
- *
- * Laravel owns authorisation, validation, persistence and routing. It does
- * NOT generate any assistant prose — that is FastAPI's responsibility
- * exclusively, and nothing here fabricates a fallback answer. When the service
- * reports that no provider answered, its own fallback text is relayed
- * unchanged and the interaction is recorded as FAILED: the learner still sees
- * something, and the outage is still auditable.
- */
 class AssistantService
 {
-    /**
-     * The permitted scope of the assistant.
-     *
-     * SRS v1.1 §12.5 — the assistant may "explain concepts, clarify
-     * requirements, ask reflective questions, suggest next steps, and
-     * direct the user to approved resources". Anything outside this list is
-     * refused at the gateway, before FastAPI is ever contacted.
-     *
-     * @var list<string>
-     */
     public const ALLOWED_INTENTS = [
         'explain_readiness',
         'explain_skill_gap',
@@ -58,43 +27,14 @@ class AssistantService
         private readonly DecisionSnapshotService $snapshotService,
     ) {}
 
-    /**
-     * Run one assistant turn and return both the audit record and the reply.
-     *
-     * @param  array<string, mixed>  $input
-     *
-     * @throws AssistantException
-     */
     public function ask(StudentProfile $studentProfile, array $input, string $requestId): AssistantAnswer
     {
         $intent = (string) $input['intent'];
 
         $this->assertIntentAllowed($intent);
 
-        /*
-         * §12.5 is asserted FIRST, before a single learner-owned row is
-         * read and before the context snapshot is assembled. The gate is
-         * the reason this feature exists in a disabled state at all, so it
-         * must fail closed ahead of data *collection*, not merely ahead of
-         * transmission — a control that is only consulted after the
-         * learner's data has been gathered is not a control.
-         *
-         * Ordering also keeps the error truthful: a disabled assistant
-         * reports ASSISTANT_NOT_ENABLED rather than surfacing whatever
-         * downstream subsystem happens to be unconfigured.
-         *
-         * AssistantClient::ask() re-asserts this, so the transport can
-         * never be reached without approval even if called directly.
-         */
         $this->client->assertGovernanceApproval();
 
-        /*
-         * Targeted context is verified as owned BEFORE it can influence the
-         * snapshot. A learner cannot reference another learner's
-         * recommendation or project by guessing an id (BR-11 / AC-12), and
-         * the lookup deliberately does not distinguish "not found" from
-         * "not yours".
-         */
         $recommendationId = null;
         $projectId = null;
 
@@ -134,23 +74,10 @@ class AssistantService
 
         $context = $this->contextBuilder->build($studentProfile);
 
-        /*
-         * Whether what we are about to send can ground the question at all.
-         *
-         * This is the handoff trigger that actually works. The service
-         * answers every call it receives, so its own `insufficient_context`
-         * signal has never fired (0 rows in production, verified) and the
-         * offer would otherwise be unreachable. Laravel built the snapshot,
-         * so Laravel is the only party that knows the learner's data is not
-         * in it. See AssistantContextBuilder::groundsIntent().
-         */
         $contextGroundsIntent = $this->contextBuilder->groundsIntent($context['snapshot'], $intent);
 
-        // Resolved from configuration, never fabricated (REC-01, §8.6).
         $configurationVersion = 'config-v'.$this->snapshotService->resolveConfiguration()->version;
 
-        // PENDING is persisted BEFORE the call so a crash mid-request still
-        // leaves an auditable record of the attempt (§12.5, BR-14).
         $interaction = AssistantInteraction::create([
             'student_profile_id' => $studentProfile->id,
             'intent' => $intent,
@@ -171,32 +98,9 @@ class AssistantService
                 $intent,
             );
 
-            /*
-             * `provider_used === null` means every provider in the service's
-             * failover chain failed and `reply` is its fallback text. The service
-             * returns HTTP 200 for that deliberately — the user did receive a
-             * valid reply — so the status code cannot carry the failure and this
-             * is the ONLY machine-readable signal. Recording it as SUCCEEDED
-             * would log a total outage as a working assistant.
-             *
-             * The reply is still relayed: it is a real, handled outcome, and the
-             * learner reading "temporarily unavailable" is better than an error
-             * state. What changes is the audit record, not the user's experience.
-             */
             $providerUsed = $response['provider_used'] ?? null;
             $answered = $providerUsed !== null;
 
-            /*
-             * What the service said about its own answer. Kept separate from
-             * `$answered` on purpose:
-             *
-             *   * `$answered === false`  → nobody answered (infrastructure).
-             *   * `insufficient_context` → a model answered, and said it has
-             *     nothing to ground an answer in. Recorded as SUCCEEDED, because
-             *     it genuinely succeeded as a call — the reply is real and is
-             *     shown to the learner. `answer_status` is what says it was not
-             *     a useful answer, and it is what drives the handoff offer.
-             */
             $answerStatus = $response['answer_status'] ?? null;
             $grounded = ($response['grounded'] ?? false) === true;
 
@@ -209,10 +113,6 @@ class AssistantService
                     : 'ASSISTANT_PROVIDERS_UNAVAILABLE',
                 'answer_status' => $answerStatus,
                 'grounded' => $grounded,
-                // Which prompt produced this answer. Distinct from
-                // algorithm_version, which records the *intelligence* algorithm
-                // behind the learner's stored data — the two are not
-                // interchangeable and both are needed to reproduce a decision.
                 'prompt_version' => $response['prompt_version'] ?? null,
             ]);
 
@@ -239,8 +139,6 @@ class AssistantService
                 contextGroundsIntent: $contextGroundsIntent,
             );
         } catch (AssistantException $e) {
-            // The attempt is recorded as failed with a stable code. No
-            // fabricated answer is persisted or returned (REC-07).
             $interaction->update([
                 'response_status' => AssistantInteraction::STATUS_FAILED,
                 'failure_code' => $e->codeName,
@@ -279,17 +177,6 @@ class AssistantService
         }
     }
 
-    /**
-     * §12.6 incident flow / REC-08 — record a learner's report.
-     *
-     * The lookup is scoped to the authenticated learner's own profile, so
-     * one learner can never report (or even confirm the existence of)
-     * another learner's interaction (BR-11).
-     *
-     * @param  array<string, mixed>  $input
-     *
-     * @throws AssistantException
-     */
     public function report(StudentProfile $studentProfile, int $interactionId, array $input): AssistantInteraction
     {
         $interaction = AssistantInteraction::query()
@@ -307,7 +194,6 @@ class AssistantService
 
         $interaction->update([
             'report_status' => (string) $input['report_status'],
-            // §12.6 requires the recorded reason alongside the classification.
             'report_reason' => isset($input['report_reason'])
                 ? (string) $input['report_reason']
                 : null,
@@ -323,9 +209,6 @@ class AssistantService
         return $interaction;
     }
 
-    /**
-     * @throws AssistantException
-     */
     private function assertIntentAllowed(string $intent): void
     {
         if (! in_array($intent, self::ALLOWED_INTENTS, true)) {

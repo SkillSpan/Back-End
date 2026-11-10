@@ -11,12 +11,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Relevant-notifications API: listing, filtering, unread counts,
- * mark-as-read, mark-all-as-read, and per-category/channel delivery
- * preferences — including the guarantee that a disabled preference
- * actually suppresses dispatch.
- */
 class NotificationTest extends TestCase
 {
     use RefreshDatabase;
@@ -27,8 +21,6 @@ class NotificationTest extends TestCase
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ─── Helpers ───────────────────────────────────────────────
 
     private function user(): User
     {
@@ -58,8 +50,6 @@ class NotificationTest extends TestCase
         ], $overrides));
     }
 
-    // ─── Authentication ────────────────────────────────────────
-
     public function test_notification_endpoints_require_authentication(): void
     {
         $this->getJson('/api/v1/notifications')->assertStatus(401);
@@ -69,8 +59,6 @@ class NotificationTest extends TestCase
         $this->putJson('/api/v1/notifications/preferences', [])->assertStatus(401);
         $this->postJson('/api/v1/notifications/1/read')->assertStatus(401);
     }
-
-    // ─── Listing ───────────────────────────────────────────────
 
     public function test_index_lists_only_the_callers_notifications(): void
     {
@@ -133,8 +121,6 @@ class NotificationTest extends TestCase
             ->assertJsonPath('meta.unread_count', 2);
     }
 
-    // ─── Unread count ──────────────────────────────────────────
-
     public function test_unread_count_endpoint(): void
     {
         $owner = $this->user();
@@ -164,8 +150,6 @@ class NotificationTest extends TestCase
             ->assertJsonPath('data.unread_count', 1);
     }
 
-    // ─── Mark as read ──────────────────────────────────────────
-
     public function test_mark_as_read_updates_the_row(): void
     {
         $owner = $this->user();
@@ -192,7 +176,6 @@ class NotificationTest extends TestCase
             ->assertStatus(404)
             ->assertJsonPath('code', 'NOTIFICATION_NOT_FOUND');
 
-        // The other user's notification is untouched.
         $this->assertNull($notification->fresh()->read_at);
     }
 
@@ -208,11 +191,8 @@ class NotificationTest extends TestCase
 
         $this->postJson("/api/v1/notifications/{$notification->id}/read")->assertStatus(200);
 
-        // Timestamp unchanged on the second call.
         $this->assertEquals($firstReadAt, $notification->fresh()->read_at);
     }
-
-    // ─── Mark all as read ──────────────────────────────────────
 
     public function test_mark_all_as_read_marks_every_unread_row(): void
     {
@@ -245,8 +225,6 @@ class NotificationTest extends TestCase
 
         $this->assertNull($otherNotification->fresh()->read_at);
     }
-
-    // ─── Preferences ───────────────────────────────────────────
 
     public function test_preferences_endpoint_returns_explicit_rows(): void
     {
@@ -307,7 +285,6 @@ class NotificationTest extends TestCase
             'enabled' => true,
         ])->assertStatus(200);
 
-        // One row, flipped — not two rows.
         $this->assertSame(1, NotificationPreference::where('user_id', $owner->id)->count());
         $this->assertDatabaseHas('notification_preferences', [
             'user_id' => $owner->id,
@@ -339,13 +316,10 @@ class NotificationTest extends TestCase
             ->assertJsonValidationErrors(['category', 'channel', 'enabled']);
     }
 
-    // ─── Preference suppression (the behaviour that matters) ────
-
     public function test_disabled_preference_suppresses_dispatch(): void
     {
         $owner = $this->user();
 
-        // Disable the 'message' category for this user.
         NotificationPreference::forceCreate([
             'user_id' => $owner->id,
             'category' => 'message',
@@ -423,8 +397,6 @@ class NotificationTest extends TestCase
         $this->assertNull($second);
         $this->assertSame(1, Notification::where('user_id', $owner->id)->count());
     }
-
-    // ─── API security ──────────────────────────────────────────
 
     public function test_x_request_id_propagated(): void
     {

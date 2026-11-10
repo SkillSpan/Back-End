@@ -30,7 +30,6 @@ use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\RubricController;
-use App\Http\Controllers\Api\SavedCareerRoleController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
@@ -44,9 +43,6 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
         Route::post('/register/organization', [AuthController::class, 'registerOrganization'])->middleware('throttle:10,1');
-        // Public on purpose: it is called from the sign-up form, before the
-        // visitor has any token. Throttled because it answers "is this address
-        // registered?" — see AuthController::checkEmail for the reasoning.
         Route::post('/check-email', [AuthController::class, 'checkEmail'])->middleware('throttle:10,1');
         Route::post('/verify', [AuthController::class, 'verify'])->middleware('throttle:10,1');
         Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:10,1');
@@ -74,14 +70,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/avatar', [ProfileController::class, 'avatar'])->name('learner.profile.avatar');
     });
 
-    // ──────────────────────────────────────────────────────────────
-    // US-COMP-04 — the company profile at the SRS path.
-    //
-    // `/profile/me` is the endpoint the story names, so it sits beside the
-    // learner `/profile` group above; `/organization/profile` (further down)
-    // stays for the clients that already call it and returns the same payload
-    // from the same service. Two paths, one source of truth.
-    // ──────────────────────────────────────────────────────────────
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
         ->prefix('profile')
         ->group(function () {
@@ -99,45 +87,22 @@ Route::prefix('v1')->group(function () {
         Route::post('/organizations/{organization}/approve', [AdminOrganizationController::class, 'approve']);
         Route::post('/organizations/{organization}/reject', [AdminOrganizationController::class, 'reject']);
 
-        // ──────────────────────────────────────────────────────────────
-        // Admin project management — the platform-administrator read and
-        // moderation surface.
-        //
-        // These are READ plus CANCEL only. Every actual lifecycle move
-        // (submit / approve / request-changes / reject / open) already has
-        // an endpoint above and is reused as-is, so the allowed transitions,
-        // the audit trail and the versioned matching snapshot have exactly
-        // one writer: ProjectLifecycleService.
-        //
-        // The list/detail pair cannot be served by the owner or learner
-        // controllers — one is owner-scoped, the other needs a student
-        // profile — so an administrator could not see a `draft` at all.
-        // ──────────────────────────────────────────────────────────────
         Route::get('/projects', [AdminProjectController::class, 'index'])
             ->name('admin.projects.index');
         Route::get('/projects/{project}', [AdminProjectController::class, 'show'])
             ->name('admin.projects.show')
             ->whereNumber('project');
-        // Create/edit mirror the owner API's endpoints exactly, because the
-        // underlying request classes and lifecycle service are the same ones.
-        // They are exposed under /admin so the admin panel's session routes can
-        // delegate to this one controller instead of reaching across groups.
         Route::post('/projects', [AdminProjectController::class, 'store'])
             ->name('admin.projects.store');
         Route::patch('/projects/{project}', [AdminProjectController::class, 'update'])
             ->name('admin.projects.update')
             ->whereNumber('project');
-        // Soft delete: marks the project `cancelled` and keeps every
-        // application, recommendation and audit entry pointing at it.
         Route::post('/projects/{project}/cancel', [AdminProjectController::class, 'cancel'])
             ->name('admin.projects.cancel')
             ->whereNumber('project');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
-        Route::get('/saved-career-roles', [SavedCareerRoleController::class, 'index']);
-        Route::put('/saved-career-roles/{id}', [SavedCareerRoleController::class, 'store'])->whereNumber('id');
-        Route::delete('/saved-career-roles/{id}', [SavedCareerRoleController::class, 'destroy'])->whereNumber('id');
         Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
         Route::get('/projects/{project}', [ProjectController::class, 'show'])
             ->name('projects.show')
@@ -146,23 +111,14 @@ Route::prefix('v1')->group(function () {
             ->name('projects.recommendation.show')
             ->whereNumber('project');
 
-        // Task 10 — deterministic project-matching recommendation for one
-        // learner + project. Composes the validated snapshot (Task 8) with
-        // the FastAPI project-matching contract (Task 10). Gated on
-        // DATA_SCIENCE_PROJECT_MATCHING_ENABLED; disabled ⇒ 503.
         Route::post('/projects/{project}/match', [ProjectMatchingController::class, 'match'])
             ->name('projects.match')
             ->whereNumber('project')
             ->middleware('throttle:project-matching');
 
-        // Task 11 — the learner's own stored project matching
-        // recommendations. Scoped to the authenticated learner.
         Route::get('/recommendations', [RecommendationController::class, 'index'])
             ->name('recommendations.index');
 
-        // US-MATCH-02 — student project application & recommendation feedback.
-        // Ownership of a specific application / recommendation is enforced in
-        // ApplicationService / RecommendationFeedbackService, not by the route.
         Route::post('/projects/{project}/applications', [ApplicationController::class, 'store'])
             ->name('projects.applications.store')
             ->whereNumber('project');
@@ -175,30 +131,18 @@ Route::prefix('v1')->group(function () {
             ->name('recommendations.feedback')
             ->whereNumber('recommendation');
 
-        // Costly: a synchronous Data Science round trip. Throttled per user so
-        // one account cannot loop it, while a learner recalculating a few times
-        // never notices.
         Route::post('/readiness/calculate', [ReadinessController::class, 'calculate'])
             ->middleware('throttle:readiness-calculate');
         Route::get('/readiness/latest', [ReadinessController::class, 'latest']);
 
-        // Same synchronous Data Science call as /readiness/calculate, so it
-        // shares that limiter rather than inventing a second budget.
         Route::post('/skill-match', [SkillMatchController::class, 'store'])
             ->middleware('throttle:readiness-calculate');
 
-        // US-INT-01 — intelligence decision endpoints (skill gap +
-        // readiness + roadmap in one atomic decision).
         Route::post('/intelligence/calculate', [IntelligenceController::class, 'calculate'])
             ->middleware('throttle:intelligence-calculate');
         Route::get('/intelligence/latest', [IntelligenceController::class, 'latest']);
     });
 
-    // US-MATCH-02 — project-owner side of the application workflow. Deliberately
-    // NOT role-gated: a project owner is any authenticated user, so
-    // authorization is explicit project ownership inside ApplicationService.
-    // A role check here would be both weaker (it would not prove ownership) and
-    // wrong (it would exclude legitimate non-learner owners).
     Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::get('/projects/{project}/applications', [ApplicationController::class, 'indexForProject'])
             ->name('projects.applications.index')
@@ -208,33 +152,15 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('project')
             ->whereNumber('application');
 
-        // One application by its own id. Serves the applicant and the project
-        // owner on the same route — the two are different roles, so the rule
-        // is ownership, checked in ApplicationService.
         Route::get('/applications/{application}', [ApplicationController::class, 'show'])
             ->name('applications.show')
             ->whereNumber('application');
 
-        // The owner's decision, addressed by the application alone. Same rules
-        // as the PATCH above, which stays for clients that already carry the
-        // project id in the path.
         Route::post('/applications/{application}/decision', [ApplicationController::class, 'decideForApplication'])
             ->name('applications.decision')
             ->whereNumber('application');
     });
 
-    // ──────────────────────────────────────────────────────────────
-    // Project Management Workflow (Pilot) — the owner / administrator side
-    // of a project: create, update, submit, approve, request changes,
-    // reject, open.
-    //
-    // The `role` middleware accepts a SINGLE slug, so a multi-role rule
-    // (owner OR platform admin, or company_admin / university_admin / admin
-    // for creation) cannot be expressed on the route. Same precedent as the
-    // application owner-side endpoints above: authorization lives in
-    // ProjectLifecycleService, which checks the stored owner_id and the
-    // actor's roles.
-    // ──────────────────────────────────────────────────────────────
     Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::post('/projects', [ProjectManagementController::class, 'store'])
             ->name('projects.store');
@@ -247,63 +173,40 @@ Route::prefix('v1')->group(function () {
             ->name('projects.submit')
             ->whereNumber('project');
 
-        // Opening is the step that makes an APPROVED project discoverable and
-        // lets matching and applications operate.
         Route::post('/projects/{project}/open', [ProjectManagementController::class, 'open'])
             ->name('projects.open')
             ->whereNumber('project');
 
-        // Copy a project into a new draft. Authorized by the same rule as
-        // update (owner or platform admin) inside the service, so the route
-        // needs no role middleware of its own.
         Route::post('/projects/{project}/clone', [ProjectManagementController::class, 'duplicate'])
             ->name('projects.clone')
             ->whereNumber('project');
 
-        // One URL for every lifecycle move, for clients that would rather send
-        // a target status than remember five paths. A dispatcher over the same
-        // service methods the five routes above call — see
-        // ProjectLifecycleService::EXECUTABLE_TRANSITIONS.
         Route::post('/projects/{project}/transitions', [ProjectManagementController::class, 'transition'])
             ->name('projects.transitions')
             ->whereNumber('project');
 
-        // Kick off the work. Refused while the team is empty, so the project
-        // cannot enter `active` with nobody on it.
         Route::post('/projects/{project}/start', [ProjectManagementController::class, 'start'])
             ->name('projects.start')
             ->whereNumber('project');
 
-        // Staffing: turn accepted applications into the project's team. The
-        // first assignment moves an `open` project into `selection`.
         Route::post('/projects/{project}/team/assignments', [ProjectTeamController::class, 'store'])
             ->name('projects.team.assignments.store')
             ->whereNumber('project');
 
-        // The team screen's read. Wider than the write: the people on the team
-        // may read it too, so a participant can open their own project.
         Route::get('/projects/{project}/team', [ProjectTeamController::class, 'show'])
             ->name('projects.team.show')
             ->whereNumber('project');
 
-        // Addressed by the application, which is what the company chose the
-        // person from. The row is marked `removed`, never deleted, so the
-        // assignment stays in the project's history.
         Route::delete('/projects/{project}/team/assignments/{application}', [ProjectTeamController::class, 'destroy'])
             ->name('projects.team.assignments.destroy')
             ->whereNumber('project')
             ->whereNumber('application');
 
-        // Invite the assigned members. Idempotent: a second press sends nothing
-        // and answers `sent: 0`.
         Route::post('/projects/{project}/team/invitations', [ProjectTeamController::class, 'invite'])
             ->name('projects.team.invitations.store')
             ->whereNumber('project');
     });
 
-    // The invitee's side. Not role-gated: the invited person is identified by
-    // the invitation row itself, and an administrator has to be able to read one
-    // to support it. Both rules live in ProjectTeamService.
     Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::get('/team-invitations/{invitation}', [TeamInvitationController::class, 'show'])
             ->name('team-invitations.show')
@@ -314,9 +217,6 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('invitation');
     });
 
-    // Review decisions are platform-administrator only. The `admin` middleware
-    // is the first line of defence; ProjectLifecycleService re-checks, so the
-    // rule holds even if a route is ever added without the middleware.
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->group(function () {
         Route::post('/projects/{project}/approve', [ProjectManagementController::class, 'approve'])
             ->name('projects.approve')
@@ -339,32 +239,16 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:baseline-submit');
     });
 
-    // US-REC-01 — intelligent assistant. Read-only explanation of the
-    // learner's OWN stored decisions (readiness, skill gaps, roadmap, next
-    // best action, project recommendations). It never writes to
-    // authoritative records, and it never generates prose — that is
-    // FastAPI's responsibility exclusively.
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('assistant')->group(function () {
-        // The most expensive route on the API: a billed LLM round trip that can
-        // take up to a minute. Throttled per learner.
         Route::post('/ask', [AssistantController::class, 'ask'])
             ->middleware('throttle:assistant-ask');
 
-        // §12.6 incident flow / REC-08 — report a response as unsafe,
-        // irrelevant, unfair or incorrect.
         Route::put('/interactions/{interaction}/report', [AssistantController::class, 'report']);
     });
 
-    // AI → human support handoff. When the assistant answers with
-    // `insufficient_context` (or the learner simply asks for a human), the
-    // learner can open a support request. It is NOT a `conversations` row:
-    // `conversations.mentor_student_connection_id` is NOT nullable, so a
-    // learner with no mentor could never have one.
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
         ->prefix('support')
         ->group(function () {
-            // Both writes notify the mentor and the admins, so they share one
-            // per-learner budget — generous, because a thread is a conversation.
             Route::post('/requests', [SupportRequestController::class, 'store'])
                 ->middleware('throttle:support-write');
 
@@ -377,14 +261,10 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('supportRequest')
                 ->middleware('throttle:support-write');
 
-            // The face of whoever answered. Its own route rather than a field on
-            // the message payload: the avatar is a blob, and a thread with ten
-            // replies would re-send the same photo ten times.
             Route::get('/avatar/{user}', [SupportRequestController::class, 'avatar'])
                 ->whereNumber('user');
         });
 
-    // Public reference data for onboarding dropdowns (no auth needed).
     Route::prefix('reference')->group(function () {
         Route::get('/universities', [ReferenceController::class, 'universities']);
         Route::get('/specializations', [ReferenceController::class, 'specializations']);
@@ -392,13 +272,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/countries/{country}/universities', [ReferenceController::class, 'countryUniversities']);
     });
 
-    // Read-only region + latency probe. Reports the DB region (decoded from the
-    // host's CNAME) and the real connect/query milliseconds from inside the
-    // container — the only place those numbers mean anything. No credentials,
-    // no host, two constant-cost queries. See SystemPulseController.
     Route::get('/_pulse/7c1f9e2a', [SystemPulseController::class, 'show']);
 
-    // Skills API
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('skills')->group(function () {
         Route::get('/taxonomy', [SkillsController::class, 'taxonomy']);
         Route::get('/matrix', [SkillsController::class, 'matrix']);
@@ -406,17 +281,6 @@ Route::prefix('v1')->group(function () {
         Route::put('/matrix/{id}', [SkillsController::class, 'update']);
     });
 
-    // ──────────────────────────────────────────────────────────────
-    // The learner's OWN skills — "My Skills" on the profile screen.
-    //
-    // A separate /learner prefix rather than DELETE /skills/{id}:
-    // `skills` is shared taxonomy (career_role_skills, project
-    // requirements, baseline snapshots and every learner's matrix point
-    // at it), so a delete under that path would read as "delete the
-    // skill from the system" — the one thing this must never do. Here
-    // {skill} is a skills.id, and the only row removed is the caller's
-    // own learner_skills row.
-    // ──────────────────────────────────────────────────────────────
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])
         ->prefix('learner')
         ->group(function () {
@@ -424,16 +288,11 @@ Route::prefix('v1')->group(function () {
                 ->name('learner.skills.destroy')
                 ->whereNumber('skill');
 
-            // Messages from companies. READ-ONLY: a message is not a request
-            // the learner has to answer, and there is nothing to accept.
             Route::get('/messages', [LearnerMessageController::class, 'index'])
                 ->name('learner.messages.index');
         });
 
-    // Evidence Submission API
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('evidence')->group(function () {
-        // Uploading stores a file and triggers a skill recalculation, so it is
-        // throttled per learner.
         Route::post('/', [EvidenceController::class, 'store'])
             ->middleware(['role:learner', 'throttle:evidence-upload']);
         Route::get('/', [EvidenceController::class, 'index'])
@@ -443,65 +302,26 @@ Route::prefix('v1')->group(function () {
             ->middleware('role:admin');
     });
 
-    // Career Role Retrieval API.
-    //
-    // Readable by ANY active authenticated account, not learners only: a company
-    // representative cannot create a project without picking a career role
-    // (`career_role_id` is required), and the project form fills that select
-    // from this endpoint. With `role:learner` the company got 403 LEARNER_ONLY,
-    // the select came back empty and "add project" was impossible from the UI.
-    // The payload is global reference data — no learner or company records.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('career-roles')->group(function () {
         Route::get('/', [CareerRoleController::class, 'index']);
         Route::get('/{id}', [CareerRoleController::class, 'show']);
-        // Also company-readable: the payload is the role's own skill mapping
-        // (required level, importance, prerequisites), not the caller's levels.
-        // A company needs it to pick `required_skills` that the server will
-        // accept — `SkillMappedToCareerRole` rejects any skill outside this map.
         Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
     });
 
-    // The rubric versions a company may attach to a project (US-PRJ-01). The
-    // project form treats the picker as required, so without this route the
-    // form could never be submitted.
     Route::middleware(['auth:sanctum', 'account.active', 'role:company_admin'])
         ->get('/rubrics', [RubricController::class, 'index'])
         ->name('rubrics.index');
 
-    // Self-service organization APIs. 'organization.approved' is the second,
-    // independent line of defense against a pending/rejected organization
-    // account reaching protected data — even if it somehow obtains a valid
-    // Sanctum token (e.g. by hitting the generic /api/auth/login endpoint).
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved'])->prefix('organization')->group(function () {
         Route::get('/profile', [OrganizationController::class, 'profile']);
     });
 
-    // ──────────────────────────────────────────────────────────────
-    // Talent Discovery — the company-facing list of discoverable students.
-    //
-    // A DEDICATED endpoint, deliberately separate from /recommendations:
-    // that one returns the CALLER's own stored PROJECT recommendations and is
-    // gated on role:learner, so it can never answer "which students may this
-    // company see?" (the frontend was using it for this page by mistake).
-    //
-    // 'organization.approved' is what makes the UI's "Verified Company Access"
-    // claim true: an account whose organization is still pending or rejected
-    // is refused here, independently of its token.
-    // ──────────────────────────────────────────────────────────────
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
         ->prefix('talent')
         ->group(function () {
             Route::get('/', [TalentDiscoveryController::class, 'index']);
-            // Registered BEFORE /{student} so the literal wins regardless of the
-            // numeric constraint (the constraint alone already protects it).
             Route::get('/filters', [TalentDiscoveryController::class, 'filters']);
 
-            // ── Engagement: the company's own bookkeeping about the people it
-            // found. Same three gates as discovery, so the whole talent surface
-            // refuses a pending or non-company account identically. Every one
-            // of these applies discovery's visibility rule to the student it is
-            // handed — a candidate the list would not show cannot be compared,
-            // noted, shortlisted or contacted either.
             Route::post('/compare', [TalentEngagementController::class, 'compare'])
                 ->name('talent.compare');
 
@@ -526,7 +346,6 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('student')
                 ->name('talent.lists.candidates.destroy');
 
-            // saved → contacted → responded, counted per person.
             Route::get('/funnel', [TalentEngagementController::class, 'funnel'])
                 ->name('talent.funnel');
 
@@ -540,8 +359,6 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('student')
                 ->name('talent.candidates.contact');
 
-            // Same message to every student this company may see. Registered
-            // BEFORE `/{student}` so the literal cannot be read as an id.
             Route::post('/contact-all', [TalentEngagementController::class, 'storeContactAll'])
                 ->name('talent.contact.all');
 
@@ -549,58 +366,30 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('student');
         });
 
-    // ──────────────────────────────────────────────────────────────
-    // Company workspace — US-COMP-03.
-    //
-    // Same two independent gates as Talent Discovery: an approved
-    // organization (so a pending/rejected one is refused even with a valid
-    // token) and the company role. The organization is resolved from the
-    // caller's membership inside the controller, never from the request.
-    // ──────────────────────────────────────────────────────────────
     Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
         ->prefix('company')
         ->group(function () {
             Route::get('/dashboard', [CompanyDashboardController::class, 'show'])
                 ->name('company.dashboard');
 
-            // The company's OWN projects — the read surface the owner API
-            // cannot provide (it is owner-scoped) and the learner API refuses
-            // outright (`role:learner`). Both routes are scoped to the
-            // organization resolved from the caller's admin membership, and a
-            // project from another organization answers 404, not 403.
             Route::get('/projects', [CompanyProjectController::class, 'index'])
                 ->name('company.projects.index');
             Route::get('/projects/{project}', [CompanyProjectController::class, 'show'])
                 ->whereNumber('project')
                 ->name('company.projects.show');
 
-            // US-COMP-04 — documents. The upload path is under `company/`
-            // because it is a company-only action; the read path is the URL
-            // the profile payload hands back in `documents.*.url`, so the
-            // client never has to build one itself.
             Route::post('/profile/documents', [OrganizationProfileController::class, 'uploadDocument'])
                 ->name('company.profile.documents.store');
             Route::get('/profile/documents/{document}', [OrganizationProfileController::class, 'downloadDocument'])
                 ->whereNumber('document')
                 ->name('company.profile.documents.show');
 
-            // The logo. A separate action from the document upload because it is
-            // never reviewed and never triggers re-verification — but it goes
-            // through the same disk and the same screening.
             Route::post('/profile/logo', [OrganizationProfileController::class, 'uploadLogo'])
                 ->name('company.profile.logo.store');
             Route::delete('/profile/logo', [OrganizationProfileController::class, 'deleteLogo'])
                 ->name('company.profile.logo.destroy');
         });
 
-    // ──────────────────────────────────────────────────────────────
-    // Mentor–Student communication system.
-    // Mentor identity = verified ProfessionalProfile (type=mentor,
-    // verification_status=verified). Not a role-slug; the 'mentor'
-    // middleware checks the profile table directly.
-    // ──────────────────────────────────────────────────────────────
-
-    // Mentor-only endpoints: student discovery, project connections.
     Route::middleware(['auth:sanctum', 'account.active', 'mentor'])->prefix('mentor')->group(function () {
         Route::get('/students', [MentorStudentController::class, 'students']);
         Route::get('/students/{student}', [MentorStudentController::class, 'studentSummary']);
@@ -609,9 +398,6 @@ Route::prefix('v1')->group(function () {
         Route::patch('/connections/{connection}', [MentorStudentController::class, 'updateConnection']);
     });
 
-    // Conversation endpoints: both mentors and students access these.
-    // Authorization (participant check) happens in ConversationService,
-    // not at the middleware layer.
     Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::post('/connections/{connection}/conversations', [ConversationController::class, 'store']);
         Route::get('/conversations', [ConversationController::class, 'index']);
@@ -620,18 +406,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead']);
         Route::get('/conversations/{conversation}/status', [ConversationController::class, 'status']);
-        // Hides the conversation from the caller's own list only — it is not a
-        // delete, and the thread stays intact for the other participant.
         Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy']);
 
-        // Chatbot communication endpoints — automated messages tagged
-        // message_type=chatbot, participant-authorized like human messages.
         Route::post('/conversations/{conversation}/chatbot/messages', [ChatbotController::class, 'send']);
         Route::get('/conversations/{conversation}/chatbot/messages', [ChatbotController::class, 'messages']);
     });
 
-    // Relevant notifications — the caller's own in-app notification feed
-    // plus per-category/channel delivery preferences.
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'index']);
         Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
@@ -639,10 +419,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/preferences', [NotificationController::class, 'preferences']);
         Route::put('/preferences', [NotificationController::class, 'updatePreference']);
         Route::post('/{notification}/read', [NotificationController::class, 'markAsRead']);
-        // US-COMP-03 lists PATCH for the same action, and the company dashboard
-        // sends PATCH. Both verbs hit the same handler: marking a notification
-        // read is idempotent, so there is nothing for a second verb to do
-        // differently, and refusing one would only be a trap for the client.
         Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead']);
     });
 
@@ -652,9 +428,6 @@ Route::prefix('v1')->group(function () {
     Route::post('/setup/create-mentor', [SetupController::class, 'createMentor'])
         ->middleware('throttle:10,1');
 
-    // Server-to-server: called by the Data Science FastAPI service, not by
-    // logged-in users. Auth is a shared secret checked inside the
-    // controller (X-Internal-Secret), not Sanctum.
     Route::prefix('internal')->group(function () {
         Route::get('/baseline-items', [BaselineItemsController::class, 'index'])
             ->middleware('throttle:60,1');

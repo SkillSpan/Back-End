@@ -17,19 +17,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Talent engagement: compare, shortlists, notes and contact requests.
- *
- * The rule every one of these tests is really checking is the same: **the
- * company can only act on people it is allowed to see.** A student who is not
- * discoverable must be unreachable through comparison, a shortlist, a note and
- * a contact request — otherwise `GET /talent`'s visibility model would be
- * decorative, and the list would only be hiding what a guessed id reveals.
- *
- * The second rule is privacy: no response in this file may contain the
- * student's e-mail. That is what the contact-request table exists to make
- * defensible.
- */
 class TalentEngagementTest extends TestCase
 {
     use RefreshDatabase;
@@ -46,10 +33,6 @@ class TalentEngagementTest extends TestCase
             'description' => '',
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Acme', string $status = 'verified'): Organization
     {
@@ -83,10 +66,6 @@ class TalentEngagementTest extends TestCase
         return $user->fresh();
     }
 
-    /**
-     * A discoverable learner: active account, public profile, consent given.
-     * Those three are exactly what TalentDiscoveryService requires.
-     */
     private function student(string $name, string $visibility = 'public', bool $consent = true): User
     {
         $user = User::forceCreate([
@@ -120,10 +99,6 @@ class TalentEngagementTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // Compare
-    // -----------------------------------------------------------------
-
     public function test_two_candidates_can_be_compared(): void
     {
         $admin = $this->companyAdmin($this->organization());
@@ -142,8 +117,6 @@ class TalentEngagementTest extends TestCase
 
         $this->assertCount(2, $response->json('data.students'));
 
-        // One row per skill, one column per student — the shape a comparison
-        // table needs, with the shared skill at the top.
         $sql = collect($response->json('data.skills'))->firstWhere('name', 'SQL');
 
         $this->assertNotNull($sql);
@@ -200,10 +173,6 @@ class TalentEngagementTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
-
-    // -----------------------------------------------------------------
-    // Shortlists
-    // -----------------------------------------------------------------
 
     public function test_a_list_can_be_created(): void
     {
@@ -305,7 +274,6 @@ class TalentEngagementTest extends TestCase
         $this->postJson("/api/v1/talent/lists/{$list->id}/candidates", ['student_id' => $student->id])
             ->assertStatus(201);
 
-        // The second press of the button is not an error.
         $this->postJson("/api/v1/talent/lists/{$list->id}/candidates", ['student_id' => $student->id])
             ->assertStatus(200)
             ->assertJsonPath('data.already_listed', true);
@@ -356,13 +324,8 @@ class TalentEngagementTest extends TestCase
 
         $body = $this->getJson("/api/v1/talent/lists/{$list->id}")->assertOk()->getContent();
 
-        // A shortlist is a bookmark, not a hire — the address stays withheld.
         $this->assertStringNotContainsString($student->email, $body);
     }
-
-    // -----------------------------------------------------------------
-    // Notes
-    // -----------------------------------------------------------------
 
     public function test_a_note_can_be_written_about_a_visible_candidate(): void
     {
@@ -438,10 +401,6 @@ class TalentEngagementTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
 
-    // -----------------------------------------------------------------
-    // Contact
-    // -----------------------------------------------------------------
-
     public function test_a_contact_request_can_be_recorded(): void
     {
         $organization = $this->organization();
@@ -457,21 +416,11 @@ class TalentEngagementTest extends TestCase
             ->assertJsonPath('data.status', 'pending')
             ->assertJsonPath('data.student_id', $student->id);
 
-        // The address is never returned — the learner decides whether to reply.
         $this->assertStringNotContainsString($student->email, $response->getContent());
 
         $this->assertSame(1, TalentContactRequest::where('organization_id', $organization->id)->count());
     }
 
-    /**
-     * A company may write to the same candidate more than once.
-     *
-     * It used to be refused with TALENT_CONTACT_PENDING, on the theory that the
-     * learner already had an unanswered request. But nothing could ever answer
-     * it — there is no learner accept/decline and no company cancel — so the
-     * first message locked that candidate out permanently. Now each message is
-     * its own row.
-     */
     public function test_a_second_message_to_the_same_candidate_is_allowed(): void
     {
         $organization = $this->organization();
@@ -530,10 +479,6 @@ class TalentEngagementTest extends TestCase
         $this->assertSame(0, TalentContactRequest::count());
     }
 
-    // -----------------------------------------------------------------
-    // Guards
-    // -----------------------------------------------------------------
-
     public function test_a_learner_is_refused(): void
     {
         $learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
@@ -565,10 +510,6 @@ class TalentEngagementTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'ORGANIZATION_PENDING');
     }
-
-    // -----------------------------------------------------------------
-    // Editing and deleting a shortlist
-    // -----------------------------------------------------------------
 
     public function test_a_list_can_be_renamed_without_touching_its_description(): void
     {
@@ -605,8 +546,6 @@ class TalentEngagementTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // `null` is a deliberate "empty this field", which is different from
-        // omitting the key ("leave it alone").
         $this->patchJson("/api/v1/talent/lists/{$list->id}", ['description' => null])
             ->assertOk();
 
@@ -686,7 +625,6 @@ class TalentEngagementTest extends TestCase
         $this->assertSame(0, TalentList::whereKey($list->id)->count());
         $this->assertSame(0, TalentListCandidate::where('talent_list_id', $list->id)->count());
 
-        // Deleting a shortlist must never delete the candidate.
         $this->assertSame(1, User::whereKey($student->id)->count());
     }
 
@@ -732,16 +670,10 @@ class TalentEngagementTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // Not a silent 200: the row the caller is looking at should exist, so
-        // "it worked" would hide a stale screen.
         $this->deleteJson("/api/v1/talent/lists/{$list->id}/candidates/{$student->id}")
             ->assertStatus(404)
             ->assertJsonPath('code', 'TALENT_LIST_CANDIDATE_NOT_FOUND');
     }
-
-    // -----------------------------------------------------------------
-    // Funnel
-    // -----------------------------------------------------------------
 
     public function test_the_funnel_counts_people_not_rows(): void
     {
@@ -749,8 +681,6 @@ class TalentEngagementTest extends TestCase
         $admin = $this->companyAdmin($organization);
         $student = $this->student('Reem');
 
-        // The same person on two shortlists is one saved candidate, otherwise
-        // tidying your lists would inflate the funnel.
         foreach (['Backend', 'Fallback'] as $name) {
             $list = TalentList::create([
                 'organization_id' => $organization->id,
@@ -800,8 +730,6 @@ class TalentEngagementTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // A decline is an answer, but a funnel that counts it cannot be read
-        // as progress.
         $this->getJson('/api/v1/talent/funnel')
             ->assertOk()
             ->assertJsonPath('data.contacted', 1)

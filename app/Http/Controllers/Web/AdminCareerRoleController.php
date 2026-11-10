@@ -13,37 +13,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Session-authenticated admin endpoints for career-role activation.
- *
- * WHY THESE EXIST
- * ---------------
- * `career_roles.is_active` decides whether a role is offered to learners, but
- * there was no backend way to change it: an operator could create a role (now
- * inactive by default) and had no way to publish it, and could not retire a
- * single role without editing config/mvp.php and re-running the seeder.
- *
- * These endpoints are ADDITIVE. They live under `/admin/api/career-roles` on
- * the normal web session, exactly like the organizations / projects /
- * questions / specializations panels, and the route group already carries
- * `auth` + `account.active` + `admin` — no middleware is weakened and no
- * existing endpoint changes shape.
- *
- * All rules live in CareerRoleAdminService; this class only shapes HTTP.
- */
 class AdminCareerRoleController extends Controller
 {
     public function __construct(
         private readonly CareerRoleAdminService $service,
     ) {}
 
-    /**
-     * GET /admin/api/career-roles
-     *
-     * Paginated list of career roles with their activation state, so an
-     * operator can find the role to switch. Filters: `q` (title or slug),
-     * `status` (draft|approved|retired) and `is_active` (0|1).
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -76,13 +51,6 @@ class AdminCareerRoleController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /admin/api/career-roles/{careerRole}/activate
-     *
-     * Refused with 409 `CAREER_ROLE_ACTIVATION_REFUSED` when the role is not
-     * approved — activation offers the role to learners, so an unreviewed
-     * definition must never be published.
-     */
     public function activate(Request $request, CareerRole $careerRole): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -98,13 +66,6 @@ class AdminCareerRoleController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/career-roles/{careerRole}/deactivate
-     *
-     * Removes the role from every picker. Nothing is deleted: the row keeps its
-     * required skills, its questions, its pivot links and any assessment,
-     * readiness or project that references it.
-     */
     public function deactivate(Request $request, CareerRole $careerRole): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -117,10 +78,6 @@ class AdminCareerRoleController extends Controller
             return $this->unexpected($e, $requestId);
         }
     }
-
-    // -----------------------------------------------------------------
-    // Response helpers
-    // -----------------------------------------------------------------
 
     private function careerRoleResponse(
         CareerRole $careerRole,
@@ -136,9 +93,6 @@ class AdminCareerRoleController extends Controller
         ], $status, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function transform(CareerRole $careerRole): array
     {
         return [
@@ -146,18 +100,11 @@ class AdminCareerRoleController extends Controller
             'title' => (string) $careerRole->title,
             'slug' => (string) $careerRole->slug,
             'status' => (string) $careerRole->status,
-            // Exposed HERE only: the admin needs to see the flag it is
-            // switching. The public career-role payload still hides it.
             'is_active' => (bool) $careerRole->is_active,
             'skills_count' => (int) ($careerRole->skills_count ?? $careerRole->roleSkills()->count()),
         ];
     }
 
-    /**
-     * `?is_active=` accepts 1/0, "true"/"false" and nothing else; an
-     * unrecognised value means "no filter" rather than an error, matching how
-     * the other admin list endpoints treat optional query filters.
-     */
     private function boolOrNull(mixed $value): ?bool
     {
         if ($value === null || $value === '') {

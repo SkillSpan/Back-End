@@ -5,18 +5,6 @@ namespace Database\Seeders;
 use App\Models\Country;
 use Illuminate\Database\Seeder;
 
-/**
- * Country reference data. Reads the locally stored, pre-filtered snapshot
- * of github.com/mledoze/countries (database/data/countries.json — name,
- * name_ar, iso2, iso3 only). iso2 is the external identifier, so re-runs
- * update in place instead of duplicating rows.
- *
- * PERFORMANCE: this used to call Country::updateOrCreate() once per
- * record inside a foreach loop — one round trip per row. Against a
- * remote database (Render), that turned 250 rows into 250 sequential
- * network round trips (~70s in production). upsert() does the same
- * "insert or update on conflict" in a handful of batched queries instead.
- */
 class CountrySeeder extends Seeder
 {
     private const CHUNK_SIZE = 500;
@@ -49,8 +37,6 @@ class CountrySeeder extends Seeder
             $iso3 = strtoupper(trim((string) ($record['iso3'] ?? '')));
             $nameAr = trim((string) ($record['name_ar'] ?? ''));
 
-            // iso2/iso3 are the real identifiers — a record without them
-            // cannot be matched reliably, so it is skipped, never guessed.
             if ($name === '' || strlen($iso2) !== 2 || strlen($iso3) !== 3) {
                 $skipped++;
 
@@ -67,9 +53,6 @@ class CountrySeeder extends Seeder
             ];
         }
 
-        // Figure out created vs. updated ahead of time (one cheap query)
-        // instead of relying on per-row wasRecentlyCreated, which upsert()
-        // does not report.
         $existingIso2 = array_fill_keys(
             Country::query()->pluck('iso2')->all(),
             true

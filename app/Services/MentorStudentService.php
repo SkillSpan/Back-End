@@ -22,13 +22,6 @@ class MentorStudentService
         private readonly NotificationService $notifications,
     ) {}
 
-    /**
-     * Get students the mentor is permitted to see.
-     * Visibility rules:
-     * - Students with an active/pending connection to this mentor
-     * - Students with visibility='public'
-     * - Students with visibility='organization_only' if mentor shares an org
-     */
     public function getPermittedStudents(int $mentorId): Collection
     {
         $connectedStudentIds = MentorStudentConnection::forMentor($mentorId)
@@ -55,9 +48,6 @@ class MentorStudentService
             ->get();
     }
 
-    /**
-     * Get a student's summary, enforcing visibility rules.
-     */
     public function getStudentSummary(int $mentorId, int $studentId): array
     {
         if (! $this->canAccessStudent($mentorId, $studentId)) {
@@ -95,9 +85,6 @@ class MentorStudentService
         ];
     }
 
-    /**
-     * Check if a mentor can access a student's data.
-     */
     public function canAccessStudent(int $mentorId, int $studentId): bool
     {
         $hasConnection = MentorStudentConnection::forMentor($mentorId)
@@ -136,9 +123,6 @@ class MentorStudentService
         return false;
     }
 
-    /**
-     * Create a mentor-student connection with full validation.
-     */
     public function createConnection(
         int $mentorId,
         int $studentId,
@@ -168,7 +152,6 @@ class MentorStudentService
             );
         }
 
-        // Duplicate check — handles the unique constraint gracefully.
         $existing = MentorStudentConnection::forMentor($mentorId)
             ->where('student_id', $studentId)
             ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
@@ -226,8 +209,6 @@ class MentorStudentService
                 userAgent: $request?->userAgent(),
             );
 
-            // In-app notification to the student, honouring their
-            // per-category notification preferences.
             $this->notifications->dispatch(
                 userId: $studentId,
                 category: 'mentor_connection',
@@ -248,9 +229,6 @@ class MentorStudentService
         }
     }
 
-    /**
-     * Validate project availability for new connections.
-     */
     public function validateProjectAvailability(Project $project): void
     {
         if (! in_array($project->status, [Project::STATUS_OPEN, Project::STATUS_ACTIVE], true)) {
@@ -285,9 +263,6 @@ class MentorStudentService
         }
     }
 
-    /**
-     * Validate project eligibility rules against student profile.
-     */
     public function validateProjectEligibility(Project $project, int $studentId): void
     {
         $constraints = $project->eligibilityConstraints;
@@ -325,7 +300,6 @@ class MentorStudentService
                     }
                     break;
 
-                    // location: no direct field on StudentProfile; skip.
                 case 'location':
                     break;
             }
@@ -341,9 +315,6 @@ class MentorStudentService
         }
     }
 
-    /**
-     * Update connection status (accept, disconnect, archive).
-     */
     public function updateConnectionStatus(
         int $connectionId,
         string $status,
@@ -353,21 +324,6 @@ class MentorStudentService
     ): MentorStudentConnection {
         $connection = MentorStudentConnection::findOrFail($connectionId);
 
-        /*
-         * Authorization: only the two participants of a connection may change
-         * its status.
-         *
-         * The id in the URL is not a capability. Without this check any
-         * verified mentor could accept, archive or disconnect ANY other
-         * mentor's connection — and the disconnect path notifies the victim's
-         * student, so the damage reached a third party too. `$actorId` is
-         * compared strictly against both sides of the connection, which also
-         * means a null actor (no authenticated principal) is refused rather
-         * than silently trusted.
-         *
-         * 403 rather than 404 to mirror ConversationService, which guards the
-         * same mentor/student participant relationship the same way.
-         */
         if (! in_array($actorId, [$connection->mentor_id, $connection->student_id], true)) {
             throw new CommunicationException(
                 'You are not a participant in this connection.',
@@ -405,8 +361,6 @@ class MentorStudentService
             userAgent: $request?->userAgent(),
         );
 
-        // Notify the other party about status changes, honouring their
-        // per-category notification preferences.
         if (in_array($status, ['active', 'disconnected'])) {
             $recipientId = $actorId === $connection->mentor_id
                 ? $connection->student_id
@@ -427,9 +381,6 @@ class MentorStudentService
         return $connection;
     }
 
-    /**
-     * Get connections for a mentor.
-     */
     public function getMentorConnections(int $mentorId)
     {
         return MentorStudentConnection::forMentor($mentorId)

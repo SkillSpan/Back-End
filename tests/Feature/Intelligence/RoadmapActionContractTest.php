@@ -14,17 +14,10 @@ use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Roadmap v1 integration — the CLOSED action_type enum and the
- * prerequisite_skill_ids contract. Both must fail loudly on a FastAPI
- * contract violation: no silent coercion to "practice", no silently
- * ignored / collapsed prerequisites.
- */
 class RoadmapActionContractTest extends TestCase
 {
     use RefreshDatabase;
@@ -49,8 +42,6 @@ class RoadmapActionContractTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------ action_type (A)
-
     public function test_unknown_action_type_is_rejected_instead_of_falling_back_to_practice(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -64,7 +55,6 @@ class RoadmapActionContractTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
 
-        // The invalid type must NOT have been coerced to a stored action.
         $this->assertSame(0, Roadmap::count());
         $this->assertSame(0, RoadmapAction::count());
     }
@@ -100,8 +90,6 @@ class RoadmapActionContractTest extends TestCase
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
     }
 
-    // ------------------------------------------------ action_type (B)
-
     public function test_every_allowed_action_type_is_accepted_and_persisted(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -132,8 +120,6 @@ class RoadmapActionContractTest extends TestCase
         $this->assertSame($allowed, $persistedTypes);
         $this->assertSame(count($allowed), RoadmapAction::count());
     }
-
-    // ------------------------------------------------ prerequisites (D/E/F/G/H/I/J)
 
     public function test_prerequisite_skill_ids_as_string_is_rejected(): void
     {
@@ -243,7 +229,6 @@ class RoadmapActionContractTest extends TestCase
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        // The key is explicitly PRESENT and null (not merely absent).
         $action = $this->action('A1', 'resource', 'Null prerequisites', (int) $roleSkills[0]->skill_id);
         $action['prerequisite_skill_ids'] = null;
 
@@ -255,8 +240,6 @@ class RoadmapActionContractTest extends TestCase
         $persisted = RoadmapAction::query()->firstOrFail();
         $this->assertSame([], $persisted->prerequisites->pluck('id')->all());
     }
-
-    // ------------------------------------------------ resource versions (G/H/5)
 
     public function test_roadmap_resource_exposes_the_roadmaps_own_versions_without_mixing(): void
     {
@@ -270,17 +253,12 @@ class RoadmapActionContractTest extends TestCase
         $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
-        // The roadmap block carries the ROADMAP's own versions...
         $response->assertJsonPath('data.roadmap.algorithm_version', 'roadmap-v1')
             ->assertJsonPath('data.roadmap.configuration_version', 'roadmap-config-v1');
 
-        // ...while the top-level versions remain the skill-gap/readiness
-        // ones (they are a different calculation and must not be mixed).
         $response->assertJsonPath('data.algorithm_version', 'intelligence-v1')
             ->assertJsonPath('data.configuration_version', 'config-v1');
     }
-
-    // ------------------------------------------------ version concurrency (J)
 
     public function test_roadmap_version_is_unique_per_learner_and_role(): void
     {
@@ -297,18 +275,11 @@ class RoadmapActionContractTest extends TestCase
 
         Roadmap::create($attributes);
 
-        // The unique constraint turns a concurrent duplicate-version write
-        // into an atomic failure instead of two roadmaps sharing a version.
         $this->expectException(QueryException::class);
 
         Roadmap::create($attributes);
     }
 
-    // ------------------------------------------------ helpers
-
-    /**
-     * @param  list<array<string, mixed>>  $actions
-     */
     private function fakeCalculation($profile, $role, $roleSkills, array $actions): void
     {
         Http::fake(function ($request) use ($profile, $role, $roleSkills, $actions) {
@@ -320,24 +291,18 @@ class RoadmapActionContractTest extends TestCase
         });
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function action(string $id, string $type, string $title, int $targetSkillId, mixed $prerequisites = null): array
     {
         $action = [
             'action_id' => $id,
             'action_type' => $type,
             'title' => $title,
-            // Roadmap v1 action contract — every field below is REQUIRED.
             'objective' => 'Objective for '.$title,
             'target_skill_id' => $targetSkillId,
-            // The CANONICAL name of that skill — it must agree with the id.
             'target_skill_name' => (string) Skill::query()->findOrFail($targetSkillId)->name,
             'priority_score' => 0.5,
             'estimated_hours' => 12.0,
             'estimated_duration_weeks' => 3,
-            // Roadmap v1: lists of strings, never a plain string.
             'completion_criteria' => ['Completion criteria for '.$title],
             'explanation' => ['Explanation for '.$title],
         ];
@@ -349,9 +314,6 @@ class RoadmapActionContractTest extends TestCase
         return $action;
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $actions
-     */
     private function roadmapResponse($profile, $role, array $actions): array
     {
         return [
@@ -362,7 +324,6 @@ class RoadmapActionContractTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
-            // Roadmap v1 totals + limitations — required by the contract.
             'estimated_total_hours' => 12.0,
             'estimated_duration_weeks' => null,
             'limitations' => [],
@@ -422,9 +383,6 @@ class RoadmapActionContractTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>}
-     */
     private function createScenario(): array
     {
         $user = User::forceCreate([

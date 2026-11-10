@@ -12,19 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Project access control: organization membership status, restricted-project
- * visibility, and the project payload attached to stored recommendations.
- *
- * Regression origin: ProjectController resolved the learner's organization with
- *   DB::table('organization_members')->where('user_id', $id)->value('organization_id')
- * which ignored `status` entirely. `organization_members.status` is
- * enum('active','invited','removed') defaulting to 'active', so a REMOVED (or
- * merely invited) member still resolved to the organization and could read its
- * restricted projects — while ProjectMatchingSnapshotService::isAuthorized
- * required wherePivot('status','active'). Discovery was strictly more
- * permissive than matching.
- */
 class ProjectAccessControlTest extends TestCase
 {
     use RefreshDatabase;
@@ -35,8 +22,6 @@ class ProjectAccessControlTest extends TestCase
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ------------------------------------------------------------ fixtures
 
     private function createLearner(string $email = 'access@test.com'): User
     {
@@ -105,8 +90,6 @@ class ProjectAccessControlTest extends TestCase
             'generated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------- 3.1 organization membership
 
     public function test_active_member_sees_the_organizations_restricted_project(): void
     {
@@ -209,7 +192,6 @@ class ProjectAccessControlTest extends TestCase
         Sanctum::actingAs($learner);
         $this->getJson('/api/v1/projects/'.$project->id)->assertStatus(200);
 
-        // Membership is revoked.
         $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
 
         Sanctum::actingAs($learner->fresh());
@@ -242,8 +224,6 @@ class ProjectAccessControlTest extends TestCase
         );
     }
 
-    // --------------------------------- 3.2 recommendation list project payload
-
     public function test_recommendation_list_keeps_the_record_but_hides_a_project_once_access_is_lost(): void
     {
         $organization = $this->createOrganization('Lost Access Org');
@@ -253,19 +233,14 @@ class ProjectAccessControlTest extends TestCase
         $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
         $this->storedRecommendation($learner, $project);
 
-        // While access holds, the project payload is present.
         Sanctum::actingAs($learner);
         $this->getJson('/api/v1/recommendations')
             ->assertStatus(200)
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.project.id', $project->id);
 
-        // Membership is revoked.
         $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
 
-        // The recommendation row survives — and the WHOLE result is redacted,
-        // not just the project payload. Nulling only `project` still leaked
-        // score, reasons, factors and every version field.
         $response = $this->getJson('/api/v1/recommendations');
 
         $response->assertStatus(200)
@@ -303,8 +278,6 @@ class ProjectAccessControlTest extends TestCase
         $this->assertDatabaseCount('recommendations', 1);
     }
 
-    // ------------------------- 3. recommendation DETAILS authorization (Task 12)
-
     public function test_authorized_learner_can_retrieve_recommendation_details(): void
     {
         $organization = $this->createOrganization('Details Authorized Org');
@@ -327,9 +300,6 @@ class ProjectAccessControlTest extends TestCase
 
     public function test_recommendation_details_are_withheld_when_active_membership_is_removed(): void
     {
-        // REGRESSION: showForProject() only checked that the project EXISTED,
-        // never that the learner could still access it, so score/reasons/
-        // limiting factors stayed readable after access was revoked.
         $organization = $this->createOrganization('Details Revoked Org');
         $learner = $this->createLearner();
         $this->joinOrganization($learner, $organization, 'active');
@@ -337,13 +307,11 @@ class ProjectAccessControlTest extends TestCase
         $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
         $this->storedRecommendation($learner, $project);
 
-        // Access holds: details are returned.
         Sanctum::actingAs($learner);
         $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
             ->assertStatus(200)
             ->assertJsonPath('data.score', 70);
 
-        // Membership revoked.
         $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
         Sanctum::actingAs($learner->fresh());
 
@@ -351,12 +319,10 @@ class ProjectAccessControlTest extends TestCase
 
         $response->assertStatus(404);
 
-        // No sensitive recommendation field leaks.
         $this->assertNull($response->json('data'));
         $this->assertStringNotContainsString('Stored reason.', $response->getContent());
         $this->assertStringNotContainsString('project-matching-v1', $response->getContent());
 
-        // The stored row is preserved, not deleted.
         $this->assertDatabaseCount('recommendations', 1);
     }
 
@@ -432,8 +398,6 @@ class ProjectAccessControlTest extends TestCase
 
     public function test_inaccessible_and_nonexistent_projects_are_indistinguishable(): void
     {
-        // Non-disclosure: the endpoint must not let a caller work out whether a
-        // restricted project exists by comparing the two responses.
         $otherOrganization = $this->createOrganization('Details Other Org');
         $learner = $this->createLearner();
 
@@ -451,9 +415,6 @@ class ProjectAccessControlTest extends TestCase
         $this->assertSame($nonexistent->json('code'), $inaccessible->json('code'));
         $this->assertSame($nonexistent->json('message'), $inaccessible->json('message'));
 
-        // `details` echoes the id the caller themselves supplied, so the values
-        // differ by construction — that reveals nothing. What matters is that
-        // the shape is identical and no project content is attached.
         $this->assertSame(
             array_keys($nonexistent->json('details')),
             array_keys($inaccessible->json('details')),
@@ -461,19 +422,12 @@ class ProjectAccessControlTest extends TestCase
         $this->assertSame($restricted->id, $inaccessible->json('details.project_id'));
         $this->assertSame(999999, $nonexistent->json('details.project_id'));
 
-        // Neither response carries the stored recommendation.
         $this->assertNull($inaccessible->json('data'));
         $this->assertStringNotContainsString('Stored reason.', $inaccessible->getContent());
     }
 
-    // --------------- 3. recommendation LIST redaction when access is revoked
-
     public function test_recommendation_list_redacts_all_details_when_access_is_lost(): void
     {
-        // REGRESSION: index() nulled only the embedded `project`, while the
-        // resource kept returning score, reasons, limiting_factors, factors,
-        // weighted_contributions, skill_results and every version field — so an
-        // inaccessible project's matching outcome stayed fully readable.
         $organization = $this->createOrganization('Redact Org');
         $learner = $this->createLearner();
         $this->joinOrganization($learner, $organization, 'active');
@@ -481,7 +435,6 @@ class ProjectAccessControlTest extends TestCase
         $project = $this->createProject($organization, ['confidentiality' => 'restricted']);
         $this->storedRecommendation($learner, $project, 88.0);
 
-        // While access holds, everything is returned.
         Sanctum::actingAs($learner);
         $this->getJson('/api/v1/recommendations')
             ->assertStatus(200)
@@ -490,7 +443,6 @@ class ProjectAccessControlTest extends TestCase
             ->assertJsonPath('data.0.project.id', $project->id)
             ->assertJsonPath('data.0.access_revoked', false);
 
-        // Membership revoked.
         $learner->organizations()->updateExistingPivot($organization->id, ['status' => 'removed']);
         Sanctum::actingAs($learner->fresh());
 
@@ -499,13 +451,11 @@ class ProjectAccessControlTest extends TestCase
 
         $row = $response->json('data.0');
 
-        // The historical record is still identifiable...
         $this->assertSame($project->id, $row['project_id']);
         $this->assertSame('project', $row['type']);
         $this->assertNotNull($row['generated_at']);
         $this->assertTrue($row['access_revoked']);
 
-        // ...but every sensitive field is redacted.
         foreach ([
             'project',
             'score',
@@ -523,11 +473,9 @@ class ProjectAccessControlTest extends TestCase
             $this->assertNull($row[$field], "Field [{$field}] must be redacted.");
         }
 
-        // Nothing sensitive survives in the raw body either.
         $this->assertStringNotContainsString('Stored reason.', $response->getContent());
         $this->assertStringNotContainsString('project-matching-v1', $response->getContent());
 
-        // The stored row is preserved — only its exposure stopped.
         $this->assertDatabaseCount('recommendations', 1);
     }
 

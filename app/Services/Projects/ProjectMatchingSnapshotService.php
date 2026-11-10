@@ -13,24 +13,6 @@ use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Support\Str;
 
-/**
- * Task 8 — validated project matching snapshot.
- *
- * Captures the validated input state that will be passed to the matching
- * layer (Task 9: FastAPI payload → Task 10: matching integration).
- *
- * Flow:
- *   1. Validate availability (reuse ProjectAvailabilityService)
- *   2. Validate authorization (reuse ProjectController rules)
- *   3. Validate eligibility (reuse ProjectEligibilityService)
- *   4. Load learner/project context
- *   5. Capture project version + algorithm/configuration versions
- *   6. Create the validated snapshot representation
- *
- * Refuses snapshot creation when any validation fails, returning a typed
- * domain-level exception so the caller can distinguish unavailable /
- * unauthorized / ineligible.
- */
 class ProjectMatchingSnapshotService
 {
     public function __construct(
@@ -38,14 +20,6 @@ class ProjectMatchingSnapshotService
         private readonly ProjectEligibilityService $eligibilityService = new ProjectEligibilityService,
     ) {}
 
-    /**
-     * Create a validated project-matching snapshot.
-     *
-     * @throws IntelligenceException When the project is unavailable, the
-     *                               learner is unauthorized, or the learner
-     *                               is ineligible. The exception codeName
-     *                               distinguishes the failure reason.
-     */
     public function createForProject(Project $project, User $learner): ProjectMatchingSnapshot
     {
         $studentProfile = $learner->studentProfile;
@@ -58,7 +32,6 @@ class ProjectMatchingSnapshotService
             );
         }
 
-        // 1. Validate availability.
         $availability = $this->availabilityService->check($project);
 
         if (! $availability->available) {
@@ -70,7 +43,6 @@ class ProjectMatchingSnapshotService
             );
         }
 
-        // 2. Validate authorization (mirror ProjectController logic).
         if (! $this->isAuthorized($project, $learner)) {
             throw new IntelligenceException(
                 'The learner is not authorized to access this project.',
@@ -79,7 +51,6 @@ class ProjectMatchingSnapshotService
             );
         }
 
-        // 3. Validate eligibility.
         $eligibility = $this->eligibilityService->check($project, $learner);
 
         if (! $eligibility->eligible) {
@@ -91,7 +62,6 @@ class ProjectMatchingSnapshotService
             );
         }
 
-        // 4-5. Resolve versions and load context.
         $configuration = $this->resolveConfiguration();
 
         $projectVersion = (int) $project->version;
@@ -100,7 +70,6 @@ class ProjectMatchingSnapshotService
 
         $requestId = (string) Str::uuid();
 
-        // 6. Build snapshot payload.
         $snapshot = $this->buildSnapshot(
             $project,
             $studentProfile,
@@ -124,11 +93,6 @@ class ProjectMatchingSnapshotService
         ]);
     }
 
-    /**
-     * Check authorization: public projects are visible to all learners;
-     * restricted projects are visible only to members of the owning
-     * organization. Mirrors ProjectController logic.
-     */
     private function isAuthorized(Project $project, User $learner): bool
     {
         if ($project->confidentiality === 'public') {
@@ -145,10 +109,6 @@ class ProjectMatchingSnapshotService
         return false;
     }
 
-    /**
-     * Resolve the active algorithm configuration.
-     * Reuses the same pattern as DecisionSnapshotService::resolveConfiguration().
-     */
     private function resolveConfiguration(): AlgorithmConfiguration
     {
         $configuration = AlgorithmConfiguration::query()
@@ -167,10 +127,6 @@ class ProjectMatchingSnapshotService
         return $configuration;
     }
 
-    /**
-     * Build the validated snapshot payload capturing learner context,
-     * project context, validation results, and version info.
-     */
     private function buildSnapshot(
         Project $project,
         StudentProfile $studentProfile,
@@ -180,7 +136,6 @@ class ProjectMatchingSnapshotService
         string $algorithmVersion,
         string $configurationVersion,
     ): array {
-        // Load required skills with their skill definitions.
         $project->loadMissing(['requiredSkills.skill', 'eligibilityConstraints']);
 
         $requiredSkills = $project->requiredSkills->map(function (ProjectRequiredSkill $requiredSkill) {
@@ -192,10 +147,8 @@ class ProjectMatchingSnapshotService
             ];
         })->values()->toArray();
 
-        // Load learner skill levels from authoritative sources.
         $learnerSkills = $this->gatherLearnerSkillContext($learner, $studentProfile, $project);
 
-        // Capture career-role context if available.
         $careerRoleContext = null;
         if ($studentProfile->primary_career_role_id) {
             $careerRole = $studentProfile->relationLoaded('primaryCareerRole')
@@ -217,10 +170,6 @@ class ProjectMatchingSnapshotService
                 'student_profile_id' => (int) $studentProfile->id,
                 'availability' => $studentProfile->availability,
                 'preferred_work_type' => $studentProfile->preferred_work_type,
-                // Carried here so the matching payload can send the learner's
-                // real interests and `interest_match` has something to score.
-                // It was previously omitted, which made the payload builder's
-                // interests branch unreachable in the normal matching flow.
                 'interests' => $studentProfile->interests,
             ],
             'project' => [
@@ -257,13 +206,6 @@ class ProjectMatchingSnapshotService
         ];
     }
 
-    /**
-     * Gather the learner's current skill levels for all project-required
-     * skills, using the same authoritative source as eligibility: the
-     * latest SkillEvaluation, with LearnerSkill as fallback.
-     *
-     * @return list<array<string, mixed>>
-     */
     private function gatherLearnerSkillContext(User $learner, StudentProfile $studentProfile, Project $project): array
     {
         $skills = [];
@@ -285,10 +227,6 @@ class ProjectMatchingSnapshotService
         return $skills;
     }
 
-    /**
-     * Get the learner's current verified skill level.
-     * Reuses the same logic as ProjectEligibilityService.
-     */
     private function getLearnerSkillLevel(User $learner, int $skillId, StudentProfile $studentProfile): ?float
     {
         $evaluation = SkillEvaluation::where('skill_id', $skillId)

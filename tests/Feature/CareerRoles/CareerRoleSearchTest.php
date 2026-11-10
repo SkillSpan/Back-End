@@ -9,14 +9,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * `?search=` on GET /api/v1/career-roles.
- *
- * The learner Career Roles page used to filter the page it had already loaded,
- * so a role on page 2 could never be found no matter what was typed — the list
- * is paginated at 15 rows server-side. The filter therefore has to run in the
- * query, before pagination, over the whole approved set.
- */
 class CareerRoleSearchTest extends TestCase
 {
     use RefreshDatabase;
@@ -41,16 +33,11 @@ class CareerRoleSearchTest extends TestCase
 
     public function test_search_finds_a_role_that_lives_on_a_later_page(): void
     {
-        // The list is ordered by id DESC, so the target has to be created FIRST
-        // for the 20 later rows to push it onto page 2. This is exactly the case
-        // the client-side filter lost: it can only be reached with a real query.
         $target = $this->role('Data Analyst');
         foreach (range(1, 20) as $i) {
             $this->role(sprintf('Placeholder Role %02d', $i));
         }
 
-        // Without the filter it really is off page 1 — otherwise the assertion
-        // below would pass for the wrong reason.
         $pageOne = array_column(
             $this->getJson('/api/v1/career-roles?page=1&per_page=15')->json('data.data'),
             'title',
@@ -96,7 +83,6 @@ class CareerRoleSearchTest extends TestCase
         $this->role('Data Analyst');
         $this->role('Backend Developer');
 
-        // `?search=` and `?search=%20` are an empty box, not a filter.
         $this->assertSame(2, $this->getJson('/api/v1/career-roles?search=')->json('data.total'));
         $this->assertSame(2, $this->getJson('/api/v1/career-roles?search=%20%20')->json('data.total'));
         $this->assertSame(2, $this->getJson('/api/v1/career-roles')->json('data.total'));
@@ -120,7 +106,6 @@ class CareerRoleSearchTest extends TestCase
         $this->role('Data Analyst');
         $this->role('Backend Developer');
 
-        // A bare `%` used to match every row. Escaped, it matches nothing here.
         $response = $this->getJson('/api/v1/career-roles?search=%25')->assertOk();
         $this->assertSame(0, $response->json('data.total'));
     }

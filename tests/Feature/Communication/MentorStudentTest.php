@@ -4,7 +4,6 @@ namespace Tests\Feature\Communication;
 
 use App\Models\AuditEvent;
 use App\Models\MentorStudentConnection;
-use App\Models\Notification;
 use App\Models\Organization;
 use App\Models\ProfessionalProfile;
 use App\Models\Project;
@@ -16,11 +15,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Mentor–student communication system: mentor auth/authorization,
- * student visibility rules, project connection workflow, audit trail,
- * notification dispatch, and API security.
- */
 class MentorStudentTest extends TestCase
 {
     use RefreshDatabase;
@@ -33,8 +27,6 @@ class MentorStudentTest extends TestCase
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // ─── Helpers ───────────────────────────────────────────────
 
     private function mentor(): User
     {
@@ -130,8 +122,6 @@ class MentorStudentTest extends TestCase
         ]);
     }
 
-    // ─── Mentor authentication ─────────────────────────────────
-
     public function test_mentor_endpoints_require_authentication(): void
     {
         $this->getJson('/api/v1/mentor/students')->assertStatus(401);
@@ -151,8 +141,6 @@ class MentorStudentTest extends TestCase
         $this->postJson('/api/v1/conversations/1/read')->assertStatus(401);
         $this->getJson('/api/v1/conversations/1/status')->assertStatus(401);
     }
-
-    // ─── Mentor authorization ──────────────────────────────────
 
     public function test_non_mentor_users_are_forbidden_on_mentor_routes(): void
     {
@@ -194,8 +182,6 @@ class MentorStudentTest extends TestCase
         $this->getJson('/api/v1/mentor/students')->assertStatus(403);
     }
 
-    // ─── Student visibility ─────────────────────────────────────
-
     public function test_permitted_students_include_public_profiles(): void
     {
         $publicStudent = $this->student('public');
@@ -214,7 +200,6 @@ class MentorStudentTest extends TestCase
         $privateStudent = $this->student('private');
         $mentor = $this->mentor();
 
-        // Create an active connection so the private student becomes visible.
         $this->connection($mentor, $privateStudent, null, 'active');
 
         Sanctum::actingAs($mentor);
@@ -282,7 +267,6 @@ class MentorStudentTest extends TestCase
         $mentor = $this->mentor();
         $student = $this->student('organization_only');
 
-        // Mentor in org A, student in org B — no overlap.
         $orgA->members()->attach($mentor->id, ['role_in_org' => 'admin', 'status' => 'active']);
         $orgB->members()->attach($student->id, ['role_in_org' => 'member', 'status' => 'active']);
 
@@ -294,8 +278,6 @@ class MentorStudentTest extends TestCase
         $ids = collect($response->json('data'))->pluck('id');
         $this->assertFalse($ids->contains($student->id));
     }
-
-    // ─── Student summary / unauthorized student access ──────────
 
     public function test_student_summary_returns_data_for_visible_student(): void
     {
@@ -340,7 +322,6 @@ class MentorStudentTest extends TestCase
     {
         Sanctum::actingAs($this->mentor());
 
-        // user 999999 does not exist — canAccessStudent returns false.
         $this->getJson('/api/v1/mentor/students/999999')
             ->assertStatus(403)
             ->assertJsonPath('code', 'STUDENT_NOT_VISIBLE');
@@ -358,8 +339,6 @@ class MentorStudentTest extends TestCase
 
         $mentor = $this->mentor();
 
-        // Give a connection so canAccessStudent returns true, but
-        // there's no student_profile row → STUDENT_PROFILE_NOT_FOUND.
         MentorStudentConnection::forceCreate([
             'mentor_id' => $mentor->id,
             'student_id' => $user->id,
@@ -374,8 +353,6 @@ class MentorStudentTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'STUDENT_PROFILE_NOT_FOUND');
     }
-
-    // ─── Project connection — success path ─────────────────────
 
     public function test_connect_creates_connection_with_audit_and_notification(): void
     {
@@ -399,14 +376,12 @@ class MentorStudentTest extends TestCase
             'status' => 'pending',
         ]);
 
-        // Audit trail written.
         $this->assertDatabaseHas('audit_events', [
             'actor_id' => $mentor->id,
             'action' => 'mentor_student_connection.created',
             'entity_type' => 'MentorStudentConnection',
         ]);
 
-        // Student notified.
         $this->assertDatabaseHas('notifications', [
             'user_id' => $student->id,
             'category' => 'mentor_connection',
@@ -437,17 +412,12 @@ class MentorStudentTest extends TestCase
         ]);
     }
 
-    // ─── Project connection — invalid project access ────────────
-
     public function test_connect_with_nonexistent_project_returns_422_validation(): void
     {
         $student = $this->student();
 
         Sanctum::actingAs($this->mentor());
 
-        // The StoreConnectionRequest's exists:projects,id rule catches
-        // this before the service-level PROJECT_NOT_FOUND (404) is
-        // reached — validation is the first line of defense.
         $this->postJson('/api/v1/mentor/connections', [
             'student_id' => $student->id,
             'project_id' => 999999,
@@ -493,7 +463,6 @@ class MentorStudentTest extends TestCase
         $student = $this->student();
         $project = $this->project(['capacity' => 1]);
 
-        // Fill the one slot.
         $otherStudent = $this->student();
         $this->connection(null, $otherStudent, $project, 'active');
 
@@ -507,11 +476,9 @@ class MentorStudentTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_CAPACITY_REACHED');
     }
 
-    // ─── Project connection — ineligible project ───────────────
-
     public function test_connect_with_ineligible_work_mode_returns_422(): void
     {
-        $student = $this->student(); // preferred_work_type = 'remote'
+        $student = $this->student();
         $project = $this->project(['work_mode' => 'onsite']);
 
         ProjectEligibilityConstraint::forceCreate([
@@ -533,7 +500,7 @@ class MentorStudentTest extends TestCase
 
     public function test_connect_with_ineligible_schedule_returns_422(): void
     {
-        $student = $this->student(); // availability = 'full_time'
+        $student = $this->student();
         $project = $this->project(['schedule' => 'part_time']);
 
         ProjectEligibilityConstraint::forceCreate([
@@ -551,8 +518,6 @@ class MentorStudentTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_ELIGIBILITY_FAILED');
     }
-
-    // ─── Duplicate / invalid connection attempts ────────────────
 
     public function test_duplicate_connection_without_project_returns_422(): void
     {
@@ -592,15 +557,12 @@ class MentorStudentTest extends TestCase
     {
         Sanctum::actingAs($this->mentor());
 
-        // 999999 is a valid integer but no user exists → validation fails (exists:users,id).
         $this->postJson('/api/v1/mentor/connections', [
             'student_id' => 999999,
         ])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['student_id']);
     }
-
-    // ─── Connection status updates ──────────────────────────────
 
     public function test_update_connection_status_to_active(): void
     {
@@ -643,13 +605,11 @@ class MentorStudentTest extends TestCase
             'disconnected_reason' => 'Project completed',
         ]);
 
-        // Student notified about the disconnection.
         $this->assertDatabaseHas('notifications', [
             'user_id' => $student->id,
             'event_key' => "mentor_connection_disconnected:{$conn->id}",
         ]);
 
-        // Audit trail.
         $this->assertDatabaseHas('audit_events', [
             'actor_id' => $mentor->id,
             'action' => 'mentor_student_connection.disconnected',
@@ -672,9 +632,6 @@ class MentorStudentTest extends TestCase
 
     public function test_another_mentor_cannot_update_someone_elses_connection(): void
     {
-        // IDOR regression: the id in the URL used to be the only thing standing
-        // between a verified mentor and another mentor's connection, so any
-        // mentor could disconnect someone else's student.
         $owner = $this->mentor();
         $intruder = $this->mentor();
         $student = $this->student();
@@ -689,20 +646,17 @@ class MentorStudentTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'CONNECTION_NOT_PARTICIPANT');
 
-        // The row is untouched…
         $this->assertDatabaseHas('mentor_student_connections', [
             'id' => $conn->id,
             'status' => 'pending',
             'disconnected_reason' => null,
         ]);
 
-        // …nothing was audited under the intruder's id…
         $this->assertDatabaseMissing('audit_events', [
             'actor_id' => $intruder->id,
             'entity_id' => $conn->id,
         ]);
 
-        // …and the owner's student was never notified.
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $student->id,
             'event_key' => "mentor_connection_disconnected:{$conn->id}",
@@ -711,8 +665,6 @@ class MentorStudentTest extends TestCase
 
     public function test_a_non_participant_cannot_archive_an_unrelated_connection(): void
     {
-        // Same guard, a different transition: the check must not live in the
-        // disconnect branch alone.
         $conn = $this->connection(null, null, null, 'active');
         $intruder = $this->mentor();
 
@@ -726,8 +678,6 @@ class MentorStudentTest extends TestCase
             'status' => 'active',
         ]);
     }
-
-    // ─── Notification behavior ──────────────────────────────────
 
     public function test_connection_creation_notifies_student(): void
     {
@@ -755,22 +705,17 @@ class MentorStudentTest extends TestCase
         $student = $this->student();
         $conn = $this->connection($mentor, $student, null, 'pending');
 
-        // Mentor activates the connection (the endpoint is behind the
-        // 'mentor' middleware so only mentors can update status).
         Sanctum::actingAs($mentor);
 
         $this->patchJson("/api/v1/mentor/connections/{$conn->id}", [
             'status' => 'active',
         ])->assertStatus(200);
 
-        // Student notified about the activation.
         $this->assertDatabaseHas('notifications', [
             'user_id' => $student->id,
             'event_key' => "mentor_connection_active:{$conn->id}",
         ]);
     }
-
-    // ─── Audit behavior ─────────────────────────────────────────
 
     public function test_connection_creation_writes_audit_with_before_after(): void
     {
@@ -819,8 +764,6 @@ class MentorStudentTest extends TestCase
         $this->assertSame('status-audit-req', $audit->request_id);
     }
 
-    // ─── API security ──────────────────────────────────────────
-
     public function test_x_request_id_is_propagated_in_response_header(): void
     {
         Sanctum::actingAs($this->mentor());
@@ -841,8 +784,6 @@ class MentorStudentTest extends TestCase
         $this->assertSame('err-req-123', $response->headers->get('X-Request-ID'));
         $this->assertSame('err-req-123', $response->json('request_id'));
     }
-
-    // ─── Connections listing ────────────────────────────────────
 
     public function test_connections_list_returns_paginated_results(): void
     {

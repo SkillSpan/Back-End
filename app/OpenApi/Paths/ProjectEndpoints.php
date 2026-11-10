@@ -4,17 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the project endpoints. Two controllers share the
- * `/v1/projects` path space:
- *
- *  - App\Http\Controllers\Api\ProjectController          — learner-facing catalog (index, show)
- *  - App\Http\Controllers\Api\ProjectManagementController — owner/admin lifecycle (store, update, submit, open, approve, request-changes, reject)
- *  - App\Http\Controllers\Api\ProjectMatchingController   — project matching (match)
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class ProjectEndpoints
 {
     #[OA\Get(

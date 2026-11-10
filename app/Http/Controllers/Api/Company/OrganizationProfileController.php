@@ -6,7 +6,6 @@ use App\Exceptions\ProfileException;
 use App\Http\Controllers\Api\Company\Concerns\ResolvesCompanyOrganization;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Company\UpdateOrganizationProfileRequest;
-use App\Models\Organization;
 use App\Services\Company\OrganizationProfileService;
 use App\Traits\AuditsActions;
 use Illuminate\Http\JsonResponse;
@@ -16,20 +15,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-/**
- * US-COMP-04 — Organization Profile Management.
- *
- * GET    /api/v1/profile/me                     (company)  — the SRS profile endpoint
- * GET    /api/v1/organization/profile           (company)  — same payload, existing path
- * PATCH  /api/v1/profile/me                     (company)
- * POST   /api/v1/company/profile/documents      (company)
- * GET    /api/v1/company/profile/documents/{id} (company)
- *
- * Every route sits behind auth:sanctum + account.active + organization.approved
- * + role:company_admin, and the organization is resolved from the caller's own
- * admin membership (ResolvesCompanyOrganization) — never from the request, so
- * there is no id to tamper with.
- */
 class OrganizationProfileController extends Controller
 {
     use AuditsActions;
@@ -59,9 +44,6 @@ class OrganizationProfileController extends Controller
         $data = $request->validated();
 
         try {
-            // Read-only fields first: sending a *different* verification_status
-            // is an attempt to edit something SkillSpan owns (BR-03), and the
-            // caller deserves to be told that rather than have it ignored.
             $this->profiles->guardReadOnly($organization, $request->all());
             $this->profiles->guardRequiredContact($organization, $data);
 
@@ -114,9 +96,6 @@ class OrganizationProfileController extends Controller
             return $this->documentError('No document was uploaded.', 'DOCUMENT_MISSING');
         }
 
-        // PHP-level failures first: a truncated upload (bigger than
-        // upload_max_filesize) would otherwise be reported as "wrong type",
-        // because the partial bytes do not look like a PDF.
         if (! $file->isValid()) {
             return $this->documentError(
                 $this->uploadErrorMessage($file->getError()),
@@ -145,8 +124,6 @@ class OrganizationProfileController extends Controller
             );
         }
 
-        // The extension is what the client claims; the detected MIME is what
-        // the bytes actually are. Requiring both stops an .exe renamed to .pdf.
         $detected = (string) $file->getMimeType();
         $allowedContentTypes = (array) config('company.profile.documents.mime_types', []);
 
@@ -196,13 +173,6 @@ class OrganizationProfileController extends Controller
         ], $result['replaced'] === null ? 'Document uploaded successfully.' : 'Document replaced successfully.');
     }
 
-    /**
-     * Upload or replace the organization logo.
-     *
-     * Field name is `logo`, not `file` — this is a distinct action from the
-     * document upload and reusing `file` would make the two indistinguishable in
-     * logs and in the frontend's FormData.
-     */
     public function uploadLogo(Request $request): JsonResponse
     {
         $organization = $this->resolveOrganization($request);
@@ -217,8 +187,6 @@ class OrganizationProfileController extends Controller
             return $this->documentError('No logo was uploaded.', 'LOGO_MISSING');
         }
 
-        // PHP-level failures first, for the same reason the document upload
-        // does it: a truncated upload does not look like an image.
         if (! $file->isValid()) {
             return $this->documentError(
                 $this->uploadErrorMessage($file->getError()),
@@ -252,9 +220,6 @@ class OrganizationProfileController extends Controller
         ], 'Logo updated successfully.');
     }
 
-    /**
-     * Remove the organization logo. Idempotent.
-     */
     public function deleteLogo(Request $request): JsonResponse
     {
         $organization = $this->resolveOrganization($request);
@@ -283,12 +248,6 @@ class OrganizationProfileController extends Controller
         ], 'Logo removed successfully.');
     }
 
-    /**
-     * BR-07 / AC-08 — a document is readable only by the organization that owns
-     * it. The lookup goes through that organization's own files(), so another
-     * company's document is a 404 rather than a 403: it does not exist for
-     * this caller.
-     */
     public function downloadDocument(Request $request, int $document): StreamedResponse|JsonResponse
     {
         $organization = $this->resolveOrganization($request);
@@ -323,13 +282,6 @@ class OrganizationProfileController extends Controller
         );
     }
 
-    // -----------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
     private function ok(array $data, string $message): JsonResponse
     {
         return response()->json([

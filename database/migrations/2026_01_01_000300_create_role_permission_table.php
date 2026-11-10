@@ -6,14 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * يستبدل الجدول الافتراضي (email كـ primary key) ببنية أفضل مبنية
-     * على user_id، مع تتبع صريح لتاريخ الانتهاء (expires_at) وتاريخ
-     * الاستهلاك (consumed_at) بدل الاعتماد على الحذف المباشر بعد
-     * الاستخدام أو حساب الانتهاء من config في كل مرة.
-     */
     public function up(): void
     {
         Schema::dropIfExists('password_reset_tokens');
@@ -30,9 +22,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('password_reset_tokens');

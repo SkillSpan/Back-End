@@ -4,14 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Creates the role_permission pivot that Role::permissions() and
- * Permission::roles() (both using ->withTimestamps()) have been pointing
- * at since the models were introduced. A migration named
- * "create_role_permission_table" previously created password_reset_tokens
- * instead, so any call to $role->permissions() failed with
- * "table not found". This closes that gap without touching history.
- */
 return new class extends Migration
 {
     public function up(): void

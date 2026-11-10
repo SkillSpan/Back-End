@@ -8,15 +8,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Idempotent on purpose. The table already exists on production (it was
-        // created before the `migrations` bookkeeping table lost the row that
-        // recorded it), so a plain Schema::create() dies with:
-        //
-        //     SQLSTATE[42S01] 1050 Table 'student_profiles' already exists
-        //
-        // Guarding the CREATE lets the migration be recorded on a database that
-        // already has the table, while still creating it from scratch on a fresh
-        // one. It does NOT rebuild: nothing is dropped.
         if (! Schema::hasTable('student_profiles')) {
             Schema::create('student_profiles', function (Blueprint $table) {
                 $table->id();
@@ -40,9 +31,6 @@ return new class extends Migration
             return;
         }
 
-        // The table exists but is missing this migration's own column — the
-        // production table predates the field. Add just that column, guarded so
-        // a replay is safe.
         if (! Schema::hasColumn('student_profiles', 'education')) {
             Schema::table('student_profiles', function (Blueprint $table) {
                 $table->string('education')->nullable()->after('student_university_number');

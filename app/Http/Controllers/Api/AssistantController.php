@@ -16,17 +16,6 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-/**
- * US-REC-01 — assistant endpoints. Thin controller mirroring
- * {@see IntelligenceController}: validation via FormRequest,
- * orchestration in AssistantService, presentation in the resource.
- * Routes sit behind auth:sanctum + account.active + role:learner.
- *
- * This class never generates assistant prose. Laravel is the gateway:
- * authorisation, scope, persistence, and routing only. It does relay the
- * service's reply to the caller — the one thing it may pass through verbatim —
- * because a gateway that swallows the answer is not a gateway.
- */
 class AssistantController extends Controller
 {
     public function __construct(private readonly AssistantService $assistantService) {}
@@ -54,17 +43,6 @@ class AssistantController extends Controller
                 $requestId,
             );
 
-            /*
-             * The reply is attached to the resource rather than written to the
-             * model: §12.5 data minimisation means it is never persisted, but it
-             * still has to reach the client or the UI has nothing to render.
-             *
-             * 201 because a resource was genuinely created and is being
-             * returned. `data.response_status` is the field that says whether a
-             * model answered — the two answer different questions, and a 201
-             * with response_status "failed" is a coherent pair (see
-             * AssistantService::ask()).
-             */
             $resource = new AssistantInteractionResource($answer->interaction);
             $resource->answer = $answer;
 
@@ -75,13 +53,6 @@ class AssistantController extends Controller
         } catch (ReadinessException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         } catch (ValidationException $e) {
-            /*
-             * Backstop only. A refusal on `intent` — the assistant scope
-             * decision (§12.5 / BR-01) — never arrives here: AskAssistantRequest
-             * is validated during route resolution, so it emits its own
-             * stable code from failedValidation(). Anything reaching this
-             * point is a plain payload error.
-             */
             return response()->json([
                 'code' => 'VALIDATION_ERROR',
                 'message' => 'The request could not be processed.',
@@ -159,8 +130,6 @@ class AssistantController extends Controller
 
     private function requestId(Request $request): string
     {
-        // Same correlation contract as US-INT-01 §5: reuse the incoming
-        // X-Request-ID when present, otherwise generate one server-side.
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
     }
 

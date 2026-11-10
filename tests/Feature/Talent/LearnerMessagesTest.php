@@ -12,21 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Company messages: sending to one, sending to all, and the learner's inbox.
- *
- * Three rules this file exists to pin:
- *
- *  1. "Send to all" reaches EXACTLY the people `GET /talent` would show. Not
- *     more — a broadcast must never become the side door around the visibility
- *     model. Not fewer either, or the button silently under-delivers.
- *  2. The learner inbox is READ-ONLY and scoped to the caller. A message the
- *     company sent is visible; another learner's messages are not, and the
- *     company's e-mail is never in the payload.
- *  3. A company may write more than once. The old one-pending-request rule
- *     locked a candidate out of contact forever, because nothing could ever
- *     resolve the pending row.
- */
 class LearnerMessagesTest extends TestCase
 {
     use RefreshDatabase;
@@ -42,10 +27,6 @@ class LearnerMessagesTest extends TestCase
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyAdminRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Acme'): Organization
     {
@@ -100,10 +81,6 @@ class LearnerMessagesTest extends TestCase
         return $user->fresh();
     }
 
-    // -----------------------------------------------------------------
-    // Send to all
-    // -----------------------------------------------------------------
-
     public function test_a_broadcast_reaches_every_visible_student_and_nobody_else(): void
     {
         $organization = $this->organization();
@@ -137,7 +114,6 @@ class LearnerMessagesTest extends TestCase
         $organization = $this->organization();
         $admin = $this->companyAdmin($organization);
 
-        // More than the 15-row default page size.
         $students = collect(range(1, 20))->map(fn ($i) => $this->student("Student {$i}"));
 
         Sanctum::actingAs($admin);
@@ -200,10 +176,6 @@ class LearnerMessagesTest extends TestCase
         $this->assertSame(0, TalentContactRequest::count());
     }
 
-    // -----------------------------------------------------------------
-    // The learner's inbox
-    // -----------------------------------------------------------------
-
     public function test_a_learner_sees_the_messages_companies_sent_to_them(): void
     {
         $organization = $this->organization('Acme');
@@ -230,13 +202,11 @@ class LearnerMessagesTest extends TestCase
         $response = $this->getJson('/api/v1/learner/messages')
             ->assertOk()
             ->assertJsonPath('meta.total', 2)
-            // Newest first: the learner reads the thread from the top.
             ->assertJsonPath('data.0.message', 'Second message.')
             ->assertJsonPath('data.1.message', 'First message.')
             ->assertJsonPath('data.0.from.organization_name', 'Acme')
             ->assertJsonPath('data.0.from.sender_name', 'Company Admin');
 
-        // Privacy: the company's address never travels to the learner.
         $this->assertStringNotContainsString('acme@example.com', $response->getContent());
     }
 

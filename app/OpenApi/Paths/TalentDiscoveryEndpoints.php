@@ -4,19 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for Talent Discovery
- * (App\Http\Controllers\Api\TalentDiscoveryController).
- *
- * This is the company-facing list of students who have made themselves
- * visible. It deliberately replaces the frontend's use of
- * `GET /v1/recommendations` for that page: that endpoint returns the CALLER's
- * own stored PROJECT recommendations and is gated on `role:learner`, so a
- * company admin could never have reached it.
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class TalentDiscoveryEndpoints
 {
     #[OA\Get(

@@ -5,12 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * A company's internal note about a candidate.
- *
- * Visible to the whole organization (that is the point of a shared note) and
- * never to the student. `author_id` is attribution for the UI.
- */
 class TalentNote extends Model
 {
     use HasFactory;

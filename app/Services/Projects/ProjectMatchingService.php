@@ -8,27 +8,6 @@ use App\Services\Intelligence\IntelligenceClient;
 use App\Services\Intelligence\IntelligenceResponseValidator;
 use Illuminate\Support\Facades\Log;
 
-/**
- * Task 10 — Project Matching FastAPI integration service.
- *
- * Orchestrates the deterministic project-matching recommendation call to the
- * deployed FastAPI intelligence service, reusing the existing
- * IntelligenceClient infrastructure (no duplicate HTTP client).
- *
- * Flow:
- *   1. Receive an authenticated learner + accessible project
- *   2. Validate the existing ProjectMatchingSnapshot (Task 8)
- *   3. Reject invalid or ineligible snapshots
- *   4. Build the request via ProjectMatchingPayloadBuilder (Task 9)
- *   5. Send through IntelligenceClient (POST /api/v1/project-matching)
- *   6. Validate the actual FastAPI response schema
- *   7. Verify request_id + version correlation
- *   8. Normalize the response into a Laravel-consumable result
- *   9. Return the result WITHOUT persisting recommendations
- *
- * The service is gated on config('services.data_science.project_matching_enabled')
- * — disabled yields a 503 INTELLIGENCE_NOT_CONFIGURED rather than a fabricated result.
- */
 class ProjectMatchingService
 {
     private readonly IntelligenceClient $client;
@@ -47,16 +26,6 @@ class ProjectMatchingService
         $this->payloadBuilder = $payloadBuilder ?? new ProjectMatchingPayloadBuilder;
     }
 
-    /**
-     * Calculate a project-matching recommendation for one learner + project.
-     *
-     * @param  ProjectMatchingSnapshot  $snapshot  a validated snapshot from Task 8
-     * @return array<string, mixed> the normalized, validated recommendation
-     *
-     * @throws IntelligenceException When the service is disabled, the snapshot
-     *                               is invalid/ineligible, the FastAPI call fails, or the response
-     *                               fails validation / correlation checks.
-     */
     public function match(ProjectMatchingSnapshot $snapshot): array
     {
         $this->guardEnabled();
@@ -88,10 +57,6 @@ class ProjectMatchingService
         return $this->normalize($result);
     }
 
-    /**
-     * The integration may only be invoked when explicitly enabled.
-     * Disabled ⇒ 503, never a fabricated result.
-     */
     private function guardEnabled(): void
     {
         if (! (bool) config('services.data_science.project_matching_enabled', false)) {
@@ -103,14 +68,6 @@ class ProjectMatchingService
         }
     }
 
-    /**
-     * Only validated snapshots may be sent to FastAPI.
-     * Pending or failed snapshots are rejected before any network call.
-     * Snapshots whose validation indicates the learner is not eligible
-     * are also rejected — the snapshot service already prevents creating
-     * such snapshots, but this is a defensive check against tampering
-     * or stale data.
-     */
     private function guardValidatedSnapshot(ProjectMatchingSnapshot $snapshot): void
     {
         if (! $snapshot->exists) {
@@ -139,13 +96,6 @@ class ProjectMatchingService
         }
     }
 
-    /**
-     * Normalize the validated FastAPI response into a Laravel-consumable
-     * shape. No database writes occur here — recommendations are returned,
-     * not persisted.
-     *
-     * @return array<string, mixed>
-     */
     private function normalize(array $result): array
     {
         $recommendation = $result['recommendation'];

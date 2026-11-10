@@ -30,20 +30,11 @@ class Notification extends Model
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * The organization this notification belongs to, when there is one
-     * (US-COMP-03). Null for mentor/student traffic, which is not
-     * organization-scoped.
-     */
     public function organization()
     {
         return $this->belongsTo(Organization::class);
     }
 
-    /**
-     * The record the notification is about — a project, an application, a
-     * mentorship. Nullable: older rows only carry a `link`.
-     */
     public function entity()
     {
         return $this->morphTo();

@@ -11,16 +11,6 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-REC-01 — PUT /api/v1/assistant/interactions/{id}/report
- *
- * SRS v1.1 §12.6 (incident and dispute flow) / REC-08: a learner may
- * report a response as unsafe, irrelevant, unfair or incorrect, and the
- * reason is recorded alongside the classification.
- *
- * The critical property here is BR-11: one learner must never be able to
- * report — or even confirm the existence of — another learner's row.
- */
 class AssistantReportTest extends TestCase
 {
     use RefreshDatabase;
@@ -107,12 +97,6 @@ class AssistantReportTest extends TestCase
     {
         [$owner, $ownerProfile] = $this->createLearner();
 
-        /*
-         * The second learner must be fully provisioned. An earlier version
-         * of this test gave it a role but no student profile, so the
-         * controller short-circuited on STUDENT_PROFILE_NOT_FOUND and the
-         * ownership check this test exists to prove was never reached.
-         */
         [$other] = $this->createLearner();
 
         Sanctum::actingAs($other);
@@ -125,7 +109,6 @@ class AssistantReportTest extends TestCase
             ->assertStatus(404)
             ->assertJsonPath('code', 'ASSISTANT_INTERACTION_NOT_FOUND');
 
-        // The owner's row is untouched.
         $this->assertNull($interaction->refresh()->report_status);
         $this->assertNotSame($owner->id, $other->id);
     }
@@ -135,8 +118,6 @@ class AssistantReportTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Both must produce the same 404 + code, so the endpoint cannot be
-        // used to probe which interaction ids exist (BR-11).
         $this->putJson('/api/v1/assistant/interactions/999999/report', [
             'report_status' => AssistantInteraction::REPORT_UNSAFE,
         ])
@@ -166,8 +147,6 @@ class AssistantReportTest extends TestCase
         $this->assertSame('The gap it named is not the largest one.', $interaction->report_reason);
     }
 
-    // ------------------------------------------------------------ helpers
-
     private function createInteraction(StudentProfile $profile): AssistantInteraction
     {
         return AssistantInteraction::create([
@@ -180,9 +159,6 @@ class AssistantReportTest extends TestCase
         ]);
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile}
-     */
     private function createLearner(): array
     {
         $user = $this->createUserWithRole($this->learnerRole);

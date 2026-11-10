@@ -21,54 +21,20 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * The support inbox — where an escalated assistant conversation is answered.
- *
- * WHY IT IS NOT ADMIN-ONLY
- * ------------------------
- * The person who answers is the mentor already connected to the learner, not
- * an administrator. Gating this on the `admin` middleware would notify a
- * mentor and then refuse them the page the notification links to. So the route
- * carries only `auth` + `account.active`, and the two audiences are separated
- * here instead:
- *
- *   - an administrator sees EVERY request — they are the safety net for the
- *     ones no mentor is connected to, which would otherwise sit unread;
- *   - a mentor sees ONLY the requests assigned to them. A mentor must never be
- *     able to read another mentor's learner, so this is a hard scope, not a
- *     default the UI happens to apply.
- *
- * Anything else gets a 403. The visibility rule lives in one place
- * ({@see scopedQuery()}) so the list, the detail and the reply can never drift
- * apart — a request you cannot list is a request you cannot open.
- *
- * WHAT IT DOES NOT DO
- * -------------------
- * It never writes `status` or `assigned_to` directly. Both go through
- * SupportRequestService, which owns the claim-on-first-reply rule and the
- * notifications.
- */
 class SupportController extends Controller
 {
-    /** Relations the inbox renders. */
     private const REQUEST_WITH = [
         'user:id,name,email',
         'assignee:id,name,email',
         'studentProfile:id,user_id',
     ];
 
-    /** Relations the detail screen adds on top. */
     private const THREAD_WITH = [
         'messages.sender:id,name,email',
     ];
 
     public function __construct(private readonly SupportRequestService $supportService) {}
 
-    /**
-     * GET /admin/api/support
-     *
-     * The inbox. Server-side pagination so a long backlog never arrives whole.
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -81,8 +47,6 @@ class SupportController extends Controller
             ->with(self::REQUEST_WITH)
             ->withCount([
                 'messages',
-                // "Unread" is relative to the viewer, so the count has to be
-                // built with their id — a shared `read_at` is not enough.
                 'messages as unread_count' => fn (Builder $message) => $this->unreadConstraint($message, $request->user()->id),
             ])
             ->latest('last_message_at')
@@ -105,13 +69,6 @@ class SupportController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /admin/api/support/{supportRequest}
-     *
-     * One request with its full thread. Opening a thread marks the other
-     * side's messages as read, which is what the learner's unread badge and
-     * the inbox counter are derived from.
-     */
     public function show(Request $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -131,10 +88,6 @@ class SupportController extends Controller
 
         $this->markRead($model, $request->user());
 
-        // `load()` re-queries the thread, which is what picks up the read
-        // timestamps just written. `fresh()` would have dropped the
-        // `messages_count` the inbox row needs, and would not re-query the
-        // relation at all.
         $model->load(array_merge(self::REQUEST_WITH, self::THREAD_WITH));
 
         return response()->json([
@@ -146,12 +99,6 @@ class SupportController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /admin/api/support/{supportRequest}/messages
-     *
-     * Reply to the learner. The first reply claims an unclaimed request, so a
-     * thread can never be answered by someone who is not recorded as its owner.
-     */
     public function reply(SendSupportMessageRequest $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -184,11 +131,6 @@ class SupportController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/support/{supportRequest}/assign
-     *
-     * Claim the request for the caller.
-     */
     public function assign(Request $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -203,9 +145,6 @@ class SupportController extends Controller
             return $this->notFound($supportRequest, $requestId);
         }
 
-        // Claiming is idempotent: whoever already owns it keeps it. Stealing
-        // another person's thread mid-conversation would silently drop them
-        // out of a conversation the learner believes they are in.
         if ($model->assigned_to === null) {
             $this->supportService->assign($model, $request->user());
         }
@@ -213,11 +152,6 @@ class SupportController extends Controller
         return $this->requestResponse($model->fresh(), 'Support request assigned successfully.', $requestId);
     }
 
-    /**
-     * POST /admin/api/support/{supportRequest}/resolve
-     *
-     * Close the thread as answered. The learner is notified.
-     */
     public function resolve(Request $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -237,21 +171,6 @@ class SupportController extends Controller
         return $this->requestResponse($model->fresh(), 'Support request resolved successfully.', $requestId);
     }
 
-    /**
-     * DELETE /admin/api/support/{supportRequest}/messages/{message}
-     *
-     * Remove one message from a thread.
-     *
-     * The message is looked up **through the request**, never by its own id
-     * alone. A bare `SupportMessage::find()` would let anyone who can reach one
-     * thread delete a line out of somebody else's conversation by posting the
-     * other message's id — the scope has to be applied to the message too, not
-     * just to its parent.
-     *
-     * This is a hard delete, unlike the request itself: a single mistaken or
-     * duplicated line has no audit value once removed, and leaving a tombstone
-     * inside the conversation would be visible to the learner as a gap.
-     */
     public function destroyMessage(Request $request, int $supportRequest, int $message): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -287,12 +206,6 @@ class SupportController extends Controller
 
         $target->delete();
 
-        /*
-         * The inbox sorts and labels rows by `last_message_at`, and the deleted
-         * message may have been the one that set it. Leaving the old timestamp
-         * would keep a row at the top of the queue showing a time that no longer
-         * corresponds to anything in the thread.
-         */
         $model->forceFill(['last_message_at' => $model->messages()->max('created_at')])->save();
 
         return response()->json([
@@ -303,16 +216,6 @@ class SupportController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * DELETE /admin/api/support/{supportRequest}
-     *
-     * Remove a whole request from the inbox.
-     *
-     * A SOFT delete, because the model already uses `SoftDeletes`: the thread
-     * leaves the queue and every scoped query, while the record of what a
-     * learner was told survives. Support conversations are evidence — an
-     * operator clearing their queue should not be able to destroy it.
-     */
     public function destroy(Request $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -345,16 +248,6 @@ class SupportController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    // ── Visibility ────────────────────────────────────────────────────────
-
-    /**
-     * Refuse anyone who is neither an administrator nor a mentor.
-     *
-     * Without this the scope below would quietly return an empty inbox to an
-     * unrelated account, which reads as "you have no requests" rather than
-     * "you are not allowed here". The page route answers 403 for the same
-     * reason.
-     */
     private function guard(Request $request): ?JsonResponse
     {
         if (self::isSupportAgent($request->user())) {
@@ -369,14 +262,6 @@ class SupportController extends Controller
         );
     }
 
-    /**
-     * The requests the caller is allowed to see, as a query.
-     *
-     * An administrator sees everything; a mentor sees only their own
-     * assignments. An account with neither capability sees nothing at all —
-     * the empty result is deliberate, so a stray role cannot read a private
-     * conversation by accident.
-     */
     private function scopedQuery(Request $request): Builder
     {
         $user = $request->user();
@@ -390,14 +275,6 @@ class SupportController extends Controller
         return $query->where('assigned_to', $user->id);
     }
 
-    /**
-     * May this account open the support inbox at all?
-     *
-     * Used by the Blade route, which has to answer with a 403 page rather
-     * than a JSON body. The rule itself lives in {@see PanelAccess} so this
-     * page, the profile page and the panel nav cannot disagree about who is
-     * allowed in.
-     */
     public static function isSupportAgent(User $user): bool
     {
         return PanelAccess::allows($user);
@@ -413,14 +290,6 @@ class SupportController extends Controller
         return PanelAccess::isAdministrator($user);
     }
 
-    // ── Read tracking ─────────────────────────────────────────────────────
-
-    /**
-     * Mark the messages the caller did NOT send as read.
-     *
-     * Scoped to the other side on purpose: marking your own messages read would
-     * make the learner's "support has seen this" signal meaningless.
-     */
     private function markRead(SupportRequest $supportRequest, User $reader): void
     {
         $supportRequest->messages()
@@ -428,8 +297,6 @@ class SupportController extends Controller
             ->where('sender_id', '!=', $reader->id)
             ->update(['read_at' => now(), 'read_by' => $reader->id]);
     }
-
-    // ── Filters ───────────────────────────────────────────────────────────
 
     private function applyFilters(Builder $query, Request $request): void
     {
@@ -439,8 +306,6 @@ class SupportController extends Controller
             $query->where('status', $status);
         }
 
-        // `open` is a convenience filter for "anything still needing an
-        // answer", which is what an operator actually wants to see first.
         if ($request->query('scope') === 'open') {
             $query->open();
         }
@@ -456,8 +321,6 @@ class SupportController extends Controller
         if (is_string($search) && trim($search) !== '') {
             $term = '%'.trim($search).'%';
 
-            // Grouped so the OR cannot escape the rest of the WHERE clause and
-            // widen the result set — the classic search-filter bug.
             $query->where(function (Builder $inner) use ($term) {
                 $inner->where('subject', 'like', $term)
                     ->orWhere('id', 'like', $term)
@@ -468,7 +331,6 @@ class SupportController extends Controller
         }
     }
 
-    /** @return array<string, string|null> */
     private function appliedFilters(Request $request): array
     {
         return [
@@ -479,15 +341,6 @@ class SupportController extends Controller
         ];
     }
 
-    /**
-     * Counts for the summary cards.
-     *
-     * Scoped like the list, so a mentor's cards describe their own queue
-     * rather than the whole platform — a card that says "12 pending" while the
-     * list shows none is worse than no card.
-     *
-     * @return array<string, int>
-     */
     private function stats(Request $request): array
     {
         $base = fn (): Builder => $this->scopedQuery($request);
@@ -503,14 +356,6 @@ class SupportController extends Controller
         ];
     }
 
-    /**
-     * "This message is waiting for the viewer to read it."
-     *
-     * System messages are excluded on purpose. The handoff marker is written by
-     * the service, not by a person, and it is never read or replied to — so
-     * counting it would mark every thread unread from the moment it is created,
-     * which is exactly the signal the badge is supposed to carry.
-     */
     private function unreadConstraint(Builder $message, int $viewerId): Builder
     {
         return $message
@@ -519,11 +364,6 @@ class SupportController extends Controller
             ->where('sender_id', '!=', $viewerId);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
-
-    /**
-     * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
-     */
     private function paginatedPayload(LengthAwarePaginator $paginator): array
     {
         return [
@@ -550,7 +390,6 @@ class SupportController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /** @return array{id: int, name: string, is_admin: bool, is_mentor: bool} */
     private function viewer(Request $request): array
     {
         $user = $request->user();
@@ -565,7 +404,6 @@ class SupportController extends Controller
 
     private function perPage(Request $request): int
     {
-        // Clamp, per the project's list-endpoint convention.
         return max(1, min(100, (int) $request->integer('per_page', 20)));
     }
 
@@ -576,8 +414,6 @@ class SupportController extends Controller
 
     private function notFound(int $supportRequestId, string $requestId): JsonResponse
     {
-        // Same wording whether the id is absent or merely out of scope, so the
-        // inbox cannot be used to enumerate other people's requests.
         return $this->errorResponse(
             'SUPPORT_REQUEST_NOT_FOUND',
             'The support request is not available.',

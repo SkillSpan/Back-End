@@ -11,21 +11,10 @@ class EnsureOrganizationIsApproved
 {
     use AuditsActions;
 
-    /**
-     * يمنع أي مستخدم مرتبط بمؤسسة لسا pending أو rejected من الوصول
-     * لأي route محمي بهذا الـ middleware — حتى لو نجح بالحصول على توكن
-     * صالح بأي طريقة. هذا خط دفاع ثانٍ مستقل عن فحص تسجيل الدخول،
-     * حتى لا نعتمد فقط على منع الدخول من الـ login endpoint.
-     * لازم يشتغل بعد "auth:sanctum" حتى يكون $request->user() محلول.
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        // Check every ACTIVE membership rather than just the first one: a
-        // user linked to several organizations must not pass on the strength
-        // of an approved one while another is still pending or rejected, and
-        // a membership marked 'removed' is ignored entirely.
         $blocking = $user?->organizations()
             ->wherePivot('status', 'active')
             ->whereIn('verification_status', ['pending', 'rejected'])
@@ -34,8 +23,6 @@ class EnsureOrganizationIsApproved
         if ($blocking) {
             $pending = $blocking->verification_status === 'pending';
 
-            // AUTH-04 — a refused call is recorded. Only the membership's own
-            // status is written; nothing about the organization's data is.
             $this->audit(
                 actorId: $user?->id,
                 action: 'organization.access_denied',
@@ -49,9 +36,6 @@ class EnsureOrganizationIsApproved
 
             return response()->json([
                 'success' => false,
-                // A stable code, because the company dashboard has to tell
-                // "still under review" (→ the pending screen) from "refused"
-                // (→ access denied) without parsing English prose.
                 'code' => $pending ? 'ORGANIZATION_PENDING' : 'ORGANIZATION_NOT_APPROVED',
                 'message' => $pending
                     ? 'Your organization is still pending approval. Please wait until it has been reviewed.'

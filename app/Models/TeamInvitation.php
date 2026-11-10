@@ -5,14 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * One invitation to join a project team, and the learner's answer to it.
- *
- * Being assigned is the company's decision; accepting is the learner's. Keeping
- * them as two records means the team screen can show "assigned, waiting for a
- * reply" without pretending the person has agreed, and a decline is visible
- * instead of silently shrinking a team.
- */
 class TeamInvitation extends Model
 {
     use HasFactory;
@@ -25,7 +17,6 @@ class TeamInvitation extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
-    /** The two answers a learner may give. `cancelled` belongs to the company. */
     public const RESPONSES = [self::STATUS_ACCEPTED, self::STATUS_DECLINED];
 
     protected $fillable = [

@@ -11,25 +11,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
-/**
- * The panel profile — the one screen both panel audiences own.
- *
- * The interesting properties are not the happy path but the boundaries:
- *
- *   - it is reachable by a mentor as well as an administrator, and by nobody
- *     else;
- *   - it can only ever edit the caller's own row — there is no id in any route
- *     or payload, and several cases below try to prove that from the outside;
- *   - the name is shared identity and the rest is presentation, so one save
- *     writes to two tables without either half being able to clobber the other.
- *
- * The avatar is deliberately NOT tested here. It is a pipeline of its own —
- * decode, crop, re-encode, store, serve, remove — with almost nothing in common
- * with the form above, and it lives in {@see AdminAvatarTest}.
- *
- * The panel is session-authenticated, so `actingAs` is used rather than a
- * Sanctum token — matching AdminSupportPanelTest and AdminProjectPanelTest.
- */
 class AdminProfileTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,8 +26,6 @@ class AdminProfileTest extends TestCase
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ------------------------------------------------------------ page access
 
     public function test_a_guest_is_redirected_to_the_admin_login(): void
     {
@@ -65,8 +44,6 @@ class AdminProfileTest extends TestCase
 
     public function test_the_page_renders_for_a_mentor(): void
     {
-        // The whole reason this route is not behind the `admin` middleware: a
-        // mentor must be able to change the password the seeder chose.
         $this->actingAs($this->mentor())
             ->get('/admin/profile')
             ->assertOk()
@@ -79,8 +56,6 @@ class AdminProfileTest extends TestCase
             ->get('/admin/profile')
             ->assertStatus(403);
     }
-
-    // ----------------------------------------------------------- API access
 
     public function test_a_guest_cannot_reach_the_api(): void
     {
@@ -99,7 +74,6 @@ class AdminProfileTest extends TestCase
     {
         $learner = $this->learner();
 
-        // A valid payload, so the refusal is the guard rather than validation.
         $this->actingAs($learner)
             ->patchJson('/admin/api/profile', ['name' => 'Renamed'])
             ->assertStatus(403)
@@ -107,8 +81,6 @@ class AdminProfileTest extends TestCase
 
         $this->assertSame('Panel Learner', $learner->fresh()->name);
     }
-
-    // ------------------------------------------------------------------ show
 
     public function test_the_payload_carries_identity_role_and_account_dates(): void
     {
@@ -139,8 +111,6 @@ class AdminProfileTest extends TestCase
 
     public function test_a_mentor_is_labelled_as_a_mentor_not_a_member(): void
     {
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug,
-        // so a role-only check would label every mentor "Member".
         $this->actingAs($this->mentor())
             ->getJson('/admin/api/profile')
             ->assertOk()
@@ -156,8 +126,6 @@ class AdminProfileTest extends TestCase
 
         $this->actingAs($admin)->getJson('/admin/api/profile')->assertOk();
 
-        // Created on first access rather than backfilled by a migration, so the
-        // table stays proportional to the people who actually use the screen.
         $this->assertDatabaseHas('admin_profiles', [
             'user_id' => $admin->id,
             'display_title' => null,
@@ -165,8 +133,6 @@ class AdminProfileTest extends TestCase
             'age' => null,
         ]);
     }
-
-    // ---------------------------------------------------------- updateDetails
 
     public function test_the_name_is_written_to_users_and_the_rest_to_the_profile(): void
     {
@@ -185,8 +151,6 @@ class AdminProfileTest extends TestCase
             ->assertJsonPath('data.profile.bio', 'Keeps the review queue moving.')
             ->assertJsonPath('data.profile.age', 34);
 
-        // `name` is shared identity; the rest is presentation. The split is an
-        // implementation detail the client never sees.
         $this->assertDatabaseHas('users', ['id' => $admin->id, 'name' => 'Layla Haddad']);
         $this->assertDatabaseHas('admin_profiles', [
             'user_id' => $admin->id,
@@ -217,8 +181,6 @@ class AdminProfileTest extends TestCase
             'age' => 34,
         ])->assertOk();
 
-        // The rules are `sometimes`, so an absent key means "leave it" — that
-        // is what lets the UI save one field without wiping the rest.
         $this->actingAs($admin)
             ->patchJson('/admin/api/profile', ['display_title' => 'Senior Operations Lead'])
             ->assertOk()
@@ -243,9 +205,6 @@ class AdminProfileTest extends TestCase
             'age' => null,
         ])->assertOk();
 
-        // NULL rather than empty text: the UI renders both as "not set", but a
-        // NULL keeps "never filled in" distinguishable from "deliberately
-        // emptied" for anything that later queries the column.
         $this->assertDatabaseHas('admin_profiles', [
             'user_id' => $admin->id,
             'bio' => null,
@@ -264,8 +223,6 @@ class AdminProfileTest extends TestCase
             ->patchJson('/admin/api/profile', ['name' => 'Changed', 'bio' => 'Mine.'])
             ->assertOk();
 
-        // There is no id in any route or payload, so there is no request shape
-        // that edits somebody else's row. This pins that from the outside.
         $this->assertSame('Untouched Admin', $other->fresh()->name);
         $this->assertDatabaseMissing('admin_profiles', ['user_id' => $other->id]);
     }
@@ -286,8 +243,6 @@ class AdminProfileTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // The column is an unsigned tinyint and would happily accept 12 or 200;
-        // the range is the only thing that makes the value mean "a person's age".
         $this->actingAs($admin)
             ->patchJson('/admin/api/profile', ['age' => 12])
             ->assertStatus(422)
@@ -307,17 +262,10 @@ class AdminProfileTest extends TestCase
             ->assertJsonValidationErrors('bio');
     }
 
-    // ------------------------------------------------------------- the sidebar
-
     public function test_every_panel_page_links_to_the_profile_and_the_inbox(): void
     {
         $admin = $this->administrator();
 
-        // The panel has no shared layout — every page repeats its sidebar by
-        // hand — so a page can ship with nothing pointing at it. That is exactly
-        // what happened to the support inbox: it was live and unreachable from
-        // the other screens. This pins the whole set rather than trusting each
-        // edit, which is the only way that class of bug stays fixed.
         foreach (['/admin/organizations', '/admin/projects', '/admin/support', '/admin/profile'] as $page) {
             $this->actingAs($admin)
                 ->get($page)
@@ -331,9 +279,6 @@ class AdminProfileTest extends TestCase
     {
         $mentor = $this->mentor();
 
-        // The sidebar's job is to never offer a link that answers 403. For a
-        // mentor that means the inbox and their own profile, and none of the
-        // pages behind the `admin` middleware.
         foreach (['/admin/support', '/admin/profile'] as $page) {
             $this->actingAs($mentor)
                 ->get($page)
@@ -344,8 +289,6 @@ class AdminProfileTest extends TestCase
                 ->assertDontSee('href="'.route('admin.projects').'"', false);
         }
     }
-
-    // ----------------------------------------------------------- the password
 
     public function test_the_password_can_be_changed_with_the_current_one(): void
     {
@@ -360,8 +303,6 @@ class AdminProfileTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        // The `password` cast hashes on assignment, so the plaintext never
-        // reaches the column.
         $this->assertTrue(Hash::check('a-much-better-secret', (string) $admin->fresh()->password));
         $this->assertNotSame('a-much-better-secret', $admin->fresh()->password);
     }
@@ -370,7 +311,6 @@ class AdminProfileTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // Two live API tokens, each with the audit row login would have written.
         foreach ([$admin->createToken('auth_token'), $admin->createToken('auth_token')] as $token) {
             AuthSession::forceCreate([
                 'user_id' => $admin->id,
@@ -391,15 +331,9 @@ class AdminProfileTest extends TestCase
             ])
             ->assertOk();
 
-        // A change made *because* a token leaked has to end that token's life,
-        // not leave it valid for its remaining 14 days. Before this guard the
-        // panel path revoked nothing while the reset-password path revoked
-        // everything, so the two password changes disagreed.
         $this->assertSame(0, $admin->tokens()->count());
         $this->assertSame(0, AuthSession::where('user_id', $admin->id)->whereNull('revoked_at')->count());
 
-        // The panel is a web session, so the person making the change stays
-        // signed in — only the API tokens die.
         $this->assertAuthenticatedAs($admin->fresh());
     }
 
@@ -416,14 +350,11 @@ class AdminProfileTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROFILE_CURRENT_PASSWORD_INCORRECT');
 
-        // The old password must still work — a refused change changes nothing.
         $this->assertTrue(Hash::check('password123', (string) $admin->fresh()->password));
     }
 
     public function test_the_current_password_is_required_even_with_a_live_session(): void
     {
-        // A session is also what an unattended browser holds, so requiring the
-        // existing password turns a walk-up into a permanent takeover.
         $this->actingAs($this->administrator())
             ->postJson('/admin/api/profile/password', [
                 'password' => 'a-much-better-secret',
@@ -468,8 +399,6 @@ class AdminProfileTest extends TestCase
             ->assertJsonValidationErrors('password');
     }
 
-    // ---------------------------------------------------------- support stats
-
     public function test_an_administrators_stats_describe_the_whole_queue(): void
     {
         $admin = $this->administrator();
@@ -499,8 +428,6 @@ class AdminProfileTest extends TestCase
 
         $mine->forceFill(['status' => SupportRequest::STATUS_RESOLVED, 'resolved_at' => now()])->save();
 
-        // Showing a mentor platform-wide totals would contradict the inbox one
-        // click away, and the numbers would be meaningless to them.
         $this->actingAs($mentor)
             ->getJson('/admin/api/profile')
             ->assertOk()
@@ -508,8 +435,6 @@ class AdminProfileTest extends TestCase
             ->assertJsonPath('data.stats.total', 1)
             ->assertJsonPath('data.stats.resolved', 1);
     }
-
-    // --------------------------------------------------------------- helpers
 
     private function administrator(string $name = 'Panel Admin'): User
     {
@@ -523,7 +448,6 @@ class AdminProfileTest extends TestCase
     {
         $user = $this->user($name);
 
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug.
         ProfessionalProfile::create([
             'user_id' => $user->id,
             'type' => 'mentor',
@@ -562,9 +486,6 @@ class AdminProfileTest extends TestCase
 
     private function user(string $name): User
     {
-        // `example.com`, never `test.com`: test.com addresses are disposable
-        // under the `indisposable` rule, so assertions about them can pass for
-        // the wrong reason.
         return User::forceCreate([
             'name' => $name,
             'email' => uniqid().'@example.com',

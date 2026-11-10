@@ -4,18 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-INT-01 — link readiness_results to their decision snapshot and
- * record the configuration version used for the calculation. Purely
- * additive: existing columns and every historical row stay untouched.
- *
- * FIX: made idempotent (checks each column/FK exists before adding it).
- * A previous deploy attempt already created `decision_snapshot_id` on the
- * production DB, which made this migration fail with
- * "Duplicate column name 'decision_snapshot_id'" when it tried to run
- * again. Guarding each addition means this migration is now safe to run
- * regardless of how much of it already landed on the database.
- */
 return new class extends Migration
 {
     public function up(): void

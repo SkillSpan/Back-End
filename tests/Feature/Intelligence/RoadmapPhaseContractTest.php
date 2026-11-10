@@ -15,21 +15,11 @@ use App\Models\StudentProfile;
 use App\Models\User;
 use App\Services\Intelligence\IntelligencePersistenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use ReflectionMethod;
 use Tests\TestCase;
 
-/**
- * FastAPI RoadmapPhase contract hardening.
- *
- * `phase` is a CLOSED enum (foundations / core_skills / applied_practice /
- * career_readiness) and each phase carries its canonical `order`
- * (1..4). An unknown phase, a missing/non-integer/out-of-range order, or an
- * order that disagrees with its phase is a contract violation — there is no
- * fallback and no auto-correction anywhere, including mapPhase().
- */
 class RoadmapPhaseContractTest extends TestCase
 {
     use RefreshDatabase;
@@ -53,8 +43,6 @@ class RoadmapPhaseContractTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------ A. valid phases + order
 
     public function test_foundations_phase_with_order_one_is_accepted(): void
     {
@@ -86,8 +74,6 @@ class RoadmapPhaseContractTest extends TestCase
         ], RoadmapAction::PHASE_ORDER);
     }
 
-    // ------------------------------------------------ B. invalid phase
-
     public function test_unknown_phase_is_rejected(): void
     {
         $this->assertPhaseRejected('basics', 1);
@@ -102,8 +88,6 @@ class RoadmapPhaseContractTest extends TestCase
     {
         $this->assertPhaseRejected('', 1);
     }
-
-    // ------------------------------------------------ C. invalid order
 
     public function test_phase_order_zero_is_rejected(): void
     {
@@ -122,8 +106,6 @@ class RoadmapPhaseContractTest extends TestCase
 
     public function test_phase_order_as_float_is_rejected(): void
     {
-        // NB: 1.0 would be JSON-encoded as `1` (an int) on the wire, so a
-        // genuinely fractional value is used to prove the strict int check.
         $this->assertPhaseRejected('foundations', 1.5);
     }
 
@@ -137,8 +119,6 @@ class RoadmapPhaseContractTest extends TestCase
 
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
-
-    // ------------------------------------------------ D. phase / order mismatch
 
     public function test_foundations_with_order_two_is_rejected(): void
     {
@@ -160,8 +140,6 @@ class RoadmapPhaseContractTest extends TestCase
         $this->assertPhaseRejected('career_readiness', 3);
     }
 
-    // ------------------------------------------------ E. mapPhase()
-
     public function test_map_phase_maps_every_known_phase_to_itself(): void
     {
         $service = app(IntelligencePersistenceService::class);
@@ -178,18 +156,14 @@ class RoadmapPhaseContractTest extends TestCase
         try {
             $mapped = $this->invokeMapPhase($service, 'not_a_real_phase');
         } catch (IntelligenceException $e) {
-            // Explicit failure with the project's standard mechanism...
             $this->assertSame('INTELLIGENCE_INVALID_RESPONSE', $e->codeName);
             $this->assertSame(502, $e->status);
 
             return;
         }
 
-        // ...never a silent fallback to the old default.
         $this->fail('mapPhase() silently mapped an unknown phase to "'.$mapped.'".');
     }
-
-    // ------------------------------------------------ helpers
 
     private function assertPhaseAccepted(string $phase, int $order): void
     {
@@ -206,7 +180,6 @@ class RoadmapPhaseContractTest extends TestCase
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
-        // The persisted phase is exactly the one FastAPI returned.
         $this->assertSame($phase, RoadmapAction::query()->firstOrFail()->phase);
     }
 
@@ -220,9 +193,6 @@ class RoadmapPhaseContractTest extends TestCase
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
 
-    /**
-     * @param  array<string, mixed>  $roadmap
-     */
     private function assertInvalidRoadmap(array $roadmap, $profile, $role, $roleSkills): void
     {
         $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
@@ -231,8 +201,6 @@ class RoadmapPhaseContractTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
 
-        // Nothing is persisted for an invalid phase — in particular the
-        // unknown phase is never coerced into a stored "core_skills" action.
         $this->assertSame(0, Roadmap::count());
         $this->assertSame(0, RoadmapAction::count());
     }
@@ -256,9 +224,6 @@ class RoadmapPhaseContractTest extends TestCase
         });
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function roadmapResponse($profile, $role, $roleSkills, string $phase, mixed $order): array
     {
         return [
@@ -285,9 +250,6 @@ class RoadmapPhaseContractTest extends TestCase
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function action(string $id, int $targetSkillId, string $targetSkillName): array
     {
         return [
@@ -354,9 +316,6 @@ class RoadmapPhaseContractTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>}
-     */
     private function createScenario(): array
     {
         $user = User::forceCreate([

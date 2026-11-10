@@ -4,23 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the US-MATCH-02 recommendation / application
- * endpoints:
- *
- *  - App\Http\Controllers\Api\RecommendationController
- *  - App\Http\Controllers\Api\RecommendationFeedbackController
- *  - App\Http\Controllers\Api\ApplicationController
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- *
- * The learner endpoints sit behind `auth:sanctum`, `account.active` and
- * `role:learner`. The project-owner endpoints (list a project's applications,
- * decide) are behind `auth:sanctum` and `account.active` only — ownership is
- * enforced in ApplicationService, so no role check is documented for them.
- * Every failure uses the shared `code` / `message` / `request_id` envelope.
- */
 class RecommendationApplicationEndpoints
 {
     #[OA\Get(

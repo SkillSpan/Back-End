@@ -8,23 +8,6 @@ use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
-/**
- * Career roles and their required skills.
- *
- * One row per role, keyed by a stable slug, so a role shared by several
- * specializations (Backend Developer belongs to Computer Science, Software
- * Engineering, Web Development, …) is a SINGLE career_roles row linked many
- * times through the pivot — never duplicated per specialization.
- *
- * Entry format: slug => [title, "skill, skill, …"]. Skills are resolved by
- * NAME first (so "C#", whose slug would collide with "C++", still resolves)
- * and then by slug. The first skill is treated as the critical one.
- *
- * The required skills are converged on every run: a role that previously
- * carried a skill this seeder no longer lists has it removed, so an old
- * definition cannot leave a skill with no mapped question (which would break
- * the assessment for the whole role).
- */
 class CareerRoleSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -47,7 +30,7 @@ class CareerRoleSeeder extends Seeder
                 $skill = $this->resolveSkill($skillName);
 
                 if (! $skill) {
-                    continue; // Skip silently if SkillSeeder hasn't created it yet.
+                    continue;
                 }
 
                 $resolvedSkillIds[] = $skill->id;
@@ -72,9 +55,6 @@ class CareerRoleSeeder extends Seeder
         }
     }
 
-    /**
-     * @return array<int, string>
-     */
     private function splitSkills(string $skillList): array
     {
         return array_values(array_filter(array_map('trim', explode(',', $skillList))));
@@ -86,18 +66,6 @@ class CareerRoleSeeder extends Seeder
             ?? Skill::where('slug', Str::slug($name))->first();
     }
 
-    /**
-     * Give a role a description the first time it is seeded.
-     *
-     * Reported from the live server: every career role came back with a null
-     * description, so the picker had nothing to show under the title and all
-     * roles read the same. The column existed and was already exposed by the
-     * API — nothing ever wrote to it, because this seeder only sets the title,
-     * status and effective date.
-     *
-     * Written only when the column is blank, so a description edited in the
-     * admin panel survives every reseed.
-     */
     private function ensureDescription(CareerRole $careerRole, string $title, int $skillCount): void
     {
         if (trim((string) $careerRole->description) !== '') {
@@ -109,16 +77,6 @@ class CareerRoleSeeder extends Seeder
         ])->save();
     }
 
-    /**
-     * Deterministic one-sentence description for a role.
-     *
-     * Public and static so the same wording can be reused by a backfill, and
-     * deliberately free of skill names: `GET /api/v1/career-roles?search=`
-     * matches the description as well as the title, so listing the role's
-     * skills here made a search for "engineer" return "Data Scientist"
-     * (because one of its skills is Data Engineering). A description is copy,
-     * not a keyword dump.
-     */
     public static function describe(string $title, int $skillCount): string
     {
         if ($skillCount === 0) {
@@ -129,15 +87,9 @@ class CareerRoleSeeder extends Seeder
             ."{$skillCount} core ".($skillCount === 1 ? 'skill' : 'skills').'.';
     }
 
-    /**
-     * slug => [title, "skill, skill, …"]
-     *
-     * @return array<string, array{0: string, 1: string}>
-     */
     private function roles(): array
     {
         return [
-            // ---- Core software engineering ----
             'software-engineer' => ['Software Engineer', 'Programming Fundamentals,Data Structures,Algorithms,Software Design,Version Control (Git)'],
             'software-developer' => ['Software Developer', 'Programming Fundamentals,Data Structures,Object-Oriented Programming,Debugging,Version Control (Git)'],
             'software-architect' => ['Software Architect', 'Software Design,Backend Architecture,Database Design,Cloud Computing Fundamentals,Security Architecture'],
@@ -149,7 +101,6 @@ class CareerRoleSeeder extends Seeder
             'test-automation-engineer' => ['Test Automation Engineer', 'Test Automation,Selenium,API Testing,CI/CD,Version Control (Git)'],
             'devops-engineer' => ['DevOps Engineer', 'CI/CD,Docker,Kubernetes,Linux Administration,Cloud Computing Fundamentals'],
 
-            // ---- Information Technology ----
             'it-support-specialist' => ['IT Support Specialist', 'Computer Hardware,Operating Systems,Networking Fundamentals,Troubleshooting,Internet Fundamentals'],
             'system-administrator' => ['System Administrator', 'Operating Systems,Servers,User & Permission Management,Backup & Recovery,System Monitoring'],
             'systems-administrator' => ['Systems Administrator', 'Windows Server,Active Directory,User & Permission Management,Virtualization,System Monitoring'],
@@ -159,7 +110,6 @@ class CareerRoleSeeder extends Seeder
             'technical-support-engineer' => ['Technical Support Engineer', 'Help Desk Operations,Troubleshooting,Operating Systems,Networking Fundamentals,IT Service Management'],
             'it-operations-specialist' => ['IT Operations Specialist', 'IT Service Management,System Monitoring,Linux Administration,Backup & Recovery,Virtualization'],
 
-            // ---- Information Systems ----
             'business-analyst' => ['Business Analyst', 'Requirements Analysis,Stakeholder Analysis,Business Requirements,Use Cases,Process Analysis'],
             'systems-analyst' => ['Systems Analyst', 'System Analysis,Requirements Engineering,UML,Data Flow,System Documentation'],
             'it-business-analyst' => ['IT Business Analyst', 'Requirements Analysis,Business Requirements,Process Analysis,IT Project Management,ERP Systems'],
@@ -167,14 +117,12 @@ class CareerRoleSeeder extends Seeder
             'crm-specialist' => ['CRM Specialist', 'CRM Systems,Business Requirements,Data Analysis,Process Automation,Stakeholder Analysis'],
             'database-administrator' => ['Database Administrator', 'Database Design,Query Optimization,Database Indexing,Backup & Recovery,SQL & Databases'],
 
-            // ---- IT Management ----
             'it-manager' => ['IT Manager', 'IT Governance,IT Project Management,IT Service Management,Change Management,Technology Consulting'],
             'it-project-coordinator' => ['IT Project Coordinator', 'IT Project Management,Requirements Analysis,Stakeholder Analysis,Process Analysis,Change Management'],
             'technology-consultant' => ['Technology Consultant', 'Technology Consulting,Requirements Analysis,Business Requirements,Cloud Computing Fundamentals,Stakeholder Analysis'],
             'it-operations-manager' => ['IT Operations Manager', 'IT Service Management,IT Governance,System Monitoring,Change Management,Virtualization'],
             'digital-transformation-specialist' => ['Digital Transformation Specialist', 'Digital Transformation,Process Automation,Change Management,Business Requirements,Technology Consulting'],
 
-            // ---- Computer Engineering ----
             'embedded-systems-developer' => ['Embedded Systems Developer', 'Embedded Systems,Microcontrollers,GPIO,C/C++,Memory Management'],
             'embedded-software-engineer' => ['Embedded Software Engineer', 'Embedded C,RTOS,Microcontrollers,Memory Management,Debugging'],
             'firmware-engineer' => ['Firmware Engineer', 'Firmware Development,Embedded C,RTOS,Microcontrollers,Debugging'],
@@ -183,7 +131,6 @@ class CareerRoleSeeder extends Seeder
             'robotics-engineer' => ['Robotics Engineer', 'Robotics,ROS,Control Systems,Embedded Systems,C/C++'],
             'hardware-software-integration-engineer' => ['Hardware-Software Integration Engineer', 'Hardware-Software Integration,Embedded Systems,PCB Design,Microcontrollers,Debugging'],
 
-            // ---- Web Development ----
             'wordpress-developer' => ['WordPress Developer', 'WordPress,PHP,HTML,CSS,JavaScript'],
             'php-developer' => ['PHP Developer', 'PHP,Laravel,SQL & Databases,REST APIs,Authentication & Authorization'],
             'laravel-developer' => ['Laravel Developer', 'Laravel,PHP,SQL & Databases,REST APIs,Authentication & Authorization'],
@@ -192,7 +139,6 @@ class CareerRoleSeeder extends Seeder
             'next-js-developer' => ['Next.js Developer', 'Next.js,React,JavaScript,TypeScript,Frontend Frameworks'],
             'web-application-developer' => ['Web Application Developer', 'Web Application Development,JavaScript,REST APIs,SQL & Databases,HTML'],
 
-            // ---- Mobile ----
             'android-developer' => ['Android Developer', 'Android Development,Kotlin,Application Lifecycle,UI Components,REST API Integration'],
             'ios-developer' => ['iOS Developer', 'iOS Development,Swift,Application Lifecycle,UI Components,REST API Integration'],
             'flutter-developer' => ['Flutter Developer', 'Flutter,Dart,Cross-Platform Development,UI Components,REST API Integration'],
@@ -200,7 +146,6 @@ class CareerRoleSeeder extends Seeder
             'mobile-application-developer' => ['Mobile Application Developer', 'Android Development,Application Lifecycle,UI Components,REST API Integration,Local Data Storage'],
             'cross-platform-mobile-developer' => ['Cross-Platform Mobile Developer', 'Cross-Platform Development,Flutter,React Native,UI Components,REST API Integration'],
 
-            // ---- Data ----
             'data-analyst' => ['Data Analyst', 'Statistics Fundamentals,SQL,Data Cleaning,Data Visualization,Data Analysis'],
             'data-scientist' => ['Data Scientist', 'Statistics,Python,Machine Learning,Feature Engineering,Model Evaluation'],
             'machine-learning-engineer' => ['Machine Learning Engineer', 'Machine Learning,Python,Model Training,Model Deployment,Model Monitoring'],
@@ -216,7 +161,6 @@ class CareerRoleSeeder extends Seeder
             'data-platform-engineer' => ['Data Platform Engineer', 'Data Pipelines,Cloud Computing Fundamentals,Data Warehousing,Docker,SQL & Databases'],
             'database-engineer' => ['Database Engineer', 'Database Design,Query Optimization,Database Indexing,SQL & Databases,NoSQL'],
 
-            // ---- Artificial Intelligence ----
             'ai-engineer' => ['AI Engineer', 'Python,Machine Learning,Neural Networks,Model Evaluation,AI Fundamentals'],
             'deep-learning-engineer' => ['Deep Learning Engineer', 'Deep Learning,Neural Networks,TensorFlow,PyTorch,Model Evaluation'],
             'ai-developer' => ['AI Developer', 'AI Fundamentals,Python,Machine Learning,REST APIs,Model Deployment'],
@@ -244,7 +188,6 @@ class CareerRoleSeeder extends Seeder
             'ai-robotics-engineer' => ['AI Robotics Engineer', 'Robotics,ROS,Deep Learning,Control Systems,Python'],
             'embedded-ai-engineer' => ['Embedded AI Engineer', 'Embedded Systems,Deep Learning,TensorFlow,Microcontrollers,Python'],
 
-            // ---- Cybersecurity ----
             'security-analyst' => ['Security Analyst', 'Cybersecurity Fundamentals,Threats & Vulnerabilities,Authentication,Encryption,Network Security'],
             'soc-analyst' => ['SOC Analyst', 'SIEM,Log Analysis,Security Monitoring,Incident Response,Security Events'],
             'cybersecurity-engineer' => ['Cybersecurity Engineer', 'Security Architecture,Network Security,Secure Coding,Identity and Access Management,Encryption'],
@@ -262,30 +205,25 @@ class CareerRoleSeeder extends Seeder
             'cybercrime-analyst' => ['Cybercrime Analyst', 'Digital Forensics,Threats & Vulnerabilities,Malware Analysis,Log Analysis,Security Monitoring'],
             'incident-response-specialist' => ['Incident Response Specialist', 'Incident Response,Incident Handling,Digital Forensics,SIEM,Security Events'],
 
-            // ---- Computer Networks ----
             'network-engineer' => ['Network Engineer', 'TCP/IP,IP Addressing,Routing & Switching,VLANs,Network Design'],
             'network-support-engineer' => ['Network Support Engineer', 'Networking Fundamentals,TCP/IP,IP Addressing,Network Troubleshooting,Troubleshooting'],
             'network-security-engineer' => ['Network Security Engineer', 'Network Security,Routing & Switching,Encryption,Network Troubleshooting,VLANs'],
             'noc-engineer' => ['NOC Engineer', 'Network Troubleshooting,System Monitoring,TCP/IP,Routing & Switching,Log Analysis'],
 
-            // ---- Cloud ----
             'cloud-engineer' => ['Cloud Engineer', 'Cloud Computing Fundamentals,AWS,Microsoft Azure,Docker,Linux Administration'],
             'cloud-administrator' => ['Cloud Administrator', 'Cloud Computing Fundamentals,AWS,Microsoft Azure,Virtualization,Linux Administration'],
             'cloud-architect' => ['Cloud Architect', 'Cloud Computing Fundamentals,AWS,Microsoft Azure,Infrastructure as Code,Kubernetes'],
             'cloud-security-engineer' => ['Cloud Security Engineer', 'Cloud Computing Fundamentals,Security Architecture,Encryption,Identity and Access Management,Network Security'],
 
-            // ---- DevOps & Infrastructure ----
             'site-reliability-engineer' => ['Site Reliability Engineer', 'Kubernetes,Observability,CI/CD,Linux Administration,Docker'],
             'platform-engineer' => ['Platform Engineer', 'Kubernetes,Infrastructure as Code,Terraform,Docker,CI/CD'],
             'infrastructure-engineer' => ['Infrastructure Engineer', 'Infrastructure as Code,Terraform,Linux Administration,Virtualization,Cloud Computing Fundamentals'],
             'devsecops-engineer' => ['DevSecOps Engineer', 'CI/CD,Security Architecture,Docker,Kubernetes,Secure Coding'],
             'cicd-engineer' => ['CI/CD Engineer', 'CI/CD,Docker,Kubernetes,Version Control (Git),Linux Administration'],
 
-            // ---- Databases ----
             'sql-developer' => ['SQL Developer', 'SQL & Databases,Database Design,Query Optimization,Database Indexing,Data Modeling'],
             'database-developer' => ['Database Developer', 'Database Design,SQL & Databases,Query Optimization,NoSQL,Data Modeling'],
 
-            // ---- UI/UX ----
             'ui-designer' => ['UI Designer', 'UI Design,Figma,Design Systems,Prototyping,Accessibility'],
             'ux-designer' => ['UX Designer', 'UX Research,Wireframing,Prototyping,Interaction Design,Accessibility'],
             'product-designer' => ['Product Designer', 'UI Design,UX Research,Prototyping,Design Systems,Interaction Design'],
@@ -293,7 +231,6 @@ class CareerRoleSeeder extends Seeder
             'interaction-designer' => ['Interaction Designer', 'Interaction Design,Prototyping,UI Design,UX Research,Figma'],
             'design-system-designer' => ['Design System Designer', 'Design Systems,UI Design,Figma,Accessibility,Frontend Frameworks'],
 
-            // ---- Game Development ----
             'game-developer' => ['Game Developer', 'Game Design,Gameplay Programming,C#,Unity,3D Mathematics'],
             'unity-developer' => ['Unity Developer', 'Unity,C#,Gameplay Programming,3D Mathematics,Game Design'],
             'unreal-engine-developer' => ['Unreal Engine Developer', 'Unreal Engine,C/C++,Gameplay Programming,3D Mathematics,Game Design'],
@@ -302,13 +239,11 @@ class CareerRoleSeeder extends Seeder
             'game-designer' => ['Game Designer', 'Game Design,3D Mathematics,UX Research,Prototyping,UI Design'],
             'technical-game-designer' => ['Technical Game Designer', 'Game Design,Gameplay Programming,3D Mathematics,C#,Prototyping'],
 
-            // ---- Quality Assurance ----
             'software-tester' => ['Software Tester', 'Manual Testing,Test Case Design,Bug Reporting,API Testing,Troubleshooting'],
             'manual-qa-tester' => ['Manual QA Tester', 'Manual Testing,Test Case Design,Bug Reporting,API Testing,System Documentation'],
             'automation-qa-engineer' => ['Automation QA Engineer', 'Test Automation,Selenium,API Testing,CI/CD,Version Control (Git)'],
             'performance-test-engineer' => ['Performance Test Engineer', 'Performance Testing,Test Automation,API Testing,Linux Administration,Observability'],
 
-            // ---- Blockchain & Web3 ----
             'blockchain-developer' => ['Blockchain Developer', 'Blockchain Fundamentals,Solidity,Smart Contracts,Web3 Development,Cryptography'],
             'smart-contract-developer' => ['Smart Contract Developer', 'Solidity,Smart Contracts,Ethereum,Cryptography,Blockchain Fundamentals'],
             'web3-developer' => ['Web3 Developer', 'Web3 Development,Blockchain Fundamentals,Solidity,JavaScript,REST APIs'],
@@ -316,7 +251,6 @@ class CareerRoleSeeder extends Seeder
             'solidity-developer' => ['Solidity Developer', 'Solidity,Smart Contracts,Ethereum,Cryptography,Blockchain Fundamentals'],
             'web3-backend-developer' => ['Web3 Backend Developer', 'Web3 Development,REST APIs,Blockchain Fundamentals,Solidity,SQL & Databases'],
 
-            // ---- Digital Transformation ----
             'business-systems-analyst' => ['Business Systems Analyst', 'System Analysis,Business Requirements,Requirements Analysis,UML,Process Automation'],
             'automation-specialist' => ['Automation Specialist', 'Process Automation,Python,REST APIs,Data Pipelines,Troubleshooting'],
             'digital-solutions-specialist' => ['Digital Solutions Specialist', 'Digital Transformation,Business Requirements,Cloud Computing Fundamentals,REST APIs,Process Automation'],

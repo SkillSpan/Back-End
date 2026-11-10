@@ -4,12 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-INT-01 — link roadmaps to their decision snapshot and record the
- * algorithm/configuration versions used to generate them. The existing
- * `version` column stays untouched: it remains the roadmap version
- * (exposed as roadmap_version); these additions are metadata only.
- */
 return new class extends Migration
 {
     public function up(): void

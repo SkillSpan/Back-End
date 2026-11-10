@@ -1,23 +1,4 @@
 #!/usr/bin/env bash
-#
-# Route-presence check for a deployed SkillSpan API.
-#
-#   bash tools/verify_routes.sh                       # the alwaysdata host
-#   bash tools/verify_routes.sh http://127.0.0.1:8000
-#
-# Why this exists: a route can be missing on the host for two very different
-# reasons — the code was never pulled, or the code is there but a stale route
-# cache is serving the old table. Both look identical from the browser (404),
-# and both are invisible in a deploy log that says "Nothing to migrate".
-#
-# The signal is the status code of an UNAUTHENTICATED request:
-#   401 / 403  the route exists and its middleware refused us  -> present
-#   404        no such route                                    -> missing
-# That is why every probe sends Accept: application/json — without it a guarded
-# route answers 302 to a login page instead of 401, and the check would read
-# "present" for a route that does not exist.
-#
-# It only reads. Nothing here writes, and no token is needed.
 
 set -u
 
@@ -28,11 +9,6 @@ ACCEPT='Accept: application/json'
 pass=0
 fail=0
 missing=()
-
-# --- health and a control route -------------------------------------------
-# The control matters: if a route that has existed for months also answers 404,
-# the problem is the deployment or the host, not this batch of routes, and every
-# line below would be a false alarm.
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/up")
 if [ "$code" = "200" ]; then
@@ -52,10 +28,6 @@ else
   echo "        If this is 404 the whole deployment is behind, not just the new routes."
   fail=$((fail + 1))
 fi
-
-# --- the routes ------------------------------------------------------------
-# One per line: METHOD PATH. Add a batch here as it lands; the script is meant
-# to be the post-deploy checklist, not a one-off.
 
 ROUTES=$(cat <<'LIST'
 GET    /api/v1/company/projects
@@ -105,8 +77,6 @@ while read -r method path; do
       missing+=("$method $path")
       ;;
     *)
-      # 405 would mean the path exists under a different verb — still a
-      # contract mismatch, so it is counted as a failure.
       printf '[WARN]  %-6s %-46s %s\n' "$method" "$path" "$code"
       fail=$((fail + 1))
       missing+=("$method $path")

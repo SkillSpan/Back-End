@@ -10,31 +10,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* SkillSpan design tokens. This block is identical on every admin page
-       (each page is standalone, so it is repeated inline on purpose). */
+
     --cw-navy-950:#020720;
     --cw-navy-900:#060D2E;
     --cw-navy-800:#0D1A4A;
-    --cw-blue:#1667E0;          /* SkillSpan royal blue: the one accent */
+    --cw-blue:#1667E0;
     --cw-blue-700:#0F52BA;
     --cw-blue-100:#D0E3FA;
     --cw-blue-50:#E2EEFC;
-    --cw-gold:#F2B544;          /* used sparingly: nav counters, Free Track */
+    --cw-gold:#F2B544;
     --cw-gray:#5A6482;
     --cw-gray-bg:#EEF1F6;
     --cw-soft:#F7FAFE;
 
-    /* Sidebar: SkillSpan navy */
     --nav-bg:#060D2E;
     --nav-bg-soft:#0D1A4A;
     --nav-bg-hover:rgba(255,255,255,.05);
     --nav-ink:#E8EEFF;
     --nav-ink-soft:#AAB5D6;
     --nav-line:rgba(255,255,255,.07);
-    --accent:#3D8BFF;           /* active marker on navy */
+    --accent:#3D8BFF;
     --accent-soft:rgba(22,103,224,.18);
 
-    /* Content area: white cards on a cool light background */
     --paper:#F0F6FC;
     --paper-raised:#FFFFFF;
     --ink:#05103D;
@@ -43,8 +40,7 @@
     --line:#E4EBF5;
     --line-soft:#EEF2F8;
 
-    /* Actions + status palette (names kept so every page rule still resolves) */
-    --teal:#1667E0;             /* primary action, now SkillSpan blue */
+    --teal:#1667E0;
     --teal-deep:#0F52BA;
     --amber:#9A5B00;
     --amber-bg:#FFF3DF;
@@ -202,24 +198,11 @@
     .page-head{flex-direction:column;}
   }
 
-
-
-
-
-
-
-
-  /* ==================================================================
-   * SkillSpan design system layer
-   * Identical on every admin page. Visual only: it restyles the classes
-   * the page already uses and adds no behaviour.
-   * ================================================================== */
   body{font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
   ::placeholder{color:var(--ink-faint);}
   ::selection{background:var(--cw-blue-100);}
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-  /* Brand: the SkillSpan mark always sits on a light-blue tile */
   .brand .bolt{width:34px;height:34px;border-radius:10px;background:var(--cw-blue-50);color:var(--cw-blue);}
   .brand .name{font-family:inherit;font-weight:600;font-size:19px;letter-spacing:-.01em;}
   .sidebar .brand .name{color:#fff;}
@@ -227,7 +210,6 @@
   .shell .brand .name{color:var(--ink);}
   .shell .brand .name span{color:var(--cw-blue);}
 
-  /* Sidebar */
   .sidebar{background:var(--nav-bg);scrollbar-width:none;}
   .sidebar::-webkit-scrollbar{display:none;}
   .brand{border-bottom-color:var(--nav-line);}
@@ -247,7 +229,6 @@
   .user-card .avatar{background:var(--cw-blue);}
   .user-card .meta .rl{color:#8E9AC0;}
 
-  /* Top bar */
   .topbar{background:var(--paper-raised);border-bottom:1px solid var(--line);}
   .topbar .crumb{color:var(--ink-faint);}
   .topbar .crumb .cur{color:var(--ink);font-weight:600;}
@@ -256,12 +237,10 @@
   .logout-btn{border-radius:10px;color:var(--ink-soft);font-weight:500;}
   .logout-btn:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Page heading */
   .page-head h1{font-family:inherit;font-weight:600;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .page-head p{color:var(--ink-soft);font-size:14px;}
   .page-head p strong{color:var(--ink);font-weight:600;}
 
-  /* Cards, stats, panels */
   .card, .stat, .table-wrap, .filters{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .stat .glyph{border-radius:10px;}
   .stat .body .lbl{color:var(--ink-soft);}
@@ -271,7 +250,6 @@
   .empty-state{color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-weight:600;font-size:16px;color:var(--ink);}
 
-  /* Buttons: flat, solid colours */
   .btn-primary{background:var(--cw-blue);color:#fff;border-radius:10px;font-weight:600;box-shadow:none;}
   .btn-primary:hover{background:var(--cw-blue-700);}
   .btn-secondary{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;font-weight:500;}
@@ -283,28 +261,23 @@
   .row-btn:hover{border-color:var(--cw-blue);color:var(--cw-blue);background:var(--cw-blue-50);}
   .row-btn.danger:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Inputs */
   .field label, .filters label{color:var(--ink-soft);font-weight:500;}
   .field input, .field select, .field textarea, .filters input, .filters select{background:#fff;border:1px solid var(--line);border-radius:10px;color:var(--ink);}
   .field input:focus, .field select:focus, .field textarea:focus, .filters input:focus, .filters select:focus{outline:none;border-color:var(--cw-blue);background:#fff;box-shadow:0 0 0 3px rgba(22,103,224,.14);}
   .field.invalid input, .field.invalid select, .field.invalid textarea{border-color:var(--brick);background:var(--brick-bg);}
   input[type="checkbox"], input[type="radio"]{accent-color:var(--cw-blue);}
 
-  /* Tables */
   thead th{background:var(--cw-soft);color:#6B7593;font-size:11.5px;letter-spacing:.06em;border-bottom-color:var(--line);}
   tbody td{border-bottom-color:var(--line-soft);}
   tbody tr:hover{background:var(--cw-soft);}
 
-  /* Organization monograms: one calm tile instead of hashed colours */
   .card-top > .avatar{background:var(--cw-blue-50) !important;color:var(--cw-navy-800);font-family:inherit;font-weight:700;font-size:15px;letter-spacing:-.02em;border-radius:12px;}
 
-  /* Row actions stay reachable when a table scrolls sideways */
   .table-scroll td.actions-cell, .table-scroll thead th:last-child{position:sticky;right:0;z-index:1;}
   .table-scroll td.actions-cell{background:#fff;}
   .table-scroll thead th:last-child{background:var(--cw-soft);}
   .table-scroll tbody tr:hover td.actions-cell{background:var(--cw-soft);}
 
-  /* Tabs */
   .tabs{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .tabs button{color:var(--ink-soft);font-weight:500;}
   .tabs button:hover{color:var(--ink);}
@@ -312,7 +285,6 @@
   .tabs button .count{background:var(--cw-gray-bg);border-color:transparent;color:var(--cw-gray);font-weight:600;}
   .tabs button.active .count{background:var(--cw-blue);color:#fff;border-color:transparent;}
 
-  /* Status chips: one palette on every page */
   .pill{border-radius:999px;font-weight:600;font-size:12px;letter-spacing:0;}
   .pill.verified, .pill.approved, .pill.open, .pill.selection, .pill.active,
   .pill.completed, .pill.resolved, .pill.in-use{background:var(--sage-bg);color:var(--sage);}
@@ -323,23 +295,19 @@
   .pill.draft, .pill.archived, .pill.closed, .pill.inactive, .pill.unused{background:var(--cw-gray-bg);color:var(--cw-gray);}
   .pill.free{background:#FDF3DC;color:#8A5D00;}
 
-  /* Modals */
   .overlay{background:rgba(2,7,32,.5);}
   .modal{border-radius:var(--radius);box-shadow:0 24px 60px -12px rgba(2,7,32,.35);}
   .modal-head h2{font-family:inherit;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
   .modal-head .close:hover{background:var(--cw-gray-bg);color:var(--ink);}
 
-  /* Inner scrolling panels scroll without a visible scrollbar */
   .table-scroll, .queue-list, .thread-scroll, .modal-body, .picker-list, .overlay{scrollbar-width:none;-ms-overflow-style:none;}
   .table-scroll::-webkit-scrollbar, .queue-list::-webkit-scrollbar, .thread-scroll::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar, .picker-list::-webkit-scrollbar, .overlay::-webkit-scrollbar{display:none;}
 
-  /* Toasts */
   .toast{background:var(--cw-navy-900);color:#fff;border-radius:10px;}
   .toast.err{background:var(--brick);}
   .toast.ok{background:var(--sage);}
 
-  /* Small screens: the navy sidebar becomes a top strip so the pages stay reachable */
   @media (max-width:880px){
     .app{flex-direction:column;}
     .sidebar{position:sticky;top:0;left:0;width:100%;height:auto;z-index:40;box-shadow:none;
@@ -366,7 +334,6 @@
     .filters input, .filters select{width:100%;min-width:0;}
   }
 
-  /* SkillSpan wordmark (brand): Span in its brand gradient, as in the platform */
   .brand .bolt{display:none !important;}
   .brand .name{font-weight:600;letter-spacing:-.01em;}
   .brand .name span{background:linear-gradient(180deg,#0491AF 0%,#034076 100%);-webkit-background-clip:text;background-clip:text;color:transparent !important;-webkit-text-fill-color:transparent;}
@@ -376,7 +343,6 @@
 
 <div class="app">
 
-  <!-- ============================= Sidebar ============================= -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="bolt" aria-hidden="true">
@@ -424,7 +390,6 @@
     @include('admin.partials.user-card')
   </aside>
 
-  <!-- ============================= Main ============================= -->
   <main class="main">
     <header class="topbar">
       <div class="crumb">
@@ -499,7 +464,6 @@
   </main>
 </div>
 
-<!-- ============================= Create / edit modal ============================= -->
 <div class="overlay" id="form-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -539,7 +503,6 @@
   </div>
 </div>
 
-<!-- ============================= Manage career roles modal ============================= -->
 <div class="overlay" id="roles-overlay">
   <div class="modal wide">
     <div class="modal-head">
@@ -560,7 +523,6 @@
   </div>
 </div>
 
-<!-- ============================= Create career role modal ============================= -->
 <div class="overlay" id="role-form-overlay">
   <div class="modal wide">
     <div class="modal-head">
@@ -593,7 +555,6 @@
   </div>
 </div>
 
-<!-- ============================= View modal ============================= -->
 <div class="overlay" id="view-overlay">
   <div class="modal wide">
     <div class="modal-head">
@@ -625,7 +586,6 @@
   </div>
 </div>
 
-<!-- ============================= Confirm modal ============================= -->
 <div class="overlay" id="confirm-overlay">
   <div class="modal narrow">
     <div class="modal-head"><h2 id="confirm-title">Are you sure?</h2></div>
@@ -690,7 +650,6 @@ async function api(path, options = {}, isRetry = false){
   return body;
 }
 
-// ── List ──────────────────────────────────────────────────────────────────
 async function loadSpecializations(){
   setStatusLine('Loading specializations…');
   const params = new URLSearchParams({ page: state.page, per_page: state.perPage });
@@ -759,7 +718,6 @@ function renderPager(data){
   document.getElementById('pager-pages').innerHTML = html;
 }
 
-// ── Create / edit ─────────────────────────────────────────────────────────
 function clearFormErrors(){
   document.querySelectorAll('#specialization-form .field').forEach(f => { f.classList.remove('invalid'); const e = f.querySelector('.err'); if (e) e.remove(); });
 }
@@ -848,7 +806,6 @@ function doDelete(id){
   });
 }
 
-// ── View ──────────────────────────────────────────────────────────────────
 async function openView(id){
   const s = state.rows.find(r => String(r.id) === String(id));
   if (!s) return;
@@ -880,7 +837,6 @@ async function openView(id){
   }
 }
 
-// ── Manage career roles ───────────────────────────────────────────────────
 async function openManage(id){
   const s = state.rows.find(r => String(r.id) === String(id));
   state.manageId = id;
@@ -918,7 +874,6 @@ async function saveRoles(){
   } catch (e){ toast(e.message, 'err'); }
 }
 
-// ── Create career role ────────────────────────────────────────────────────
 async function openCreateRole(){
   document.getElementById('role-form').reset();
   document.getElementById('skills-list').innerHTML = '';
@@ -956,14 +911,12 @@ async function submitRole(event){
     const body = await api('/admin/api/specializations/career-roles', { method:'POST', body: JSON.stringify({ title, skill_ids: skillIds }) });
     toast('Career role created.', 'ok');
     document.getElementById('role-form-overlay').classList.remove('open');
-    // Refresh the manage list so the new role is immediately selectable.
     if (state.manageId) await loadRoleOptions();
   } catch (e){
     toast(e.message, 'err');
   } finally { btn.disabled = false; btn.textContent = original; }
 }
 
-// ── Confirm ───────────────────────────────────────────────────────────────
 function askConfirm(opts){
   document.getElementById('confirm-title').textContent = opts.title;
   document.getElementById('confirm-text').innerHTML = opts.html;
@@ -972,7 +925,6 @@ function askConfirm(opts){
   document.getElementById('confirm-overlay').classList.add('open');
 }
 
-// ── Wiring ────────────────────────────────────────────────────────────────
 let searchTimer = null;
 document.addEventListener('DOMContentLoaded', () => {
   loadSpecializations();

@@ -18,65 +18,24 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
-/**
- * Talent Discovery — the company-facing list of students who have made
- * themselves visible.
- *
- * WHY THIS EXISTS: the frontend filled its Talent Discovery page from
- * `GET /api/v1/recommendations`, which answers a different question entirely
- * — that endpoint returns the CALLER's own stored project recommendations
- * (`recommendation` rows where `user_id` = caller and `type` = 'project'), and
- * it is gated on `role:learner`, so a company admin could never have reached
- * it. Nothing in the API listed talent.
- *
- * THE PERMISSION RULE is deliberately the SAME SHAPE as the one already in
- * `MentorStudentService::getPermittedStudents()`, because "which students may
- * this account see?" must have exactly one answer platform-wide:
- *
- *     visible  =  an active mentor connection with the viewer
- *              OR visibility = 'public'
- *              OR (visibility = 'organization_only' AND the student shares an
- *                  active organization membership with the viewer)
- *
- * Talent Discovery adds ONE gate the mentor path does not need, because a
- * company is a third party rather than a coach: `consent_given` must be true.
- *
- * ⚠️ `student_profiles.visibility` defaults to **'private'** and
- * `consent_given` defaults to **false**, so the list stays EMPTY until a
- * student actively opts in. That is the intended behaviour, not a bug — but it
- * means an empty response is the expected state on a fresh database, and it is
- * why the tests below always create the profile with an explicit visibility.
- */
 class TalentDiscoveryService
 {
     public const DEFAULT_PER_PAGE = 15;
 
     public const MAX_PER_PAGE = 100;
 
-    /**
-     * `learner_skills.level` is validated as `between:0.00,5.00` in
-     * SkillsController::store, so 5 is the ceiling the contract exposes. It is
-     * reported alongside every level rather than assumed by the client, because
-     * the prototype UI happened to draw a 4-dot scale.
-     */
     public const MAX_SKILL_LEVEL = 5;
 
-    /** Sorts the API accepts. 'match' was dropped: no talent match score is stored. */
     public const SORTS = ['readiness', 'recent'];
 
     public const DEFAULT_SORT = 'readiness';
 
-    /** How many skills ride along on a card. The detail endpoint returns more. */
     private const CARD_SKILL_LIMIT = 3;
 
     private const DETAIL_SKILL_LIMIT = 20;
 
     private const PROJECT_LIMIT = 20;
 
-    /**
-     * The paginated card list. Items are already-shaped arrays, which is the
-     * convention `StudentSummaryResource` established in this codebase.
-     */
     public function paginate(User $viewer, array $filters): LengthAwarePaginator
     {
         $profiles = $this->query($viewer, $filters)
@@ -94,17 +53,6 @@ class TalentDiscoveryService
         return $profiles;
     }
 
-    /**
-     * The user ids of every student THIS viewer may see, ignoring pagination
-     * and filters.
-     *
-     * Used by the company's "send to all" action, which must reach exactly the
-     * people the list would show — never a wider set. Delegating to
-     * `permittedQuery()` keeps that true by construction: if a future rule
-     * hides somebody from the list, it hides them from the broadcast too.
-     *
-     * @return array<int, int>
-     */
     public function visibleStudentIds(User $viewer): array
     {
         return $this->permittedQuery($viewer)
@@ -115,16 +63,6 @@ class TalentDiscoveryService
             ->all();
     }
 
-    /**
-     * One student's detail payload.
-     *
-     * A student the viewer may not see is reported as **404, not 403**: a 403
-     * would confirm that the id exists, which turns the endpoint into a
-     * membership oracle. Every miss — unknown id, private profile, no consent,
-     * another organization — answers identically.
-     *
-     * @throws NotFoundHttpException
-     */
     public function profile(User $viewer, int $studentId): array
     {
         $profile = $this->query($viewer, [])
@@ -150,10 +88,6 @@ class TalentDiscoveryService
         ];
     }
 
-    /**
-     * The `readiness_results.band` enum, so a client can label the `band` it
-     * receives on a card without hardcoding the vocabulary.
-     */
     public const READINESS_BANDS = [
         'foundation_needed',
         'developing',
@@ -162,19 +96,6 @@ class TalentDiscoveryService
         'highly_ready',
     ];
 
-    /**
-     * The values the list's filters accept, so a client never has to hardcode
-     * them.
-     *
-     * `career_roles` is deliberately NOT the whole taxonomy — it is the set that
-     * can actually return a result for THIS caller, derived from the same
-     * permitted-student query as the list. A dropdown built from the full
-     * `career_roles` table would offer options that always come back empty.
-     *
-     * This exists because a company admin cannot read `GET /api/v1/career-roles`
-     * (all three of its routes are `role:learner`), so without it the
-     * `career_role` filter would be unusable without guessing slugs.
-     */
     public function filters(User $viewer): array
     {
         $careerRoles = CareerRole::query()
@@ -203,14 +124,6 @@ class TalentDiscoveryService
         ];
     }
 
-    // -----------------------------------------------------------------
-    // Query construction
-    // -----------------------------------------------------------------
-
-    /**
-     * The permitted-student query, already filtered, sorted, and carrying the
-     * latest readiness score/band as select aliases.
-     */
     private function query(User $viewer, array $filters): Builder
     {
         $query = $this->permittedQuery($viewer);
@@ -218,9 +131,6 @@ class TalentDiscoveryService
         $this->applyFilters($query, $filters);
         $this->applySort($query, $filters['sort'] ?? self::DEFAULT_SORT);
 
-        // ⚠️ `select()` before `addSelect()`: an Eloquent builder whose select
-        // list is non-empty does NOT prepend `*`, so without this the model
-        // attributes would silently come back missing.
         return $query->select('student_profiles.*')->addSelect([
             'latest_readiness_score' => $this->latestReadinessValue('score'),
             'latest_readiness_band' => $this->latestReadinessValue('band'),
@@ -240,8 +150,6 @@ class TalentDiscoveryService
             ->all();
 
         return StudentProfile::query()
-            // A suspended or soft-deleted account must not be discoverable even
-            // if its profile was left behind.
             ->whereHas('user', fn (Builder $user) => $user->where('status', 'active'))
             ->where(function (Builder $visible) use ($connectedStudentIds, $organizationIds) {
                 $visible->where('student_profiles.visibility', 'public');
@@ -250,9 +158,6 @@ class TalentDiscoveryService
                     $visible->orWhereIn('student_profiles.user_id', $connectedStudentIds);
                 }
 
-                // An empty $organizationIds makes this branch unsatisfiable,
-                // which is correct: an account with no active organization
-                // sees public students only.
                 $visible->orWhere(function (Builder $orgScoped) use ($organizationIds) {
                     $orgScoped->where('student_profiles.visibility', 'organization_only')
                         ->whereHas('user.organizations', function ($orgQuery) use ($organizationIds) {
@@ -260,7 +165,6 @@ class TalentDiscoveryService
                         });
                 });
             })
-            // The extra gate: a company is a third party, so consent is required.
             ->where('student_profiles.consent_given', true);
     }
 
@@ -271,7 +175,6 @@ class TalentDiscoveryService
         if ($search !== '') {
             $like = '%'.$search.'%';
 
-            // "Name or track", matching the search box in the UI.
             $query->where(function (Builder $inner) use ($like) {
                 $inner->whereHas('user', fn (Builder $user) => $user->where('name', 'like', $like))
                     ->orWhereHas('primaryCareerRole', fn (Builder $role) => $role->where('title', 'like', $like));
@@ -282,7 +185,6 @@ class TalentDiscoveryService
 
         if ($careerRole !== null && $careerRole !== '') {
             $query->whereHas('primaryCareerRole', function (Builder $role) use ($careerRole) {
-                // Grouped, so the OR cannot leak into the surrounding AND chain.
                 $role->where(function (Builder $match) use ($careerRole) {
                     $match->where('career_roles.slug', (string) $careerRole);
 
@@ -296,8 +198,6 @@ class TalentDiscoveryService
         $minReadiness = $filters['min_readiness'] ?? null;
 
         if ($minReadiness !== null && $minReadiness !== '') {
-            // Filtered through a correlated subquery rather than the select
-            // alias: MySQL does not allow a select alias in WHERE.
             $query->whereRaw(
                 '('.$this->latestReadinessSql('score').') >= ?',
                 [(float) $minReadiness],
@@ -312,16 +212,9 @@ class TalentDiscoveryService
             default => $query->orderByDesc('latest_readiness_score'),
         };
 
-        // A deterministic secondary sort is what keeps pagination stable — two
-        // students with the same readiness must not swap pages between requests.
         $query->orderByDesc('student_profiles.id');
     }
 
-    /**
-     * The latest readiness row for this profile, as a scalar subquery.
-     * `calculated_at` can repeat (several career roles in one run), hence the
-     * `id` tiebreak.
-     */
     private function latestReadinessValue(string $column): Builder
     {
         return ReadinessResult::query()
@@ -353,10 +246,6 @@ class TalentDiscoveryService
         return max(1, (int) ($filters['page'] ?? 1));
     }
 
-    // -----------------------------------------------------------------
-    // Shaping
-    // -----------------------------------------------------------------
-
     private function card(StudentProfile $profile, Collection $skillsByLearner): array
     {
         return $this->identity($profile) + [
@@ -367,14 +256,6 @@ class TalentDiscoveryService
         ];
     }
 
-    /**
-     * Fields shared by the card and the detail payload.
-     *
-     * Deliberately ABSENT: the student's email address. The prototype shows a
-     * contact button, not an address, and a company reaching a learner through
-     * the platform should go through a recorded contact request rather than
-     * harvesting mailboxes from a list endpoint.
-     */
     private function identity(StudentProfile $profile): array
     {
         $score = $profile->latest_readiness_score;
@@ -395,9 +276,6 @@ class TalentDiscoveryService
             'preferred_work_type' => $profile->preferred_work_type,
             'completeness_percent' => (int) $profile->completeness_percent,
             'visibility' => $profile->visibility,
-            // Always true for a listed student — consent is an inclusion
-            // condition — but reported explicitly so the client can drive the
-            // contact affordance off the payload instead of assuming it.
             'contactable' => (bool) $profile->consent_given,
             'readiness' => [
                 'score' => $score === null ? null : round((float) $score, 2),
@@ -406,19 +284,6 @@ class TalentDiscoveryService
         ];
     }
 
-    /**
-     * The stored band, or the band the score falls into.
-     *
-     * `readiness_results.band` is nullable (migration
-     * 2026_08_13_000001_make_readiness_band_nullable), so a row can carry a
-     * real score with no band. Both talent screens treat a null band as "not
-     * rated yet", which hid a genuine 29.35 behind that label — the student HAD
-     * been scored, the band simply was not stored.
-     *
-     * The score is authoritative, so the band is derived from it using the SAME
-     * thresholds the readiness engine uses (config/readiness.php). Never a
-     * second copy of the numbers: a tuned boundary must move both together.
-     */
     private function bandFor(?float $score, ?string $band): ?string
     {
         if ($band !== null && $band !== '') {
@@ -435,15 +300,9 @@ class TalentDiscoveryService
             }
         }
 
-        // Out of range (a score above 100 or below 0): report no band rather
-        // than assert one the engine would not have produced.
         return null;
     }
 
-    /**
-     * Skills for every profile on the page, in ONE query per source table
-     * rather than one per student, keyed by learner id.
-     */
     private function skillsFor(Collection $profiles): Collection
     {
         $userIds = $profiles->pluck('user_id')->unique()->values()->all();
@@ -492,13 +351,6 @@ class TalentDiscoveryService
             });
     }
 
-    /**
-     * The projects this student was on, from team membership.
-     *
-     * ⚠️ Only what the schema actually stores. The prototype's project card also
-     * shows free-text `outcomes` and a per-project skill list; neither exists
-     * per team member, so neither is invented here.
-     */
     private function projects(StudentProfile $profile): array
     {
         return ProjectTeamMember::query()
@@ -523,15 +375,6 @@ class TalentDiscoveryService
             ->all();
     }
 
-    /**
-     * A company-facing evaluation summary: finalized evaluations on projects
-     * this student worked on, averaged.
-     *
-     * Deliberately WITHHELD, and this is a decision to keep: the evaluator's
-     * identity, per-dimension comments, and `moderation_reason`. Those are
-     * internal review material; the prototype's "Evaluator Notes" box and
-     * "reviewed by" line should be filled from the count and the date instead.
-     */
     private function evaluation(StudentProfile $profile): array
     {
         $empty = [
@@ -565,10 +408,6 @@ class TalentDiscoveryService
 
         $criteria = $evaluations
             ->flatMap(fn (Evaluation $evaluation) => $evaluation->dimensionScores)
-            // `rubric_dimensions.name` is a fixed enum — quality, commitment,
-            // communication, collaboration, creativity, problem_solving,
-            // delivery — so the payload carries the KEY and the client owns the
-            // display label and its translation.
             ->groupBy(fn ($score) => $score->dimension?->name ?? 'unspecified')
             ->map(fn (Collection $scores, string $key) => [
                 'key' => $key,

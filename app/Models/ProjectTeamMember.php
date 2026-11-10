@@ -28,7 +28,6 @@ class ProjectTeamMember extends Model
         return $this->hasMany(TeamInvitation::class);
     }
 
-    /** The invitation the team screen shows: the newest one. */
     public function latestInvitation()
     {
         return $this->hasOne(TeamInvitation::class)->latestOfMany();

@@ -5,17 +5,6 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * One shortlist.
- *
- * `candidates` is only present when the relation is loaded — the index does not
- * load it, because a list screen shows the count, not the contents.
- *
- * ⚠️ The candidate's e-mail is deliberately absent. This is a list of people a
- * company has BOOKMARKED, not people it has hired; `TalentProfileResource`
- * withholds the address for the same reason, and a shortlist must not become
- * the side door that leaks it.
- */
 class TalentListResource extends JsonResource
 {
     public function toArray(Request $request): array

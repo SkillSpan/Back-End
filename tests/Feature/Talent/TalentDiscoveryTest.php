@@ -24,24 +24,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * BA-01 — Talent Discovery.
- *
- * The endpoint exists so the frontend stops filling this page from
- * `GET /api/v1/recommendations`, which answers a different question and is
- * gated on `role:learner` anyway. These tests pin the three things that make
- * the replacement safe:
- *
- *   1. WHO can call it — company admins of an approved organization only.
- *   2. WHICH students come back — the platform's existing visibility rule
- *      (public, or organization_only within the same organization, or an
- *      active mentor connection) AND explicit consent.
- *   3. WHAT is exposed — no email address, and a 404 rather than a 403 on the
- *      detail route so ids cannot be enumerated.
- *   4. HOW a client learns the filter vocabulary — `GET /talent/filters`, which
- *      publishes only the career roles that can actually return a result for
- *      the caller (a company admin cannot read `GET /api/v1/career-roles`).
- */
 class TalentDiscoveryTest extends TestCase
 {
     use RefreshDatabase;
@@ -58,15 +40,6 @@ class TalentDiscoveryTest extends TestCase
         $this->companyAdminRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
-
-    /**
-     * ⚠️ The organizations enum is `pending|verified|rejected` — there is no
-     * 'approved' value, even though the middleware is called
-     * `organization.approved`.
-     */
     private function organization(string $name = 'Acme', string $status = 'verified'): Organization
     {
         return Organization::forceCreate([
@@ -101,10 +74,6 @@ class TalentDiscoveryTest extends TestCase
         return $user;
     }
 
-    /**
-     * A learner with a profile. Defaults to the state that IS discoverable
-     * (public + consent) so each test only has to state what it changes.
-     */
     private function student(
         string $name = 'Lena Kim',
         array $profile = [],
@@ -220,7 +189,6 @@ class TalentDiscoveryTest extends TestCase
 
         $rubric = Rubric::forceCreate(['title' => 'Engineering Rubric', 'status' => 'published']);
 
-        // `rubric_dimensions.name` is a fixed enum; 'quality' is one of its values.
         $dimension = RubricDimension::forceCreate([
             'rubric_id' => $rubric->id,
             'name' => 'quality',
@@ -243,10 +211,6 @@ class TalentDiscoveryTest extends TestCase
             'score' => $dimensionScore,
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // 1. Authorization
-    // -----------------------------------------------------------------
 
     public function test_a_guest_is_refused(): void
     {
@@ -288,10 +252,6 @@ class TalentDiscoveryTest extends TestCase
             ->assertJsonPath('success', false);
     }
 
-    // -----------------------------------------------------------------
-    // 2. Who comes back
-    // -----------------------------------------------------------------
-
     public function test_a_public_student_who_consented_is_discoverable(): void
     {
         $admin = $this->companyAdmin();
@@ -317,13 +277,6 @@ class TalentDiscoveryTest extends TestCase
             ]);
     }
 
-    /**
-     * `readiness_results.band` is nullable, so a row can carry a real score with
-     * no band. The talent screens read a null band as "not rated yet", which
-     * hid a genuine score — the student HAD been scored, the band was just not
-     * stored. The score is authoritative, so the band is derived from it with
-     * the readiness engine's own thresholds.
-     */
     public function test_a_stored_score_without_a_band_still_reports_the_band_it_falls_into(): void
     {
         $admin = $this->companyAdmin();
@@ -335,7 +288,6 @@ class TalentDiscoveryTest extends TestCase
         $this->getJson('/api/v1/talent')
             ->assertOk()
             ->assertJsonPath('data.0.readiness.score', 29.35)
-            // 0-39.99 is foundation_needed, per config/readiness.php.
             ->assertJsonPath('data.0.readiness.band', 'foundation_needed');
     }
 
@@ -449,10 +401,6 @@ class TalentDiscoveryTest extends TestCase
         $this->getJson('/api/v1/talent')->assertOk()->assertJsonPath('meta.total', 0);
     }
 
-    // -----------------------------------------------------------------
-    // 3. Pagination, filters, sorting
-    // -----------------------------------------------------------------
-
     public function test_the_list_is_paginated_without_overlapping_pages(): void
     {
         $admin = $this->companyAdmin();
@@ -498,7 +446,7 @@ class TalentDiscoveryTest extends TestCase
         $this->student('Lena Kim');
 
         $marcus = $this->student('Marcus Chen');
-        $this->readiness($marcus, 60.0); // gives him the 'Software Engineer' career role
+        $this->readiness($marcus, 60.0);
 
         Sanctum::actingAs($admin);
 
@@ -543,7 +491,6 @@ class TalentDiscoveryTest extends TestCase
         $low = $this->student('Low Ready');
         $this->readiness($low, 40.0, 'developing');
 
-        // No readiness row at all — must not be treated as zero-and-included.
         $this->student('No Readiness');
 
         Sanctum::actingAs($admin);
@@ -578,16 +525,10 @@ class TalentDiscoveryTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // 'match' was the prototype's default. No talent match score is stored,
-        // so it must fail loudly instead of returning a differently-ordered page.
         $this->getJson('/api/v1/talent?sort=match')
             ->assertStatus(422)
             ->assertJsonValidationErrors(['sort']);
     }
-
-    // -----------------------------------------------------------------
-    // 4. The detail endpoint
-    // -----------------------------------------------------------------
 
     public function test_the_detail_route_returns_the_skills_and_the_evaluation_summary(): void
     {
@@ -595,8 +536,6 @@ class TalentDiscoveryTest extends TestCase
         $student = $this->student('Lena Kim', ['bio' => 'Frontend engineer']);
 
         $this->readiness($student, 73.5, 'near_ready');
-        // A fractional level on purpose: a whole number would encode as `4`
-        // (PHP drops the `.0`), so an int cast bug would go unnoticed.
         $this->skill($student, 'React', 3.5, verified: true);
         $this->finalizedEvaluation($student, $admin, 4.5, 4.6);
 
@@ -629,7 +568,6 @@ class TalentDiscoveryTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // 404, never 403: a 403 would confirm the id exists.
         $this->getJson('/api/v1/talent/'.$private->id)
             ->assertStatus(404)
             ->assertJsonPath('success', false);
@@ -661,14 +599,9 @@ class TalentDiscoveryTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // The two routes must agree: the detail route is never a way around the list.
         $this->getJson('/api/v1/talent')->assertOk()->assertJsonPath('meta.total', 0);
         $this->getJson('/api/v1/talent/'.$student->id)->assertStatus(404);
     }
-
-    // -----------------------------------------------------------------
-    // 5. Data minimisation
-    // -----------------------------------------------------------------
 
     public function test_the_email_address_is_never_exposed(): void
     {
@@ -703,30 +636,16 @@ class TalentDiscoveryTest extends TestCase
         );
     }
 
-    // -----------------------------------------------------------------
-    // 6. The endpoint it replaces is untouched
-    // -----------------------------------------------------------------
-
     public function test_recommendations_is_still_learner_only_and_unchanged(): void
     {
         $admin = $this->companyAdmin();
 
         Sanctum::actingAs($admin);
 
-        // The old path is NOT repurposed: it still refuses a company admin.
         $this->getJson('/api/v1/recommendations')
             ->assertStatus(403)
             ->assertJsonPath('code', 'LEARNER_ONLY');
     }
-
-    // -----------------------------------------------------------------
-    // 7. The filter vocabulary endpoint
-    //
-    // `career_role` is a free string on the list, but a company admin has no
-    // way to learn which slugs exist: all three /api/v1/career-roles routes are
-    // `role:learner`, and /reference/* exposes only universities and
-    // specializations. Without this endpoint the filter is unusable.
-    // -----------------------------------------------------------------
 
     private function careerRole(string $title, string $slug): CareerRole
     {
@@ -762,18 +681,15 @@ class TalentDiscoveryTest extends TestCase
     {
         $admin = $this->companyAdmin();
 
-        // Held by a discoverable student → must be offered.
         $visible = $this->careerRole('Backend Engineer', 'backend-engineer');
         $this->assignCareerRole($this->student('Visible Student'), $visible);
 
-        // Held only by a student who is NOT discoverable → must not be offered.
         $hidden = $this->careerRole('Data Scientist', 'data-scientist');
         $this->assignCareerRole(
             $this->student('Private Student', ['visibility' => 'private']),
             $hidden,
         );
 
-        // Held by nobody at all → must not be offered.
         $this->careerRole('Unused Role', 'unused-role');
 
         Sanctum::actingAs($admin);
@@ -825,11 +741,6 @@ class TalentDiscoveryTest extends TestCase
         $this->assertSame(TalentDiscoveryService::READINESS_BANDS, $bands);
     }
 
-    /**
-     * The contract that matters: every slug this endpoint publishes is accepted
-     * by the list and returns the student it was derived from. If the two ever
-     * drift, the dropdown silently starts offering dead options.
-     */
     public function test_every_slug_the_filters_endpoint_returns_is_accepted_by_the_list(): void
     {
         $admin = $this->companyAdmin();

@@ -8,7 +8,6 @@ use App\Http\Requests\SaveBaselineProgressRequest;
 use App\Http\Requests\StartBaselineAssessmentRequest;
 use App\Http\Requests\SubmitBaselineAssessmentRequest;
 use App\Models\BaselineAssessment;
-use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
 use App\Services\Baseline\BaselineAssessmentService;
 use App\Services\Baseline\BaselineQuestionSelectionService;
@@ -76,8 +75,6 @@ class BaselineAssessmentController extends Controller
             );
         }
 
-        // Eager-load the frozen question set: retrieval must return the
-        // exact questions selected at creation time, not the live bank.
         $assessment->loadMissing([
             'questionSnapshots.item',
             'careerRole:id,title,slug,version',
@@ -173,15 +170,6 @@ class BaselineAssessmentController extends Controller
             && $assessment->studentProfile->user_id === $userId;
     }
 
-    /**
-     * Serialize an assessment for API consumers.
-     *
-     * `questions` is built from the immutable snapshot and deliberately
-     * omits `correct_answer` / `scoring_rule` — the backend never leaks
-     * grading keys to the client. `responses` is included only once the
-     * assessment is completed, so an in-progress attempt never echoes
-     * partially-submitted answers back over the wire.
-     */
     private function transform(BaselineAssessment $assessment): array
     {
         $questions = $assessment->relationLoaded('questionSnapshots')
@@ -222,18 +210,6 @@ class BaselineAssessmentController extends Controller
         ];
     }
 
-    /**
-     * Serialize one frozen snapshot question for API consumers.
-     *
-     * Content comes from the snapshot (immutable after creation), never
-     * from the live item bank. `correct_answer` / `scoring_rule` are
-     * deliberately never included — grading keys stay server-side.
-     *
-     * `question_text` is null when no prompt was ever authored for the
-     * item; we do not invent placeholder text.
-     *
-     * @param  BaselineQuestionSnapshot  $snapshot
-     */
     private function transformQuestion($snapshot): array
     {
         return [

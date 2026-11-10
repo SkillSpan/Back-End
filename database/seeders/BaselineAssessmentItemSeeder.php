@@ -7,30 +7,6 @@ use App\Models\Skill;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
-/**
- * Prototype baseline question bank.
- *
- * Questions are attached to SKILLS, never directly to career roles: the
- * existing BaselineQuestionSelectionService resolves
- *
- *   career role -> required skills -> questions mapped to those skills
- *
- * so a question only has to be authored once per skill and every role that
- * requires that skill inherits it. This is what makes the assessment
- * "dynamic" — changing the career role (which is itself filtered by
- * specialization) changes the skill set and therefore the questions.
- *
- * Every skill referenced by CareerRoleSeeder has at least one active item
- * here, otherwise selection would raise INSUFFICIENT_QUESTION_COVERAGE for
- * a role whose skill has no question. The keys are the skill slugs produced
- * by SkillSeeder (Str::slug of the skill name) — e.g. "TCP/IP" -> "tcpip",
- * "C/C++" -> "cc".
- *
- * Item ids are "{skillSlug}-001"; updateOrCreate on (assessment_version,
- * item_id) keeps the seed idempotent. Options are the answer choices and
- * correct_answer is one of them — the learner-facing API never exposes
- * correct_answer (see BaselineAssessmentController::transformQuestion).
- */
 class BaselineAssessmentItemSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -38,7 +14,6 @@ class BaselineAssessmentItemSeeder extends Seeder
     public function run(): void
     {
         $items = [
-            // ---- Backend ----
             'programming-fundamentals' => [
                 'What is the main purpose of a variable in a program?',
                 [
@@ -90,7 +65,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It processes requests between the client and the application logic',
             ],
 
-            // ---- Data & Analytics ----
             'statistics-fundamentals' => [
                 'What is the difference between the mean and the median?',
                 [
@@ -142,7 +116,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Correlation shows a relationship, while causation means one thing causes another',
             ],
 
-            // ---- Machine Learning & AI ----
             'python' => [
                 'Why is Python commonly used in AI and data work?',
                 [
@@ -294,7 +267,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Text classification',
             ],
 
-            // ---- Frontend ----
             'html' => [
                 'What is the main purpose of HTML?',
                 [
@@ -346,7 +318,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'A reusable, self-contained piece of the user interface',
             ],
 
-            // ---- Mobile ----
             'android-development' => [
                 'What is the purpose of an Activity in Android?',
                 [
@@ -398,7 +369,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It lets the application keep data available offline',
             ],
 
-            // ---- IT & Operating Systems ----
             'computer-hardware' => [
                 'What is the difference between RAM and storage?',
                 [
@@ -470,7 +440,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'The physical connection and network settings',
             ],
 
-            // ---- Networking ----
             'networking-fundamentals' => [
                 'What is DHCP used for?',
                 [
@@ -542,7 +511,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'ping',
             ],
 
-            // ---- Business & Systems Analysis ----
             'requirements-analysis' => [
                 'What is the difference between functional and non-functional requirements?',
                 [
@@ -644,7 +612,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It helps teams understand, maintain and support the system',
             ],
 
-            // ---- Cybersecurity ----
             'cybersecurity-fundamentals' => [
                 'What is phishing?',
                 [
@@ -786,7 +753,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Systematically identifying potential threats and mitigations',
             ],
 
-            // ---- Embedded Systems & IoT ----
             'embedded-systems' => [
                 'What is an embedded system?',
                 [
@@ -888,7 +854,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It ensures that only trusted devices and users can access the system',
             ],
 
-            // ---- Languages ----
             'php' => [
                 'What is PHP mainly used for?',
                 ['Building server-side web applications', 'Styling web pages', 'Editing images', 'Managing network routers'],
@@ -900,7 +865,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Building applications on the .NET platform and in Unity',
             ],
 
-            // ---- Programming fundamentals ----
             'data-structures' => [
                 'What is a data structure?',
                 ['A way of organising data so it can be used efficiently', 'A type of database server', 'A network cable', 'A pattern for user interfaces'],
@@ -932,7 +896,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Finding and fixing defects in a program',
             ],
 
-            // ---- Web ----
             'laravel' => [
                 'What is Laravel?',
                 ['A PHP web application framework', 'A JavaScript runtime', 'A relational database', 'A CSS framework'],
@@ -949,7 +912,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Software that runs in a browser and communicates with a server',
             ],
 
-            // ---- Mobile ----
             'ios-development' => [
                 'Which language is the primary choice for modern iOS development?',
                 ['Swift', 'Java', 'PHP', 'Go'],
@@ -986,7 +948,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Building one app that runs on multiple platforms',
             ],
 
-            // ---- Data ----
             'data-warehousing' => [
                 'What is a data warehouse?',
                 ['A central store optimised for analytics and reporting', 'A tool for editing images', 'A network device', 'A programming language'],
@@ -1038,7 +999,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'A measurable value that shows how well an objective is met',
             ],
 
-            // ---- AI / ML ----
             'deep-learning' => [
                 'What is deep learning?',
                 ['Machine learning using multi-layered neural networks', 'A method of database indexing', 'A network routing technique', 'A UI design approach'],
@@ -1105,7 +1065,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'A language model with a retrieval step over external knowledge',
             ],
 
-            // ---- IT ----
             'windows-server' => [
                 'What is Windows Server?',
                 ['A Microsoft operating system for server workloads', 'A mobile application', 'A JavaScript framework', 'A network cable'],
@@ -1132,7 +1091,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Running multiple virtual machines on one physical host',
             ],
 
-            // ---- Networking ----
             'vlans' => [
                 'What is a VLAN?',
                 ['A logically segmented network within a physical one', 'A type of database', 'A programming language', 'A UI component'],
@@ -1159,7 +1117,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Signal interference and coverage',
             ],
 
-            // ---- Cloud & DevOps ----
             'cloud-computing-fundamentals' => [
                 'What is cloud computing?',
                 ['Delivering computing resources over the internet on demand', 'Storing files only on a local disk', 'A programming language', 'A network cable'],
@@ -1211,7 +1168,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Understanding system state from logs, metrics and traces',
             ],
 
-            // ---- Databases ----
             'database-design' => [
                 'What is database design concerned with?',
                 ['Structuring tables and relationships for correct, efficient storage', 'Designing logos', 'Configuring routers', 'Writing UI code'],
@@ -1233,7 +1189,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'To speed up lookups on a column',
             ],
 
-            // ---- Business ----
             'it-project-management' => [
                 'What does IT project management involve?',
                 ['Planning and delivering IT projects on time and within scope', 'Designing databases', 'Writing machine-learning models', 'Editing images'],
@@ -1275,7 +1230,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Advises organisations on technology choices and strategy',
             ],
 
-            // ---- Cybersecurity ----
             'security-architecture' => [
                 'What is security architecture?',
                 ['Designing systems so security is built in from the start', 'Installing antivirus only', 'Writing marketing copy', 'Designing logos'],
@@ -1332,7 +1286,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Protecting information using mathematical techniques',
             ],
 
-            // ---- UI/UX ----
             'ui-design' => [
                 'What does UI design focus on?',
                 ['The visual and interactive elements of an interface', 'Database schema', 'Network topology', 'Server provisioning'],
@@ -1374,7 +1327,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It lets people with disabilities use the product',
             ],
 
-            // ---- Game Development ----
             'unity' => [
                 'What is Unity?',
                 ['A game engine for building 2D and 3D games', 'A relational database', 'A web framework', 'A network protocol'],
@@ -1401,7 +1353,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'It underpins transforms, physics and rendering',
             ],
 
-            // ---- Quality Assurance ----
             'manual-testing' => [
                 'What is manual testing?',
                 ['A person executing test cases without automation', 'Automated regression only', 'Writing production code', 'Designing databases'],
@@ -1438,7 +1389,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Verifying that an API returns correct responses',
             ],
 
-            // ---- Blockchain ----
             'blockchain-fundamentals' => [
                 'What is a blockchain?',
                 ['A distributed, append-only ledger', 'A relational database', 'A network protocol', 'A UI framework'],
@@ -1465,7 +1415,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'Building decentralised applications on blockchains',
             ],
 
-            // ---- Embedded & Robotics ----
             'embedded-c' => [
                 'What is embedded C used for?',
                 ['Programming microcontrollers and embedded devices', 'Building web frontends', 'Designing databases', 'Editing images'],
@@ -1512,7 +1461,6 @@ class BaselineAssessmentItemSeeder extends Seeder
                 'A system that regulates behaviour using feedback',
             ],
 
-            // ---- Remaining taxonomy skills ----
             'c' => [
                 'What is C++ commonly used for?',
                 ['High-performance systems and embedded software', 'Styling web pages', 'Managing databases', 'Designing logos'],
@@ -1570,21 +1518,15 @@ class BaselineAssessmentItemSeeder extends Seeder
             ],
         ];
 
-        // Author against the version the assessment actually selects from, so
-        // a configured DATA_SCIENCE_BASELINE_VERSION can never leave the bank
-        // empty for the active version.
         $version = (string) config('services.data_science.baseline.version', 'v1.0');
 
         foreach ($items as $skillSlug => $entry) {
             $skill = Skill::where('slug', $skillSlug)->first();
 
             if (! $skill) {
-                continue; // Skip silently if SkillSeeder hasn't created it yet.
+                continue;
             }
 
-            // The base map holds one question per skill; additionalQuestions()
-            // tops specific skills up to the required floor. Both are merged so
-            // the numbering stays {skillSlug}-001, -002, …
             $questions = array_merge(
                 $this->normalizeQuestions($entry),
                 $this->normalizeQuestions($this->additionalQuestions()[$skillSlug] ?? []),
@@ -1613,21 +1555,12 @@ class BaselineAssessmentItemSeeder extends Seeder
         }
     }
 
-    /**
-     * Accepts either a single question ([text, options, answer]) or a list of
-     * them, so a skill can carry more than one question without rewriting the
-     * one-question entries.
-     *
-     * @return array<int, array{0: string, 1: array<int, string>, 2: string}>
-     */
     private function normalizeQuestions(mixed $entry): array
     {
         if (! is_array($entry) || $entry === []) {
             return [];
         }
 
-        // A single question starts with the question text (a string); a list
-        // of questions starts with an array.
         if (is_string($entry[0] ?? null)) {
             return [$entry];
         }
@@ -1635,23 +1568,6 @@ class BaselineAssessmentItemSeeder extends Seeder
         return array_values(array_filter($entry, 'is_array'));
     }
 
-    /**
-     * Extra questions that raise a skill to the baseline coverage floor.
-     *
-     * The BaselineQuestionSelectionService requires at least one active
-     * question per required skill; below that a career role fails with
-     * INSUFFICIENT_QUESTION_COVERAGE. These entries give the skills that were
-     * identified as thin a healthier pool (>= 5 questions each) so the
-     * assessment is varied rather than a single-item check.
-     *
-     * Every question is single_choice with four distinct options and exactly
-     * one correct answer drawn from those options. They are written at
-     * beginner-to-intermediate level, which is what a baseline assessment is
-     * for, and each one maps to the skill it is filed under — never to a
-     * neighbouring skill.
-     *
-     * @return array<string, array<int, array{0: string, 1: array<int, string>, 2: string}>>
-     */
     private function additionalQuestions(): array
     {
         return [

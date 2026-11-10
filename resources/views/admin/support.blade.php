@@ -10,31 +10,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* SkillSpan design tokens. This block is identical on every admin page
-       (each page is standalone, so it is repeated inline on purpose). */
+
     --cw-navy-950:#020720;
     --cw-navy-900:#060D2E;
     --cw-navy-800:#0D1A4A;
-    --cw-blue:#1667E0;          /* SkillSpan royal blue: the one accent */
+    --cw-blue:#1667E0;
     --cw-blue-700:#0F52BA;
     --cw-blue-100:#D0E3FA;
     --cw-blue-50:#E2EEFC;
-    --cw-gold:#F2B544;          /* used sparingly: nav counters, Free Track */
+    --cw-gold:#F2B544;
     --cw-gray:#5A6482;
     --cw-gray-bg:#EEF1F6;
     --cw-soft:#F7FAFE;
 
-    /* Sidebar: SkillSpan navy */
     --nav-bg:#060D2E;
     --nav-bg-soft:#0D1A4A;
     --nav-bg-hover:rgba(255,255,255,.05);
     --nav-ink:#E8EEFF;
     --nav-ink-soft:#AAB5D6;
     --nav-line:rgba(255,255,255,.07);
-    --accent:#3D8BFF;           /* active marker on navy */
+    --accent:#3D8BFF;
     --accent-soft:rgba(22,103,224,.18);
 
-    /* Content area: white cards on a cool light background */
     --paper:#F0F6FC;
     --paper-raised:#FFFFFF;
     --ink:#05103D;
@@ -43,8 +40,7 @@
     --line:#E4EBF5;
     --line-soft:#EEF2F8;
 
-    /* Actions + status palette (names kept so every page rule still resolves) */
-    --teal:#1667E0;             /* primary action, now SkillSpan blue */
+    --teal:#1667E0;
     --teal-deep:#0F52BA;
     --amber:#9A5B00;
     --amber-bg:#FFF3DF;
@@ -75,9 +71,6 @@
 
   .app{display:flex;min-height:100vh;}
 
-  /* ----------------------------------------------------------------
-   * Sidebar — identical to the organizations / projects panels
-   * ---------------------------------------------------------------- */
   .sidebar{
     width:var(--sidebar-w);
     flex-shrink:0;
@@ -144,9 +137,6 @@
   .user-card .meta .nm{font-size:13.5px;color:#fff;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .user-card .meta .rl{font-size:11.5px;color:var(--nav-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  /* ----------------------------------------------------------------
-   * Main column
-   * ---------------------------------------------------------------- */
   .main{flex:1;min-width:0;display:flex;flex-direction:column;}
   .topbar{
     background:var(--paper-raised);
@@ -183,7 +173,6 @@
   .btn-primary:hover{background:var(--teal-deep);}
   .btn-primary:disabled{opacity:.5;cursor:default;}
 
-  /* Stats */
   .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:22px;}
   .stat{
     background:var(--paper-raised);border:1px solid var(--line);
@@ -200,7 +189,6 @@
   .stat .body .val{font-family:inherit;font-size:22px;font-weight:600;line-height:1.1;margin-top:2px;}
   .stat .body .val.skeleton{color:var(--ink-faint);}
 
-  /* Filter bar */
   .filters{
     background:var(--paper-raised);border:1px solid var(--line);
     border-radius:11px;padding:14px 16px;margin-bottom:18px;
@@ -225,9 +213,6 @@
   #status-line.err{color:var(--brick);}
   #status-line.ok{color:var(--sage);}
 
-  /* ----------------------------------------------------------------
-   * Two-pane inbox: queue on the left, thread on the right
-   * ---------------------------------------------------------------- */
   .inbox{
     display:grid;grid-template-columns:380px 1fr;gap:18px;
     align-items:start;
@@ -279,7 +264,6 @@
   .pill.closed{background:var(--cw-gray-bg);color:var(--ink-soft);}
   .pill.reason{background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);}
 
-  /* Thread */
   .thread-head{
     padding:14px 18px;border-bottom:1px solid var(--line);flex-shrink:0;
     display:flex;align-items:flex-start;gap:14px;
@@ -297,8 +281,7 @@
   }
   .row-btn:hover:not(:disabled){border-color:var(--teal);color:var(--teal-deep);}
   .row-btn:disabled{opacity:.45;cursor:default;}
-  /* Destructive actions get the brick, not the brand colour — the one button
-     here that cannot be undone should not look like the two that can. */
+
   .row-btn.danger:hover:not(:disabled){border-color:var(--brick);color:var(--brick);}
 
   .thread-scroll{overflow-y:auto;flex:1;padding:18px;background:var(--cw-soft);}
@@ -317,10 +300,7 @@
     display:flex;align-items:center;justify-content:center;
     font-size:11px;font-weight:600;color:#fff;
   }
-  /* The photo sits on top of the initials rather than replacing them: it is
-     absolutely positioned, and `onerror` removes it, so a colleague with no
-     upload — or a request that fails — falls back to the initials already
-     rendered underneath. Nothing here needs to know which case it is. */
+
   .turn .av img{
     position:absolute;inset:0;width:100%;height:100%;
     object-fit:cover;display:block;
@@ -329,10 +309,7 @@
   .turn .av.assistant{background:var(--cw-blue);}
   .turn .av.support{background:var(--violet);}
   .turn .bub{max-width:74%;}
-  /* Delete sits with the timestamp, revealed on hover so a thread of twenty
-     messages is not a wall of buttons. Touch devices get it always — see the
-     `(hover: none)` rule below — because a hover-only control is unreachable
-     without a pointer. */
+
   .turn .bub .at{display:flex;align-items:center;gap:8px;}
   .turn.out .bub .at{justify-content:flex-end;}
   .msg-del{
@@ -388,7 +365,6 @@
   .empty-state .big{font-family:inherit;font-size:20px;color:var(--ink);margin-bottom:6px;}
   .empty-state .hint{font-size:13.5px;max-width:420px;margin:0 auto;}
 
-  /* Toast */
   #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:80;}
   .toast{
     background:var(--cw-navy-900);color:#F2F5FA;border-radius:10px;
@@ -413,24 +389,11 @@
     .topbar{padding:12px 16px;}
   }
 
-
-
-
-
-
-
-
-  /* ==================================================================
-   * SkillSpan design system layer
-   * Identical on every admin page. Visual only: it restyles the classes
-   * the page already uses and adds no behaviour.
-   * ================================================================== */
   body{font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
   ::placeholder{color:var(--ink-faint);}
   ::selection{background:var(--cw-blue-100);}
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-  /* Brand: the SkillSpan mark always sits on a light-blue tile */
   .brand .bolt{width:34px;height:34px;border-radius:10px;background:var(--cw-blue-50);color:var(--cw-blue);}
   .brand .name{font-family:inherit;font-weight:600;font-size:19px;letter-spacing:-.01em;}
   .sidebar .brand .name{color:#fff;}
@@ -438,7 +401,6 @@
   .shell .brand .name{color:var(--ink);}
   .shell .brand .name span{color:var(--cw-blue);}
 
-  /* Sidebar */
   .sidebar{background:var(--nav-bg);scrollbar-width:none;}
   .sidebar::-webkit-scrollbar{display:none;}
   .brand{border-bottom-color:var(--nav-line);}
@@ -458,7 +420,6 @@
   .user-card .avatar{background:var(--cw-blue);}
   .user-card .meta .rl{color:#8E9AC0;}
 
-  /* Top bar */
   .topbar{background:var(--paper-raised);border-bottom:1px solid var(--line);}
   .topbar .crumb{color:var(--ink-faint);}
   .topbar .crumb .cur{color:var(--ink);font-weight:600;}
@@ -467,12 +428,10 @@
   .logout-btn{border-radius:10px;color:var(--ink-soft);font-weight:500;}
   .logout-btn:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Page heading */
   .page-head h1{font-family:inherit;font-weight:600;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .page-head p{color:var(--ink-soft);font-size:14px;}
   .page-head p strong{color:var(--ink);font-weight:600;}
 
-  /* Cards, stats, panels */
   .card, .stat, .table-wrap, .filters{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .stat .glyph{border-radius:10px;}
   .stat .body .lbl{color:var(--ink-soft);}
@@ -482,7 +441,6 @@
   .empty-state{color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-weight:600;font-size:16px;color:var(--ink);}
 
-  /* Buttons: flat, solid colours */
   .btn-primary{background:var(--cw-blue);color:#fff;border-radius:10px;font-weight:600;box-shadow:none;}
   .btn-primary:hover{background:var(--cw-blue-700);}
   .btn-secondary{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;font-weight:500;}
@@ -494,28 +452,23 @@
   .row-btn:hover{border-color:var(--cw-blue);color:var(--cw-blue);background:var(--cw-blue-50);}
   .row-btn.danger:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Inputs */
   .field label, .filters label{color:var(--ink-soft);font-weight:500;}
   .field input, .field select, .field textarea, .filters input, .filters select{background:#fff;border:1px solid var(--line);border-radius:10px;color:var(--ink);}
   .field input:focus, .field select:focus, .field textarea:focus, .filters input:focus, .filters select:focus{outline:none;border-color:var(--cw-blue);background:#fff;box-shadow:0 0 0 3px rgba(22,103,224,.14);}
   .field.invalid input, .field.invalid select, .field.invalid textarea{border-color:var(--brick);background:var(--brick-bg);}
   input[type="checkbox"], input[type="radio"]{accent-color:var(--cw-blue);}
 
-  /* Tables */
   thead th{background:var(--cw-soft);color:#6B7593;font-size:11.5px;letter-spacing:.06em;border-bottom-color:var(--line);}
   tbody td{border-bottom-color:var(--line-soft);}
   tbody tr:hover{background:var(--cw-soft);}
 
-  /* Organization monograms: one calm tile instead of hashed colours */
   .card-top > .avatar{background:var(--cw-blue-50) !important;color:var(--cw-navy-800);font-family:inherit;font-weight:700;font-size:15px;letter-spacing:-.02em;border-radius:12px;}
 
-  /* Row actions stay reachable when a table scrolls sideways */
   .table-scroll td.actions-cell, .table-scroll thead th:last-child{position:sticky;right:0;z-index:1;}
   .table-scroll td.actions-cell{background:#fff;}
   .table-scroll thead th:last-child{background:var(--cw-soft);}
   .table-scroll tbody tr:hover td.actions-cell{background:var(--cw-soft);}
 
-  /* Tabs */
   .tabs{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .tabs button{color:var(--ink-soft);font-weight:500;}
   .tabs button:hover{color:var(--ink);}
@@ -523,7 +476,6 @@
   .tabs button .count{background:var(--cw-gray-bg);border-color:transparent;color:var(--cw-gray);font-weight:600;}
   .tabs button.active .count{background:var(--cw-blue);color:#fff;border-color:transparent;}
 
-  /* Status chips: one palette on every page */
   .pill{border-radius:999px;font-weight:600;font-size:12px;letter-spacing:0;}
   .pill.verified, .pill.approved, .pill.open, .pill.selection, .pill.active,
   .pill.completed, .pill.resolved, .pill.in-use{background:var(--sage-bg);color:var(--sage);}
@@ -534,23 +486,19 @@
   .pill.draft, .pill.archived, .pill.closed, .pill.inactive, .pill.unused{background:var(--cw-gray-bg);color:var(--cw-gray);}
   .pill.free{background:#FDF3DC;color:#8A5D00;}
 
-  /* Modals */
   .overlay{background:rgba(2,7,32,.5);}
   .modal{border-radius:var(--radius);box-shadow:0 24px 60px -12px rgba(2,7,32,.35);}
   .modal-head h2{font-family:inherit;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
   .modal-head .close:hover{background:var(--cw-gray-bg);color:var(--ink);}
 
-  /* Inner scrolling panels scroll without a visible scrollbar */
   .table-scroll, .queue-list, .thread-scroll, .modal-body, .picker-list, .overlay{scrollbar-width:none;-ms-overflow-style:none;}
   .table-scroll::-webkit-scrollbar, .queue-list::-webkit-scrollbar, .thread-scroll::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar, .picker-list::-webkit-scrollbar, .overlay::-webkit-scrollbar{display:none;}
 
-  /* Toasts */
   .toast{background:var(--cw-navy-900);color:#fff;border-radius:10px;}
   .toast.err{background:var(--brick);}
   .toast.ok{background:var(--sage);}
 
-  /* Small screens: the navy sidebar becomes a top strip so the pages stay reachable */
   @media (max-width:880px){
     .app{flex-direction:column;}
     .sidebar{position:sticky;top:0;left:0;width:100%;height:auto;z-index:40;box-shadow:none;
@@ -577,7 +525,6 @@
     .filters input, .filters select{width:100%;min-width:0;}
   }
 
-  /* SkillSpan wordmark (brand): Span in its brand gradient, as in the platform */
   .brand .bolt{display:none !important;}
   .brand .name{font-weight:600;letter-spacing:-.01em;}
   .brand .name span{background:linear-gradient(180deg,#0491AF 0%,#034076 100%);-webkit-background-clip:text;background-clip:text;color:transparent !important;-webkit-text-fill-color:transparent;}
@@ -587,7 +534,6 @@
 
 <div class="app">
 
-  <!-- ============================= Sidebar ============================= -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="bolt" aria-hidden="true">
@@ -599,11 +545,7 @@
     </div>
 
     @php
-      // The inbox is shared by administrators and mentors, but the rest of the
-      // panel is not: every other page sits behind the `admin` middleware. A
-      // mentor is shown only what they can actually open, so the sidebar never
-      // offers a link that answers 403.
-      $panelIsAdmin = auth()->user()->hasRole('admin');
+            $panelIsAdmin = auth()->user()->hasRole('admin');
     @endphp
 
     <div class="nav-section">{{ $panelIsAdmin ? 'Admin' : 'Support' }}</div>
@@ -666,7 +608,6 @@
     @include('admin.partials.user-card')
   </aside>
 
-  <!-- ============================= Main ============================= -->
   <main class="main">
     <header class="topbar">
       <div class="crumb">
@@ -701,7 +642,6 @@
         </div>
       </header>
 
-      <!-- Stats -->
       <div class="stats">
         <div class="stat">
           <div class="glyph total">
@@ -735,7 +675,6 @@
         </div>
       </div>
 
-      <!-- Filters -->
       <div class="filters">
         <div class="field grow">
           <label for="f-q">Search</label>
@@ -771,7 +710,6 @@
 
       <div id="status-line"></div>
 
-      <!-- Two panes -->
       <div class="inbox">
         <section class="pane queue">
           <div class="pane-head">
@@ -820,12 +758,6 @@
 <div id="toasts"></div>
 
 <script>
-// Session-authenticated panel: the cookie rides along automatically and the
-// CSRF token is sent for every mutating request.
-
-// ── Labels, mirrored from App\Models\SupportRequest ──────────────────────
-// LABELS ONLY. The backend owns every state change; the UI just decides which
-// buttons to offer so an operator is not shown an action that would be refused.
 const STATUS_LABELS = {
   pending: 'Unclaimed',
   assigned: 'In progress',
@@ -846,7 +778,6 @@ let state = {
   poll: null,
 };
 
-// ── Small helpers ─────────────────────────────────────────────────────────
 function setStatusLine(text, kind){
   const el = document.getElementById('status-line');
   el.textContent = text || '';
@@ -869,8 +800,6 @@ function escapeHtml(value){
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// CSRF token is sent for every mutating request. Held in a variable so a stale
-// token can be refreshed in place instead of reloading the page.
 let CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
 async function refreshCsrfToken(){
@@ -883,9 +812,6 @@ async function refreshCsrfToken(){
     if (!res.ok) return false;
 
     const html = await res.text();
-    // Attribute order is not guaranteed and the value may be HTML-escaped, so
-    // scan for the meta tag itself rather than assuming `name` precedes
-    // `content`.
     const meta = html.match(/<meta[^>]*name="csrf-token"[^>]*>/i);
 
     if (meta){
@@ -920,8 +846,6 @@ async function api(path, options = {}, isRetry = false){
     },
   });
 
-  // 419 = the CSRF token is stale, NOT that the session ended. Retry ONCE with
-  // a freshly fetched token before concluding anything.
   if (res.status === 419 && !isRetry){
     if (await refreshCsrfToken()){
       return api(path, options, true);
@@ -965,12 +889,6 @@ function initials(name){
   return (parts[0]?.[0] || '?').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
 }
 
-/**
- * A short, human "when".
- *
- * Deliberately relative: an operator scanning a queue cares about "3m ago",
- * not the exact timestamp. The full value is kept in the title attribute.
- */
 function fmtWhen(value){
   if (!value) return '—';
   const then = new Date(value);
@@ -1000,7 +918,6 @@ function fmtDay(value){
   return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// ── Load the queue ────────────────────────────────────────────────────────
 async function loadQueue(){
   const list = document.getElementById('queue');
   setStatusLine('Loading queue…');
@@ -1040,12 +957,6 @@ function hasFilters(){
   return Object.entries(state.filters).some(([k, v]) => k !== 'scope' && v !== '' && v !== null);
 }
 
-/**
- * Adjust the page to who is looking at it.
- *
- * A mentor only ever receives their own assignments, so "claim" is meaningless
- * for them — the button is hidden rather than offered and then refused.
- */
 function applyViewer(){
   const isAdmin = !!state.viewer?.is_admin;
   document.getElementById('btn-claim').style.display = isAdmin ? '' : 'none';
@@ -1113,12 +1024,9 @@ function updateStats(stats){
   }
 }
 
-// ── Open one request ──────────────────────────────────────────────────────
 async function openRequest(id){
   state.selectedId = id;
 
-  // Reflect the selection immediately — waiting for the response to highlight
-  // the row makes the click feel lost on a slow connection.
   document.querySelectorAll('.q-item').forEach(el => {
     el.classList.toggle('sel', parseInt(el.dataset.id, 10) === id);
   });
@@ -1129,15 +1037,12 @@ async function openRequest(id){
 
     renderThread(state.detail);
 
-    // The server marked the learner's messages read on open, so refresh the
-    // queue counters once the thread is on screen.
     loadQueueCounters();
   } catch (e){
     toast('Could not open the request: ' + e.message, 'err');
   }
 }
 
-/** Cheap refresh of the queue + cards without disturbing the open thread. */
 async function loadQueueCounters(){
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(state.filters)){
@@ -1149,7 +1054,6 @@ async function loadQueueCounters(){
     updateStats(body.stats || null);
     renderQueue(body.data?.data || []);
   } catch (e){
-    // Non-fatal: the thread is still usable, and the next poll will retry.
   }
 }
 
@@ -1179,19 +1083,10 @@ function renderThread(d){
 
   document.getElementById('thread-scroll').innerHTML = buildThread(d);
 
-  // Jump to the newest message, which is what an operator opens a thread for.
   const scroll = document.getElementById('thread-scroll');
   scroll.scrollTop = scroll.scrollHeight;
 }
 
-/**
- * Build the thread body: the handoff snapshot first, then the live replies.
- *
- * The two are rendered as one continuous conversation on purpose — an operator
- * reading "what did the learner already say" should not have to hold two
- * separate lists in their head. A separator marks where the AI chat ended and
- * the human thread began.
- */
 function buildThread(d){
   const parts = [];
   const snapshot = Array.isArray(d.transcript) ? d.transcript : [];
@@ -1228,7 +1123,6 @@ function buildThread(d){
         lastDay = day;
       }
 
-      // The handoff marker is a system event, not a person speaking.
       if (m.message_type === 'system'){
         parts.push(`<div class="turn system">
           <div class="bub"><div class="txt">${escapeHtml(m.body)}</div></div>
@@ -1236,24 +1130,8 @@ function buildThread(d){
         return;
       }
 
-      // `sender_id` is what distinguishes the sides. The learner's messages sit
-      // on the right, support's on the left — the same orientation the learner
-      // sees, so a screenshot of either view reads the same way.
       const fromLearner = m.sender_id === d.user_id;
 
-      /*
-       * The face, when the sender has one.
-       *
-       * Built here from `sender_id` rather than carried on the payload: the same
-       * resource serves the learner's API, where a panel URL would be a dead
-       * link, so route knowledge stays out of it.
-       *
-       * Only the support side is asked for a photo. A learner has no
-       * `admin_profile`, so every learner message would be a wasted request
-       * answering 404 — and the initials underneath already say who it is.
-       * `onerror` removes the element, which is what makes "no photo" fall back
-       * to those initials with no extra state to track.
-       */
       const avImg = fromLearner
         ? ''
         : `<img src="/admin/support/avatar/${encodeURIComponent(m.sender_id)}" alt="" loading="lazy" onerror="this.remove()">`;
@@ -1280,7 +1158,6 @@ function buildThread(d){
   return parts.join('');
 }
 
-// ── Actions ───────────────────────────────────────────────────────────────
 async function sendReply(){
   const ta = document.getElementById('reply-body');
   const body = ta.value.trim();
@@ -1331,12 +1208,6 @@ async function resolve(){
   }
 }
 
-/**
- * Delete one message, then re-open the thread so what is on screen is what the
- * server actually holds. Re-rendering rather than splicing the node out of the
- * DOM is deliberate: `last_message_at` is recomputed server-side, and the queue
- * behind the thread has to move with it.
- */
 async function deleteMessage(id, btn){
   if (!id || state.selectedId === null) return;
   if (!window.confirm('Delete this message? This cannot be undone.')) return;
@@ -1353,13 +1224,6 @@ async function deleteMessage(id, btn){
   }
 }
 
-/**
- * Delete the whole request.
- *
- * It leaves the queue and the open thread is cleared, because the id the page
- * is holding no longer resolves — staying on it would leave every subsequent
- * action answering 404.
- */
 async function deleteRequest(){
   if (state.selectedId === null) return;
 
@@ -1388,7 +1252,6 @@ async function deleteRequest(){
   }
 }
 
-// ── Wiring ────────────────────────────────────────────────────────────────
 function readFilters(){
   state.filters.q = document.getElementById('f-q').value.trim();
   state.filters.scope = document.getElementById('f-scope').value;
@@ -1400,7 +1263,6 @@ let searchTimer = null;
 
 document.getElementById('f-q').addEventListener('input', () => {
   clearTimeout(searchTimer);
-  // Debounced: typing a name should not fire one request per keystroke.
   searchTimer = setTimeout(() => { readFilters(); loadQueue(); }, 320);
 });
 
@@ -1431,17 +1293,11 @@ document.getElementById('btn-claim').addEventListener('click', claim);
 document.getElementById('btn-resolve').addEventListener('click', resolve);
 document.getElementById('btn-delete').addEventListener('click', deleteRequest);
 
-/*
- * Delegated, not bound per button: `renderThread()` replaces the whole scroll
- * container's HTML on every open, so a listener attached to each delete control
- * would be attached to nodes that have already been discarded.
- */
 document.getElementById('thread-scroll').addEventListener('click', (e) => {
   const btn = e.target.closest('.msg-del');
   if (btn) deleteMessage(Number(btn.dataset.msgId), btn);
 });
 
-// Enter sends, Shift+Enter adds a line — the convention for a chat composer.
 document.getElementById('reply-body').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
@@ -1449,30 +1305,20 @@ document.getElementById('reply-body').addEventListener('keydown', (e) => {
   }
 });
 
-// Grow the composer with its content, up to the CSS max-height.
 document.getElementById('reply-body').addEventListener('input', (e) => {
   e.target.style.height = 'auto';
   e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
 });
 
-/**
- * Poll for new messages while a thread is open.
- *
- * A learner can reply at any time, and an operator should not have to reload
- * to notice. 20s is slow enough not to hammer the server and fast enough that
- * a live conversation still feels live.
- */
 function startPolling(){
   if (state.poll) clearInterval(state.poll);
 
   state.poll = setInterval(() => {
-    // Skip while the tab is hidden — nobody is reading it.
     if (document.hidden) return;
 
     loadQueueCounters();
 
     if (state.selectedId !== null && !document.getElementById('reply-body').disabled){
-      // Do not clobber a reply in progress.
       if (document.getElementById('reply-body').value.trim() === ''){
         openRequest(state.selectedId);
       }

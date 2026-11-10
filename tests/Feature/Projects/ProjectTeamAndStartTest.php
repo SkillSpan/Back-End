@@ -15,17 +15,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Staffing a project and kicking it off.
- *
- * These two endpoints close the gap that made `active` unreachable: until they
- * existed, `open → selection` was declared in the model with nothing to call
- * it, and `selection` had no outgoing edge at all.
- *
- * The rules pinned here are the ones that protect the data rather than the
- * flow: only ACCEPTED applications can be staffed, nobody is staffed twice, the
- * team cannot exceed capacity, and a project with an empty team cannot start.
- */
 class ProjectTeamAndStartTest extends TestCase
 {
     use RefreshDatabase;
@@ -38,10 +27,6 @@ class ProjectTeamAndStartTest extends TestCase
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Test Org'): Organization
     {
@@ -111,10 +96,6 @@ class ProjectTeamAndStartTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // Assignments
-    // -----------------------------------------------------------------
-
     public function test_an_owner_can_staff_an_accepted_application(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -155,7 +136,6 @@ class ProjectTeamAndStartTest extends TestCase
             'members' => [['application_id' => $application->id]],
         ])->assertStatus(201);
 
-        // Staffing a project means applications are no longer being taken.
         $this->assertSame(Project::STATUS_SELECTION, $project->fresh()->status);
     }
 
@@ -238,8 +218,6 @@ class ProjectTeamAndStartTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_FULL');
 
-        // The transaction rolled back: a partially staffed team would be worse
-        // than a refusal.
         $this->assertSame(0, ProjectTeamMember::count());
     }
 
@@ -310,10 +288,6 @@ class ProjectTeamAndStartTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
 
-    // -----------------------------------------------------------------
-    // Start
-    // -----------------------------------------------------------------
-
     public function test_a_project_with_an_empty_team_cannot_start(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -373,8 +347,6 @@ class ProjectTeamAndStartTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // `open` must go through `selection` first — the assignment endpoint is
-        // what performs that move, so skipping it is a genuine state error.
         $this->postJson("/api/v1/projects/{$project->id}/start")
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
@@ -406,10 +378,6 @@ class ProjectTeamAndStartTest extends TestCase
             ->assertJsonPath('data.status', Project::STATUS_SELECTION);
     }
 
-    // -----------------------------------------------------------------
-    // Identifying the role instead of naming it
-    // -----------------------------------------------------------------
-
     public function test_a_role_can_be_identified_by_id(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -426,9 +394,6 @@ class ProjectTeamAndStartTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // A screen renders the project's roles, so it holds the id, not the
-        // title. The server resolves it — and stores the title, which is what
-        // the team payload and the export show.
         $this->postJson("/api/v1/projects/{$project->id}/team/assignments", [
             'members' => [
                 ['application_id' => $application->id, 'project_role_id' => $role->id],
@@ -454,8 +419,6 @@ class ProjectTeamAndStartTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // Resolved against THIS project's roles, so an id from another project
-        // cannot be smuggled in and stored as this team's role.
         $this->postJson("/api/v1/projects/{$project->id}/team/assignments", [
             'members' => [
                 ['application_id' => $application->id, 'project_role_id' => $foreignRole->id],

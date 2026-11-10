@@ -13,10 +13,6 @@ class RegisterRequest extends FormRequest
         return true;
     }
 
-    /**
-     * نطبّع الإيميل (حروف صغيرة + إزالة مسافات) قبل الفاليديشن،
-     * عشان قاعدة unique تكتشف التكرار حتى لو انكتب بحروف مختلفة.
-     */
     protected function prepareForValidation(): void
     {
         if ($this->has('email')) {
@@ -28,25 +24,12 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            // ⚠️ No 'indisposable' on this field — by product decision
-            // (2026-10-18) the individual/student flow ACCEPTS temporary
-            // (disposable) domains again, so a student can sign up from a
-            // throwaway mailbox. The organisation flow never carried the
-            // rule; only the Google sign-up path still rejects them
-            // (AuthService::resolveGoogleUser).
-            //
-            // Do not re-add it without re-confirming that decision: the rule
-            // is silent at the API level (it just returns 422), so a student
-            // turned away here reads as "registration is broken".
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'terms_accepted' => ['required', 'accepted'],
             'privacy_accepted' => ['required', 'accepted'],
             'locale' => ['nullable', 'string', 'max:10', 'in:en,ar'],
-            // Academic profile fields (university/specialization) are no
-            // longer accepted as free text here — they are normalized
-            // Foreign Keys collected via POST /api/v1/profile onboarding.
             'career_status' => ['nullable', 'string', 'max:255'],
             'academic_status' => [
                 'nullable',
@@ -54,8 +37,6 @@ class RegisterRequest extends FormRequest
                 Rule::in(['enrolled', 'graduated', 'on_leave', 'student', 'graduate', 'looking_for_job', 'employed']),
             ],
 
-            // مسار الأفراد فقط. أي بيانات شركة هون معناها إنه المستخدم
-            // بالغلط استخدم هالمسار بدل /api/auth/register/organization.
             'user_type' => ['nullable', 'string', 'in:individual'],
             'organization_name' => ['prohibited'],
             'organization_type' => ['prohibited'],

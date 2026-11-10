@@ -9,46 +9,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * US-INT-01 — versioned, authenticated FastAPI intelligence client.
- *
- * Every request carries the service credential (never a learner
- * Sanctum token), the correlation X-Request-ID, the configured
- * timeout, and the versioned SRS paths. All failure modes map to
- * stable INTELLIGENCE_* error codes; nothing is ever fabricated.
- */
 class IntelligenceClient
 {
-    /**
-     * Configured request timeout in seconds. Declared, typed, and
-     * assigned exactly once in the constructor — never a dynamic
-     * property.
-     */
     private readonly int $timeout;
 
-    /**
-     * @param  int|null  $timeout  Explicit override in seconds. `null` (the
-     *                             default) means "use the configured value",
-     *                             which is what almost every caller wants.
-     */
     public function __construct(
         private readonly ?string $serviceToken = null,
         private readonly ?string $baseUrl = null,
         ?int $timeout = null,
     ) {
-        /*
-         * An explicitly supplied positive timeout wins; otherwise the
-         * CONFIGURED timeout applies.
-         *
-         * The default used to be the literal `10`, which made the
-         * `$timeout > 0` branch always true and left
-         * `config('services.data_science.timeout')` unreachable. Every caller
-         * that did `new IntelligenceClient` — notably ProjectMatchingService —
-         * therefore silently used 10 s instead of the configured 60 s, so the
-         * first call after a Render free-tier cold start (24.7-33.8 s) failed
-         * with a false INTELLIGENCE_UNAVAILABLE even though the service was
-         * healthy. The fallback below matches config/services.php on purpose.
-         */
         $this->timeout = ($timeout !== null && $timeout > 0)
             ? $timeout
             : (int) config('services.data_science.timeout', 60);
@@ -59,14 +28,6 @@ class IntelligenceClient
         return rtrim((string) ($this->baseUrl ?? config('services.data_science.url')), '/');
     }
 
-    /**
-     * The dedicated service credential (US-INT-01 §4). Mandatory on
-     * every Laravel -> FastAPI intelligence request; never a learner
-     * Sanctum token. A missing token fails locally before any network
-     * I/O — FastAPI is never called unauthenticated.
-     *
-     * @return non-empty-string
-     */
     private function resolvedServiceToken(): string
     {
         $token = $this->serviceToken ?? config('services.data_science.service_token');
@@ -82,11 +43,6 @@ class IntelligenceClient
         return trim($token);
     }
 
-    /**
-     * Send one intelligence request and return the decoded JSON body.
-     *
-     * @param  non-empty-string  $path  Contract path, e.g. /api/v1/skill-gap
-     */
     public function post(string $path, array $payload, string $requestId, string $operation): array
     {
         $baseUrl = $this->resolvedBaseUrl();
@@ -101,8 +57,6 @@ class IntelligenceClient
 
         $startedAt = microtime(true);
 
-        // Fail locally before any network I/O when the mandatory
-        // service credential is missing.
         $token = $this->resolvedServiceToken();
 
         try {
@@ -150,22 +104,6 @@ class IntelligenceClient
         );
     }
 
-    /**
-     * Map the canonical internal payload onto the deployed
-     * `SkillGapRequest` contract (POST /api/v1/skill-gap).
-     *
-     * The internal payload is nested (`learner` / `role`) because it is
-     * also the decision-snapshot record and the reference the response
-     * validator checks identity against. The deployed contract is FLAT,
-     * so the two cannot be the same array.
-     *
-     * Only fields the contract declares are sent: we do not rely on the
-     * service's model being configured to ignore unknown keys, because
-     * that is a deployment detail we do not control.
-     *
-     * @param  array<string, mixed>  $payload  canonical nested payload
-     * @return array<string, mixed> the flat SkillGapRequest body
-     */
     private function toSkillGapRequest(array $payload): array
     {
         $skills = [];
@@ -191,36 +129,6 @@ class IntelligenceClient
         ];
     }
 
-    /**
-     * Map the canonical internal payload onto the FastAPI Roadmap v1
-     * request (POST /api/v1/roadmap).
-     *
-     * The published RoadmapRequest carries EXACTLY three top-level keys:
-     * `learner`, `role` and `skills`. The internal payload is a SUPERSET —
-     * it also carries Laravel-only concerns (`skill_gap_result` when the
-     * caller enriched it, the per-skill `evidence` summary, the resolved
-     * `algorithm_version` / `configuration_version`, persistence metadata,
-     * …). None of that belongs on the wire, so this method is an explicit
-     * ALLOW-LIST:
-     *
-     *   learner  : student_profile_id, user_id, availability,
-     *              weekly_availability_hours
-     *   role     : id, title, version
-     *   skills[] : skill_id, skill_name, current_level, required_level,
-     *              importance_weight, is_critical, confidence,
-     *              prerequisite_skill_ids
-     *
-     * It deliberately does NOT forward `skill_gap_result`, the per-skill
-     * `evidence` summary, `algorithm_version` / `configuration_version`,
-     * or any other Laravel-owned field (`roadmap_version`, `status`,
-     * decision-snapshot metadata). It never fabricates a value and never
-     * renames a field: the mapping is deterministic.
-     *
-     * `confidence` is forwarded unchanged (0..100) — it is not rescaled.
-     *
-     * @param  array<string, mixed>  $payload  internal intelligence payload
-     * @return array<string, mixed> the RoadmapRequest body
-     */
     public function toRoadmapRequest(array $payload): array
     {
         $learner = $payload['learner'] ?? [];
@@ -270,20 +178,6 @@ class IntelligenceClient
             );
         }
 
-        /*
-         * The Roadmap v1 endpoint is published and available at
-         * POST /api/v1/roadmap.
-         *
-         * The internal payload is NEVER sent as-is: toRoadmapRequest()
-         * transforms it into the RoadmapRequest contract (`learner` /
-         * `role` / `skills`) before the call, so internal fields
-         * (skill_gap_result, evidence, versions, persistence metadata) do
-         * not leave Laravel.
-         *
-         * Generation stays gated behind `roadmap_enabled` (false by
-         * default): while disabled this throws 503
-         * INTELLIGENCE_NOT_CONFIGURED instead of fabricating a roadmap.
-         */
         return $this->post(
             (string) config('services.data_science.roadmap_path', '/api/v1/roadmap'),
             $this->toRoadmapRequest($payload),
@@ -367,17 +261,6 @@ class IntelligenceClient
         return is_array($data) ? $data : [];
     }
 
-    /**
-     * Correlation identifiers for structured logging.
-     *
-     * post() is shared by endpoints with different body shapes: the
-     * skill-gap call sends the flat SkillGapRequest, while the roadmap call
-     * sends the nested RoadmapRequest produced by toRoadmapRequest().
-     * Reading both shapes keeps the correlation fields populated instead of
-     * silently logging nulls.
-     *
-     * @return array<string, int|string|null>
-     */
     private function correlationContext(array $payload): array
     {
         return [
@@ -393,10 +276,6 @@ class IntelligenceClient
         ];
     }
 
-    /**
-     * Structured failure logging with correlation data only — no
-     * secrets, no tokens, no evidence contents.
-     */
     private function logFailure(
         string $requestId,
         string $operation,

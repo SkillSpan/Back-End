@@ -13,7 +13,6 @@ class Organization extends Model
 
     protected $casts = [
         'verified_at' => 'datetime',
-        // US-COMP-04 — the profile metadata the service reads back.
         'profile_updated_at' => 'datetime',
         'reverification_required_at' => 'datetime',
         'profile_completeness' => 'integer',
@@ -34,21 +33,6 @@ class Organization extends Model
         return $this->belongsTo(User::class, 'verified_by');
     }
 
-    /**
-     * The registration proof/certificate uploaded by the organization's admin
-     * during registration (see AuthService::uploadProofFile).
-     *
-     * Resolved as the most recent `certificate` record on this organization's
-     * own polymorphic `files()` relation — `fileable_type` is Organization, so
-     * the lookup is a direct morphMany and does not go through the uploading
-     * member.
-     *
-     * This returns the database row only. It says nothing about whether the
-     * file still exists on the configured disk: a row can outlive its file
-     * (a container filesystem without a persistent volume drops uploads on
-     * every deploy). Check `Storage::exists($file->path)` before serving a
-     * download — the admin API exposes exactly that as `available`.
-     */
     public function proofFile(): ?UploadedFile
     {
         return $this->files()

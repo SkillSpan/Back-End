@@ -18,23 +18,6 @@ use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Data Science (FastAPI) baseline request/response contract, pinned by test.
- *
- * The FastAPI `BaselineRequest` schema is the source of truth:
- *
- *   student_profile_id:int, user_id:int, career_role_id:int,
- *   assessment_version:str,
- *   questions:[{question_id:int, question_type:"single_choice"|"scale",
- *               options:[str], correct_answer:str|null,
- *               scoring_rule:dict[str,float]|null, weight:float,
- *               skill_mappings:[{skill_id:int, skill_slug:str, weight:float}]}],
- *   responses:[{question_id:int, answer:str}]
- *
- * The public API still accepts the client's string `item_id` ("sql-001");
- * Laravel translates it to `baseline_assessment_item_id` (int) on the way
- * out. These tests are the executable specification of that translation.
- */
 class BaselineDataScienceContractTest extends TestCase
 {
     use RefreshDatabase;
@@ -55,12 +38,6 @@ class BaselineDataScienceContractTest extends TestCase
         Config::set('services.data_science.service_token', 'test-service-token');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Outbound request shape
-    |--------------------------------------------------------------------------
-    */
-
     public function test_request_contains_exactly_the_documented_fields(): void
     {
         [$user] = $this->createLearner();
@@ -78,7 +55,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         $payload = $this->sentPayload();
 
-        // Exactly the BaselineRequest fields — nothing else.
         $keys = array_keys($payload);
         sort($keys);
 
@@ -91,7 +67,6 @@ class BaselineDataScienceContractTest extends TestCase
             'user_id',
         ], $keys);
 
-        // The retired contract must be gone entirely.
         $this->assertArrayNotHasKey('question_ids', $payload);
         $this->assertArrayNotHasKey('career_role_version', $payload);
 
@@ -103,7 +78,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertNotEmpty($payload['questions']);
         $this->assertNotEmpty($payload['responses']);
 
-        // Each question carries exactly the BaselineQuestion fields.
         foreach ($payload['questions'] as $question) {
             $questionKeys = array_keys($question);
             sort($questionKeys);
@@ -118,7 +92,6 @@ class BaselineDataScienceContractTest extends TestCase
                 'weight',
             ], $questionKeys);
 
-            // Internal/legacy fields must never leak upstream.
             $this->assertArrayNotHasKey('item_id', $question);
             $this->assertArrayNotHasKey('question_text', $question);
             $this->assertArrayNotHasKey('importance_weight', $question);
@@ -146,18 +119,12 @@ class BaselineDataScienceContractTest extends TestCase
             $this->assertIsInt($response['question_id']);
         }
 
-        // Auth + tracing headers are unchanged.
         Http::assertSent(function ($request) {
             return ($request->header('Authorization')[0] ?? null) === 'Bearer test-service-token'
                 && ! empty($request->header('X-Request-ID'));
         });
     }
 
-    /**
-     * The literal translation this fix exists for:
-     *
-     *   {"question_id":"sql-001"}  ->  {"question_id": 27}
-     */
     public function test_frontend_item_id_is_translated_to_the_numeric_assessment_item_id(): void
     {
         [$user] = $this->createLearner();
@@ -183,7 +150,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertSame($itemId, $payload['responses'][0]['question_id']);
         $this->assertSame('A', $payload['responses'][0]['answer']);
 
-        // The public identifier must not appear anywhere in the outbound body.
         $this->assertStringNotContainsString(
             'sql-001',
             json_encode($payload, JSON_THROW_ON_ERROR),
@@ -220,11 +186,9 @@ class BaselineDataScienceContractTest extends TestCase
             $this->assertIsInt($id);
         }
 
-        // No duplicates, and every response belongs to the question set.
         $this->assertSame($questionIds, array_values(array_unique($questionIds)));
         $this->assertSame([], array_values(array_diff($responseIds, $questionIds)));
 
-        // The ids are the assessment item ids, not the snapshot row ids.
         $expected = $assessment->questionSnapshots()
             ->pluck('baseline_assessment_item_id')
             ->map(fn ($id) => (int) $id)
@@ -293,7 +257,6 @@ class BaselineDataScienceContractTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Role skill importance weight = 0.9, item weight = 0.4.
         [$assessment] = $this->start(['sql'], ['sql-001'], ['weight' => 0.4]);
         $this->fakeIntelligence(['sql']);
 
@@ -306,8 +269,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertSame(0.4, $question['weight']);
         $this->assertNotSame(0.9, $question['weight']);
 
-        // The role's importance weight still lives on the snapshot, unused by
-        // the outbound contract.
         $this->assertSame(
             0.9,
             (float) $assessment->questionSnapshots()->value('importance_weight')
@@ -335,12 +296,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertSame(1.0, $mappings[0]['weight']);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Fail-closed guards (no HTTP call may be made)
-    |--------------------------------------------------------------------------
-    */
-
     public function test_unsupported_text_question_never_reaches_the_intelligence_service(): void
     {
         [$user] = $this->createLearner();
@@ -367,7 +322,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         Http::assertNothingSent();
 
-        // The assessment stays resumable; nothing was scored.
         $this->assertSame('in_progress', $assessment->fresh()->status);
         $this->assertSame(0, SkillEvaluation::count());
     }
@@ -377,7 +331,6 @@ class BaselineDataScienceContractTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // scoring_rule keys do not match the options list.
         [$assessment] = $this->start(
             ['sql'],
             ['sql-scale-001'],
@@ -430,7 +383,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         [$assessment] = $this->start(['sql'], ['sql-001']);
 
-        // Simulates a legacy row detached by ON DELETE SET NULL.
         BaselineQuestionSnapshot::query()
             ->where('baseline_assessment_id', $assessment->id)
             ->update(['baseline_assessment_item_id' => null]);
@@ -448,12 +400,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertSame('in_progress', $assessment->fresh()->status);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Snapshot integrity of the scoring inputs
-    |--------------------------------------------------------------------------
-    */
-
     public function test_editing_the_live_item_does_not_change_the_outbound_scoring_data(): void
     {
         [$user] = $this->createLearner();
@@ -461,7 +407,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         [$assessment] = $this->start(['sql'], ['sql-001'], ['weight' => 0.5]);
 
-        // Rewrite the live question after the assessment started.
         BaselineAssessmentItem::query()
             ->where('item_id', 'sql-001')
             ->update([
@@ -479,7 +424,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         $question = $this->sentPayload()['questions'][0];
 
-        // Frozen values from assessment start.
         $this->assertSame('A', $question['correct_answer']);
         $this->assertSame(['A', 'B', 'C', 'D'], $question['options']);
         $this->assertSame(0.5, $question['weight']);
@@ -493,7 +437,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         [$assessment] = $this->start(['sql'], ['sql-001'], ['weight' => 0.7]);
 
-        // Simulate a snapshot created before scoring was frozen.
         $this->stripFrozenScoring($assessment);
 
         Log::spy();
@@ -509,7 +452,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertSame(0.7, $question['weight']);
         $this->assertSame('sql', $question['skill_mappings'][0]['skill_slug']);
 
-        // The fallback is logged with ids only — never answers.
         Log::shouldHaveReceived('warning')
             ->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'missing frozen scoring data')
                 && ($context['assessment_id'] ?? null) === (int) $assessment->id
@@ -527,7 +469,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         $this->stripFrozenScoring($assessment);
 
-        // The live item no longer matches what the learner was shown.
         BaselineAssessmentItem::query()
             ->where('item_id', 'sql-001')
             ->update(['options' => json_encode(['X', 'Y', 'Z'])]);
@@ -566,12 +507,6 @@ class BaselineDataScienceContractTest extends TestCase
 
         Http::assertNothingSent();
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Inbound response shape
-    |--------------------------------------------------------------------------
-    */
 
     public function test_skills_key_is_required_and_skill_evaluations_is_not_accepted(): void
     {
@@ -632,7 +567,6 @@ class BaselineDataScienceContractTest extends TestCase
             SkillEvaluation::query()->pluck('algorithm_version')->unique()->values()->all()
         );
 
-        // The raw service payload is preserved on the assessment result.
         $this->assertSame(
             87.5,
             (float) $assessment->fresh()->result['overall_score']
@@ -674,14 +608,10 @@ class BaselineDataScienceContractTest extends TestCase
                 && ! str_contains($context['failure_reason'] ?? '', 'LEAK-PROBE-ANSWER-9f3a'))
             ->once();
 
-        // Nothing persisted; the assessment is still resumable.
         $this->assertSame(0, SkillEvaluation::count());
         $this->assertSame('in_progress', $assessment->fresh()->status);
     }
 
-    /**
-     * A failing upstream response must not put its body in our log.
-     */
     public function test_a_5xx_does_not_copy_the_upstream_body_into_the_log(): void
     {
         [$user] = $this->createLearner();
@@ -712,10 +642,6 @@ class BaselineDataScienceContractTest extends TestCase
             ->once();
     }
 
-    /**
-     * The counterpart: the documented `{"detail": "..."}` explanation IS kept,
-     * because that string is what actually diagnoses the failure.
-     */
     public function test_a_5xx_keeps_the_documented_detail_message_in_the_log(): void
     {
         [$user] = $this->createLearner();
@@ -800,17 +726,6 @@ class BaselineDataScienceContractTest extends TestCase
         $this->assertNotSame($victimProfileId, (int) $evaluation->student_profile_id);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * The single outbound request recorded by the fake HTTP client.
-     *
-     * @return array<string, mixed>
-     */
     private function sentPayload(): array
     {
         $sent = Http::recorded();
@@ -832,12 +747,6 @@ class BaselineDataScienceContractTest extends TestCase
             ]);
     }
 
-    /**
-     * @param  array<int, string>  $skillSlugs
-     * @param  array<int, string>  $itemIds
-     * @param  array<string, mixed>  $overrides  Item column overrides.
-     * @return array{0: BaselineAssessment, 1: CareerRole}
-     */
     private function start(array $skillSlugs, array $itemIds, array $overrides = []): array
     {
         $role = CareerRole::create([
@@ -857,8 +766,6 @@ class BaselineDataScienceContractTest extends TestCase
             $role->roleSkills()->create([
                 'skill_id' => $skill->id,
                 'required_level' => 3.0,
-                // Deliberately different from the item weight so the two can
-                // never be confused in the outbound payload.
                 'importance_weight' => round(0.9 - ($index * 0.1), 3),
                 'is_critical' => $index === 0,
             ]);
@@ -885,9 +792,6 @@ class BaselineDataScienceContractTest extends TestCase
         return [BaselineAssessment::with('questionSnapshots')->findOrFail($assessmentId), $role];
     }
 
-    /**
-     * @param  array<int, string>  $slugs
-     */
     private function fakeIntelligence(array $slugs): void
     {
         Http::fake([

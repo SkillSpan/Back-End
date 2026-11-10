@@ -15,29 +15,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Staffing a project — `POST /api/v1/projects/{project}/team/assignments`.
- *
- * Thin adapter, like the rest of the project API: the rules live in
- * ProjectTeamService, the presentation in ProjectTeamResource, and every
- * refusal is mapped onto the shared `code` / `message` / `request_id`
- * envelope.
- *
- * Not role-gated on the route, deliberately. A project owner is any
- * authenticated user, so a `role:` middleware would be both weaker (it would
- * not prove ownership) and wrong (it would exclude legitimate owners). The
- * ownership check is inside the service, which is the same precedent
- * ApplicationController's owner-side endpoints already set.
- */
 class ProjectTeamController extends Controller
 {
     public function __construct(
         private readonly ProjectTeamService $teamService,
     ) {}
 
-    /**
-     * POST /api/v1/projects/{project}/team/assignments
-     */
     public function store(StoreTeamAssignmentRequest $request, int $project): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -81,12 +64,6 @@ class ProjectTeamController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/projects/{project}/team
-     *
-     * The team screen's whole read: accepted applicants, who is staffed, the
-     * waitlist, and how much of each role is still unfilled.
-     */
     public function show(Request $request, int $project): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -113,12 +90,6 @@ class ProjectTeamController extends Controller
         }
     }
 
-    /**
-     * DELETE /api/v1/projects/{project}/team/assignments/{application}
-     *
-     * Addressed by the application, which is what the company chose the person
-     * from — the frontend's participant rows carry that id, not a member id.
-     */
     public function destroy(Request $request, int $project, int $application): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -155,12 +126,6 @@ class ProjectTeamController extends Controller
         }
     }
 
-    /**
-     * POST /api/v1/projects/{project}/team/invitations
-     *
-     * Invite every assigned member who has no pending invitation. Idempotent:
-     * pressing it twice sends nothing the second time and answers `sent: 0`.
-     */
     public function invite(Request $request, int $project): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -209,9 +174,6 @@ class ProjectTeamController extends Controller
         }
     }
 
-    /**
-     * Resolve {project} into the standard 404 envelope.
-     */
     private function resolveProject(int $project, string $requestId): Project|JsonResponse
     {
         $model = Project::query()->find($project);

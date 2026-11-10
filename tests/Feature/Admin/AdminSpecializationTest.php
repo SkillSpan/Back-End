@@ -11,11 +11,6 @@ use Database\Seeders\SpecializationsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * The admin "Specializations" page and its session-authenticated endpoints:
- * list / create / edit / deactivate, the safe-delete guard, and managing the
- * career roles linked to a specialization through the existing pivot.
- */
 class AdminSpecializationTest extends TestCase
 {
     use RefreshDatabase;
@@ -31,8 +26,6 @@ class AdminSpecializationTest extends TestCase
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ------------------------------------------------ authorization
 
     public function test_a_guest_cannot_open_the_specializations_page(): void
     {
@@ -57,8 +50,6 @@ class AdminSpecializationTest extends TestCase
             ->assertSee('Specializations');
     }
 
-    // ------------------------------------------------ list
-
     public function test_the_list_returns_specializations_with_a_role_count(): void
     {
         $this->actingAs($this->admin());
@@ -75,8 +66,6 @@ class AdminSpecializationTest extends TestCase
         $this->assertSame(1, $row['career_roles_count']);
         $this->assertTrue($row['is_active']);
     }
-
-    // ------------------------------------------------ create / edit
 
     public function test_an_admin_can_create_a_specialization(): void
     {
@@ -147,8 +136,6 @@ class AdminSpecializationTest extends TestCase
         $this->assertTrue($specialization->fresh()->is_active);
     }
 
-    // ------------------------------------------------ delete guard
-
     public function test_a_specialization_with_linked_roles_cannot_be_deleted(): void
     {
         $this->actingAs($this->admin());
@@ -192,8 +179,6 @@ class AdminSpecializationTest extends TestCase
 
         $this->assertDatabaseHas('specializations', ['id' => $free->id]);
     }
-
-    // ------------------------------------------------ manage career roles
 
     public function test_manage_career_roles_lists_every_role_with_an_attached_flag(): void
     {
@@ -249,8 +234,6 @@ class AdminSpecializationTest extends TestCase
             ->assertJsonPath('code', 'SPECIALIZATION_FREE_TRACK_PROTECTED');
     }
 
-    // ------------------------------------------------ create career role
-
     public function test_an_admin_can_create_a_career_role_with_skills(): void
     {
         $this->actingAs($this->admin());
@@ -264,8 +247,6 @@ class AdminSpecializationTest extends TestCase
             ->assertJsonPath('data.title', 'Smart Contract Developer')
             ->assertJsonPath('data.skills_count', 1);
 
-        // Approved, but NOT published: activation is a separate, explicit step
-        // (POST /admin/api/career-roles/{id}/activate).
         $this->assertDatabaseHas('career_roles', [
             'slug' => 'smart-contract-developer',
             'status' => 'approved',
@@ -277,7 +258,6 @@ class AdminSpecializationTest extends TestCase
     {
         $this->actingAs($this->admin());
 
-        // The slug is what the service deduplicates on, so seed it exactly.
         CareerRole::forceCreate([
             'title' => 'Backend Developer',
             'slug' => 'backend-developer',
@@ -300,8 +280,6 @@ class AdminSpecializationTest extends TestCase
 
         $this->assertContains('Solidity', $names);
     }
-
-    // ------------------------------------------------ helpers
 
     private function admin(): User
     {

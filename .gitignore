@@ -25,3 +25,5 @@ Homestead.yaml
 Thumbs.db
 /.workbuddy-ai/
 /.opencode/
+
+*.md

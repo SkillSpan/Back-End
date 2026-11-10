@@ -13,13 +13,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Task 10 — POST /api/v1/projects/{project}/match (HTTP surface).
- *
- * Covers the route wiring, auth/role middleware, the error envelope, and
- * a full end-to-end success path where the FastAPI fake echoes the
- * request identifiers back, proving correlation survives the round trip.
- */
 class ProjectMatchingEndpointTest extends TestCase
 {
     use RefreshDatabase;
@@ -48,8 +41,6 @@ class ProjectMatchingEndpointTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------------------ fixtures
 
     private function createLearner(bool $withProfile = true): User
     {
@@ -103,11 +94,6 @@ class ProjectMatchingEndpointTest extends TestCase
         ], $attributes));
     }
 
-    /**
-     * A fake that echoes the identifiers it received, so a passing
-     * assertion proves request_id / project_id / project_version
-     * correlation survived the round trip.
-     */
     private function fakeEchoingService(): void
     {
         Http::fake(function ($request) {
@@ -145,8 +131,6 @@ class ProjectMatchingEndpointTest extends TestCase
         });
     }
 
-    // -------------------------------------------------------- auth / role
-
     public function test_unauthenticated_request_is_rejected(): void
     {
         $project = $this->createProject();
@@ -175,8 +159,6 @@ class ProjectMatchingEndpointTest extends TestCase
             ->assertJsonPath('code', 'LEARNER_ONLY');
     }
 
-    // -------------------------------------------------------- route guards
-
     public function test_unknown_project_returns_not_found(): void
     {
         Sanctum::actingAs($this->createLearner());
@@ -191,12 +173,9 @@ class ProjectMatchingEndpointTest extends TestCase
     {
         Sanctum::actingAs($this->createLearner());
 
-        // whereNumber('project') means this never reaches the controller.
         $this->postJson('/api/v1/projects/not-a-number/match')
             ->assertStatus(404);
     }
-
-    // -------------------------------------------------------- domain errors
 
     public function test_learner_without_student_profile_is_rejected(): void
     {
@@ -270,8 +249,6 @@ class ProjectMatchingEndpointTest extends TestCase
             ->assertJsonPath('code', 'INTELLIGENCE_VALIDATION_ERROR');
     }
 
-    // ----------------------------------------------------------- happy path
-
     public function test_learner_receives_a_matching_recommendation(): void
     {
         $learner = $this->createLearner();
@@ -295,10 +272,8 @@ class ProjectMatchingEndpointTest extends TestCase
             ->assertJsonPath('data.algorithm_version', 'project-matching-v1')
             ->assertJsonPath('data.configuration_version', 'project-matching-config-v1');
 
-        // Loose comparison: JSON may encode 81.0 as either 81 or 81.0.
         $this->assertEquals(81.0, $response->json('data.score'));
 
-        // The caller's correlation id is echoed back on the response.
         $this->assertSame('caller-supplied-request-id', $response->headers->get('X-Request-ID'));
     }
 

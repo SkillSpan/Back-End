@@ -4,10 +4,6 @@ namespace App\OpenApi\Schemas;
 
 use OpenApi\Attributes as OA;
 
-/**
- * The project-wide response envelope: `{ "success": ..., "message": ..., "data": ... }`.
- * Only the pieces that are actually returned by the code are documented here.
- */
 #[OA\Schema(
     schema: 'ErrorResponse',
     title: 'ErrorResponse',

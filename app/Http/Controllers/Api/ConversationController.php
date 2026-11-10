@@ -16,10 +16,6 @@ class ConversationController extends Controller
 {
     public function __construct(private readonly ConversationService $conversationService) {}
 
-    /**
-     * POST /api/v1/connections/{connection}/conversations
-     * Create a conversation for a mentor-student connection.
-     */
     public function store(Request $request, int $connection): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -40,10 +36,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/conversations
-     * List the authenticated user's conversations.
-     */
     public function index(Request $request): JsonResponse
     {
         $conversations = $this->conversationService->getConversations(
@@ -63,10 +55,6 @@ class ConversationController extends Controller
         ]);
     }
 
-    /**
-     * GET /api/v1/conversations/{conversation}
-     * Show a conversation with authorization check.
-     */
     public function show(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -85,14 +73,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * DELETE /api/v1/conversations/{conversation}
-     *
-     * Removes the conversation from the CALLER's own list only. It is not a
-     * delete: the thread, its messages and the audit records stay intact for the
-     * other participant, and the conversation reappears for the caller as soon as
-     * a new message arrives.
-     */
     public function destroy(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -112,10 +92,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * POST /api/v1/conversations/{conversation}/messages
-     * Send a message in a conversation.
-     */
     public function sendMessage(StoreMessageRequest $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -125,11 +101,6 @@ class ConversationController extends Controller
                 conversationId: $conversation,
                 senderId: $request->user()->id,
                 body: $request->input('body'),
-                // Read from validated() rather than input(): the value that
-                // reaches the database can then only ever be one the request
-                // rules allowed (`text` or `chatbot`), never raw client input.
-                // The rules used to also allow `system`, which no participant
-                // may author — see StoreMessageRequest.
                 type: $request->validated('message_type', 'text'),
                 metadata: $request->input('metadata'),
                 request: $request,
@@ -144,10 +115,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/conversations/{conversation}/messages
-     * Retrieve messages (paginated) with authorization check.
-     */
     public function messages(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -174,10 +141,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * POST /api/v1/conversations/{conversation}/read
-     * Mark unread messages as read.
-     */
     public function markAsRead(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -198,10 +161,6 @@ class ConversationController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/conversations/{conversation}/status
-     * Get communication status.
-     */
     public function status(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);

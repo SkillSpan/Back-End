@@ -9,36 +9,10 @@ use App\Models\Project;
 use App\Services\Projects\ProjectCapacityPolicy;
 use Illuminate\Support\Collection;
 
-/**
- * US-COMP-03 — the Company Dashboard summary.
- *
- * Every figure here is computed server-side (BR-03): the dashboard never asks
- * the browser to add up project or application counts. The whole summary is
- * scoped to one organization (BR-02 / AC-13) — the controller resolves that
- * organization from the caller's membership, never from a request parameter,
- * so there is no id a caller could swap for someone else's.
- *
- * Performance (BR-12 / NFR-PERF-06):
- *   - project counts are ONE `group by status` query, not twelve counts;
- *   - occupied seats are ONE aggregate over the organization's applications,
- *     reused by both the recent-projects list and the `roles` task, instead of
- *     calling ProjectCapacityPolicy per project (which would be an N+1);
- *   - the funnel is ONE `group by status` plus ONE count for the expired
- *     slice;
- *   - every list has a configured LIMIT, so no query can scan unboundedly.
- *
- * Funnel data is aggregate only (BR-05 / COMP-06): counts, no applicant ids,
- * names or e-mails ever enter this payload.
- */
 class CompanyDashboardService
 {
     public function __construct(private readonly ProjectCapacityPolicy $capacityPolicy) {}
 
-    /**
-     * The whole dashboard payload for one organization.
-     *
-     * @return array<string, mixed>
-     */
     public function summary(Organization $organization, int $userId): array
     {
         $today = now()->toDateString();
@@ -65,13 +39,6 @@ class CompanyDashboardService
         ];
     }
 
-    /**
-     * Project count per lifecycle state, using the approved status dictionary
-     * (BR-04). Every status is present even at zero, so the UI can render a
-     * stable grid instead of filling gaps itself.
-     *
-     * @return array<string, int>
-     */
     private function projectStates(Organization $organization): array
     {
         $states = array_fill_keys(Project::STATUSES, 0);
@@ -83,8 +50,6 @@ class CompanyDashboardService
             ->pluck('aggregate', 'status');
 
         foreach ($rows as $status => $count) {
-            // A status left over from the legacy enum (`closed`) is not part of
-            // the approved dictionary and is deliberately not reported.
             if (array_key_exists($status, $states)) {
                 $states[$status] = (int) $count;
             }
@@ -93,15 +58,6 @@ class CompanyDashboardService
         return $states;
     }
 
-    /**
-     * Occupied seats per project id, in one aggregate.
-     *
-     * The rule for "what occupies a seat" stays where it already lives —
-     * ProjectCapacityPolicy::consumingStatuses() — so this class never becomes
-     * a second, drifting definition of capacity.
-     *
-     * @return Collection<int, int>
-     */
     private function occupiedSeats(Organization $organization): Collection
     {
         return Application::query()
@@ -114,9 +70,6 @@ class CompanyDashboardService
             ->map(fn ($seats) => (int) $seats);
     }
 
-    /**
-     * @return Collection<string, int>
-     */
     private function applicationStatusCounts(Organization $organization): Collection
     {
         return Application::query()
@@ -128,16 +81,6 @@ class CompanyDashboardService
             ->map(fn ($count) => (int) $count);
     }
 
-    /**
-     * Applications still sitting in `submitted` on a project whose deadline has
-     * already passed.
-     *
-     * `expired` is not a value in `applications.status` — nothing writes it —
-     * but SRS Table 75 lists it as a funnel stage. The honest reading is "the
-     * window closed before a decision was made", so those rows are reported as
-     * `expired` and subtracted from `submitted` (they must not be counted
-     * twice; a funnel whose stages sum above its total is worse than useless).
-     */
     private function expiredApplicationCount(Organization $organization, string $today): int
     {
         return Application::query()
@@ -149,12 +92,6 @@ class CompanyDashboardService
             ->count();
     }
 
-    /**
-     * Section 4 — aggregate funnel. No personal data (BR-05).
-     *
-     * @param  Collection<string, int>  $statusCounts
-     * @return array<string, mixed>
-     */
     private function funnel(Organization $organization, Collection $statusCounts, int $expired): array
     {
         $submitted = max(0, (int) ($statusCounts[Application::STATUS_SUBMITTED] ?? 0) - $expired);
@@ -187,12 +124,6 @@ class CompanyDashboardService
         ];
     }
 
-    /**
-     * Section 3 — the most recently updated projects with their capacity.
-     *
-     * @param  Collection<int, int>  $seats
-     * @return array<int, array<string, mixed>>
-     */
     private function recentProjects(Organization $organization, Collection $seats, string $today): array
     {
         return Project::query()
@@ -204,7 +135,6 @@ class CompanyDashboardService
             ->map(fn (Project $project) => [
                 'id' => $project->id,
                 'name' => $project->title,
-                // The UI's two words for the project's kind.
                 'kind' => $project->type === 'simulation' ? 'simulated' : 'real',
                 'track' => $project->domain,
                 'state' => $project->status,
@@ -218,18 +148,6 @@ class CompanyDashboardService
             ->all();
     }
 
-    /**
-     * Section 2 — the company actions that currently need attention.
-     *
-     * Each row carries the fields its card renders, and its `type` is the key
-     * the UI maps to the screen the action is performed on (BR-06 / AC-07).
-     * Rows are ordered the way the card presents them.
-     *
-     * @param  array<string, int>  $projectStates
-     * @param  Collection<int, int>  $seats
-     * @param  Collection<string, int>  $statusCounts
-     * @return array<int, array<string, mixed>>
-     */
     private function tasks(
         Organization $organization,
         array $projectStates,
@@ -243,7 +161,6 @@ class CompanyDashboardService
         $rowLimit = (int) config('company.dashboard.task_row_limit', 5);
         $windowDays = (int) config('company.dashboard.deadline_window_days', 7);
 
-        // t1 — applications awaiting a decision, grouped by project.
         $awaiting = Application::query()
             ->join('projects', 'projects.id', '=', 'applications.project_id')
             ->where('projects.organization_id', $organization->id)
@@ -269,9 +186,6 @@ class CompanyDashboardService
             ];
         }
 
-        // t2 — projects returned for revision. One row per project, because the
-        // action ("open the project and fix what the reviewer asked") is per
-        // project, not aggregate.
         if ($projectStates[Project::STATUS_CHANGES_REQUESTED] > 0) {
             $projects = Project::query()
                 ->where('organization_id', $organization->id)
@@ -291,7 +205,6 @@ class CompanyDashboardService
             }
         }
 
-        // t3 — open projects whose application deadline is inside the window.
         $deadlineCutoff = now()->addDays($windowDays)->toDateString();
         $applicationsByProject = $this->applicationsByProject($organization);
 
@@ -317,7 +230,6 @@ class CompanyDashboardService
             ];
         }
 
-        // t4 — projects in selection that still have seats to fill.
         if ($projectStates[Project::STATUS_SELECTION] > 0) {
             $selecting = Project::query()
                 ->where('organization_id', $organization->id)
@@ -348,13 +260,6 @@ class CompanyDashboardService
             }
         }
 
-        // t5 — team invitations awaiting a learner response (US-MATCH-04).
-        // There is no invitations table in this codebase yet, so the section is
-        // honestly empty rather than fabricated. When US-MATCH-04 lands, this is
-        // the one place that has to change.
-        // (Deliberately no `invites` row today.)
-
-        // t6 — drafts not yet submitted.
         if ($projectStates[Project::STATUS_DRAFT] > 0) {
             $drafts = Project::query()
                 ->where('organization_id', $organization->id)
@@ -379,12 +284,6 @@ class CompanyDashboardService
         return $tasks;
     }
 
-    /**
-     * Applications (any status) per project, in one aggregate — the deadline
-     * task's "N applications" line must not become an N+1.
-     *
-     * @return Collection<int, int>
-     */
     private function applicationsByProject(Organization $organization): Collection
     {
         return Application::query()
@@ -396,18 +295,6 @@ class CompanyDashboardService
             ->map(fn ($count) => (int) $count);
     }
 
-    /**
-     * What this representative may do (BR-07 / AC-12).
-     *
-     * Sprint 4 has exactly one company role — an admin of an approved
-     * organization — and the route already enforces both facts, so every
-     * permission is true here. It is still returned explicitly rather than
-     * omitted: the UI filters Quick Links on these keys, and a future
-     * read-only representative must be able to turn one off without changing
-     * the frontend.
-     *
-     * @return array<string, bool>
-     */
     private function permissions(): array
     {
         return [

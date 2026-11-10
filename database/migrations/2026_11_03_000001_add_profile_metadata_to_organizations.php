@@ -4,19 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-COMP-04 — the Database task list asks the profile to record who last
- * changed it, when, what completeness it had, and whether a change pushed the
- * organization into re-verification.
- *
- * None of this is derivable after the fact: `updated_at` moves for every
- * unrelated write, the completeness percentage is a function of the current
- * configuration (so a snapshot needs its version), and "this organization is
- * awaiting re-verification" has to survive the request that caused it.
- *
- * All columns are nullable, so every existing organization stays valid — an
- * organization that has never opened the profile simply has no metadata yet.
- */
 return new class extends Migration
 {
     public function up(): void
@@ -34,9 +21,6 @@ return new class extends Migration
                 $table->unsignedTinyInteger('profile_completeness')->nullable()->after('profile_updated_by');
             }
 
-            // Which set of completeness rules produced the stored percentage.
-            // Without it a stored 67 % is unreadable once the field list
-            // changes: 67 % of what?
             if (! Schema::hasColumn('organizations', 'completeness_version')) {
                 $table->string('completeness_version', 32)->nullable()->after('profile_completeness');
             }

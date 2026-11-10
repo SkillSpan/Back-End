@@ -10,51 +10,8 @@ use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Task 11 — persist a validated project matching recommendation.
- *
- * Reuses the existing generic `recommendations` table rather than adding a
- * parallel one: type = 'project', candidate_type = 'project',
- * candidate_id = projects.id. That is the shape the intelligent assistant
- * already reads for its project-recommendation context
- * (AssistantContextBuilder::projectRecommendations()), so persisting here
- * makes stored recommendations visible to existing consumers for free.
- *
- * Persistence runs AFTER Task 10 has already produced and validated the
- * result, inside the same request. No second FastAPI call is made and the
- * matching calculation is never duplicated.
- *
- * ## Deduplication
- *
- * `project_matching_snapshots` is deliberately append-only — one row per
- * request, so that the validated input state stays a complete audit trail
- * (ProjectMatchingSnapshotService, and its test
- * test_repeated_identical_input_produces_equivalent_snapshot). A new snapshot
- * therefore does NOT imply a new logical recommendation, and keying
- * deduplication on project_matching_snapshot_id would let repeated matching of
- * the same project write a duplicate row every time.
- *
- * The logical identity of a recommendation is instead the canonical
- * fingerprint of its RESULT: learner + project + project_version +
- * algorithm_version + configuration_version + the score, factors, explanation,
- * limiting factors and skill breakdown. Volatile per-request fields
- * (generated_at, the snapshot id) are excluded. Two requests that produce the
- * same logical result therefore collapse to one row, while a genuinely
- * different result — a revised project version, a new algorithm or
- * configuration version, or a changed score — is legitimately kept as its own
- * recommendation rather than overwriting history.
- *
- * The fingerprint is stored in `recommendations.dedup_key` behind a unique
- * index, so uniqueness is enforced by the database, not only by an
- * application-level check.
- */
 class ProjectMatchingRecommendationService
 {
-    /**
-     * Keys the validated Task 10 result must carry before anything is written.
-     *
-     * @var list<string>
-     */
     private const REQUIRED_RESULT_KEYS = [
         'project_id',
         'project_version',
@@ -66,25 +23,6 @@ class ProjectMatchingRecommendationService
 
     private const TYPE_PROJECT = 'project';
 
-    /**
-     * Store one validated recommendation for the authenticated learner.
-     *
-     * Idempotent per logical result: repeating the same matching request
-     * returns the row that already represents it instead of writing a
-     * duplicate. The read-then-write runs in a transaction, and the unique
-     * index on dedup_key is the hard guarantee — a concurrent insert that wins
-     * the race is detected and its row is reused rather than surfacing a
-     * constraint error.
-     *
-     * @param  array<string, mixed>  $validatedResult  the normalized result returned by
-     *                                                 ProjectMatchingService::match()
-     *
-     * @throws IntelligenceException When the snapshot is not a persisted,
-     *                               validated snapshot, does not belong to the
-     *                               learner, or the result is malformed or
-     *                               inconsistent with the snapshot. Nothing is
-     *                               written in any of those cases.
-     */
     public function persist(User $learner, ProjectMatchingSnapshot $snapshot, array $validatedResult): Recommendation
     {
         $this->guardPersistableSnapshot($learner, $snapshot);
@@ -96,29 +34,11 @@ class ProjectMatchingRecommendationService
         $attributes['dedup_key'] = $dedupKey;
 
         try {
-            // No application-level existence pre-check: relying on first()/exists()
-            // would leave a TOCTOU window between the check and the insert.
-            // The unique index on dedup_key is the guard, and a conflict is
-            // resolved by reusing the row that won.
             return DB::transaction(fn () => Recommendation::create($attributes));
         } catch (UniqueConstraintViolationException $e) {
-            /*
-             * ONLY a duplicate-key violation is recoverable here.
-             *
-             * Laravel raises this specific subclass for duplicate keys and
-             * nothing else, classifying it per driver — MySQL/MariaDB error
-             * 1062, SQLite "UNIQUE constraint failed", PostgreSQL 23505. It is
-             * deliberately NOT the generic SQLSTATE 23000, which MySQL and
-             * SQLite also use for foreign-key, NOT NULL and CHECK violations.
-             * Those keep propagating as plain QueryException, so a real
-             * failure can never be reported as a successful dedup.
-             */
             $existing = $this->findByDedupKey($dedupKey);
 
             if ($existing === null) {
-                // A duplicate on some OTHER unique index, not on dedup_key —
-                // not something this method can resolve. Surface it rather
-                // than claiming a save that did not happen.
                 throw $e;
             }
 
@@ -126,12 +46,6 @@ class ProjectMatchingRecommendationService
         }
     }
 
-    /**
-     * Only a persisted, validated snapshot belonging to the authenticated
-     * learner may be persisted against — the same rule ProjectMatchingService
-     * applies before it will call FastAPI. Ownership is taken from the
-     * snapshot's own student profile, never from request input.
-     */
     private function guardPersistableSnapshot(User $learner, ProjectMatchingSnapshot $snapshot): void
     {
         if (! $snapshot->exists || $snapshot->status !== ProjectMatchingSnapshot::STATUS_VALIDATED) {
@@ -161,12 +75,6 @@ class ProjectMatchingRecommendationService
         }
     }
 
-    /**
-     * Refuse anything that is not a complete, well-typed Task 10 result, so a
-     * malformed intelligence response can never reach the database.
-     *
-     * @param  array<string, mixed>  $result
-     */
     private function guardValidResult(array $result): void
     {
         foreach (self::REQUIRED_RESULT_KEYS as $key) {
@@ -235,14 +143,6 @@ class ProjectMatchingRecommendationService
         }
     }
 
-    /**
-     * The result must agree with the authoritative Laravel data it claims to
-     * describe. The project, its version and both version numbers come from
-     * the snapshot Laravel itself built and sent — a result that disagrees
-     * with any of them is rejected rather than stored.
-     *
-     * @param  array<string, mixed>  $result
-     */
     private function guardConsistency(ProjectMatchingSnapshot $snapshot, array $result): void
     {
         $this->assertConsistent('project_id', (int) $snapshot->project_id, $result['project_id']);
@@ -274,15 +174,6 @@ class ProjectMatchingRecommendationService
         );
     }
 
-    /**
-     * Map the validated Task 10 result onto the recommendations row.
-     *
-     * Only fields the validated response actually carries are stored; optional
-     * ones stay null rather than being invented.
-     *
-     * @param  array<string, mixed>  $result
-     * @return array<string, mixed>
-     */
     private function attributes(ProjectMatchingSnapshot $snapshot, array $result): array
     {
         $explanation = array_values(array_filter(
@@ -299,8 +190,6 @@ class ProjectMatchingRecommendationService
             'score' => (float) $result['score'],
             'factors' => $result['factor_scores'],
             'weighted_contributions' => $result['weighted_contributions'] ?? null,
-            // The contract's explanation is the human-readable reason list;
-            // `reasons` is the existing text column the assistant already reads.
             'reasons' => $explanation === [] ? null : implode("\n", $explanation),
             'limiting_factors' => $result['limiting_factors'] ?? null,
             'skill_results' => $result['skill_results'] ?? null,
@@ -313,15 +202,6 @@ class ProjectMatchingRecommendationService
         ];
     }
 
-    /**
-     * A stable fingerprint of the logical matching result.
-     *
-     * generated_at (wall clock) and project_matching_snapshot_id (fresh on
-     * every request) are excluded so that repeating the same request does not
-     * change the key.
-     *
-     * @param  array<string, mixed>  $attributes
-     */
     private function dedupKey(array $attributes): string
     {
         unset($attributes['generated_at'], $attributes['project_matching_snapshot_id']);
@@ -329,11 +209,6 @@ class ProjectMatchingRecommendationService
         return hash('sha256', (string) json_encode($this->canonicalize($attributes)));
     }
 
-    /**
-     * Sort associative keys recursively so the encoding is order-independent.
-     * Lists keep their order — a reordered skill breakdown is a different
-     * payload, not a different key ordering.
-     */
     private function canonicalize(mixed $value): mixed
     {
         if (! is_array($value)) {

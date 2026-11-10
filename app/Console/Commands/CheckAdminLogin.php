@@ -6,17 +6,6 @@ use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Hash;
 
-/**
- * Answers one question: can this account sign in to the admin panel, and if
- * not, which check turns it away?
- *
- * The panel returns a deliberately vague message for a failed sign-in (so it
- * never reveals whether an address is registered), and Auth::attempt() cannot
- * distinguish "no such account" from "wrong password". That combination makes
- * a report like "the API works but the panel says the credentials do not
- * match" impossible to diagnose from the outside. This walks the same checks
- * the controller performs and names the one that fails.
- */
 class CheckAdminLogin extends Command
 {
     protected $signature = 'admin:check-login {email? : The account to check}';
@@ -29,8 +18,6 @@ class CheckAdminLogin extends Command
             $this->argument('email') ?: (string) $this->ask('Email')
         ));
 
-        // withTrashed(): a soft-deleted account cannot sign in, and reporting
-        // "no account exists" for it would send someone hunting for a typo.
         $user = User::withTrashed()->where('email', $email)->first();
 
         if (! $user) {

@@ -4,13 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the notifications feed, the setup (bootstrap)
- * endpoints and the internal server-to-server baseline-items endpoint.
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class NotificationSetupInternalEndpoints
 {
     #[OA\Get(

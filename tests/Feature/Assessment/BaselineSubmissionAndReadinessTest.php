@@ -18,18 +18,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Tasks D + E — submission correctness and readiness gating.
- *
- * Task D: a submission must load the correct assessment and snapshot,
- * enforce ownership/status, reject anything not in the snapshot, persist
- * transactionally, and flip to `completed` only after everything
- * succeeded.
- *
- * Task E: an incomplete assessment must not be bypassable, and readiness
- * must still raise ASSESSMENT_INCOMPLETE for any required role skill with
- * no evaluation. Nothing is fabricated to fill a gap.
- */
 class BaselineSubmissionAndReadinessTest extends TestCase
 {
     use RefreshDatabase;
@@ -50,19 +38,12 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         Config::set('services.data_science.service_token', 'test-service-token');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Task D — submission correctness
-    |--------------------------------------------------------------------------
-    */
-
     public function test_learner_cannot_submit_another_learners_assessment(): void
     {
         [$owner] = $this->createLearner();
         Sanctum::actingAs($owner);
         [$assessment] = $this->start(['sql'], ['sql-001']);
 
-        // A different learner tries to submit it.
         [$intruder] = $this->createLearner();
         Sanctum::actingAs($intruder);
 
@@ -84,7 +65,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
             'responses' => [['question_id' => 'sql-001', 'answer' => 'A']],
         ])->assertStatus(200);
 
-        // Second submit on the now-completed assessment.
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => [['question_id' => 'sql-001', 'answer' => 'A']],
         ])
@@ -99,7 +79,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
 
         [$assessment] = $this->start(['sql'], ['sql-001']);
 
-        // A question id that exists in the bank but not in this snapshot.
         BaselineAssessmentItem::updateOrCreate(
             ['assessment_version' => 'v1.0', 'item_id' => 'sql-999'],
             [
@@ -128,7 +107,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         [$assessment] = $this->start(['sql'], ['sql-001']);
         $this->fakeIntelligence(['sql']);
 
-        // Force a failure partway through persistence.
         SkillEvidence::creating(function () {
             throw new \RuntimeException('simulated persistence failure');
         });
@@ -138,10 +116,8 @@ class BaselineSubmissionAndReadinessTest extends TestCase
                 'responses' => [['question_id' => 'sql-001', 'answer' => 'A']],
             ]);
         } catch (\RuntimeException) {
-            // propagated by the test environment
         }
 
-        // Nothing persisted, and the assessment is still resumable.
         $this->assertSame(0, SkillEvaluation::count());
         $this->assertSame(0, SkillEvidence::count());
         $this->assertSame('in_progress', $assessment->fresh()->status);
@@ -160,18 +136,14 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", $payload)
             ->assertStatus(200);
 
-        // Re-dispatch the persistence path directly (simulating a queued
-        // retry of the same assessment) — the idempotency guard must hold.
         $service = app(BaselineAssessmentService::class);
         $completed = $assessment->fresh();
 
         $this->assertSame('completed', $completed->status);
 
-        // Exactly one evaluation + one evidence row.
         $this->assertSame(1, SkillEvaluation::count());
         $this->assertSame(1, SkillEvidence::count());
 
-        // A direct re-submit is refused, so no duplicates can arise.
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", $payload)
             ->assertStatus(409);
 
@@ -186,7 +158,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
 
         [$assessment] = $this->start(['sql'], ['sql-001']);
 
-        // Service returns an unusable payload — must not complete.
         Http::fake([
             '*/api/v1/baseline' => Http::response([
                 'algorithm_version' => 'baseline-v1.0',
@@ -207,18 +178,11 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         $this->assertNull($reloaded->result);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Task E — readiness gating
-    |--------------------------------------------------------------------------
-    */
-
     public function test_partial_evaluations_are_not_fabricated_for_missing_skills(): void
     {
         [$user, $profile] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Role requires BOTH sql and python.
         $role = $this->role(['sql', 'python']);
         $this->item('sql-001', 'sql', 'Which clause filters rows?');
         $this->item('python-001', 'python', 'What does len() return?');
@@ -227,7 +191,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
             ->assertStatus(201)
             ->json('data.id');
 
-        // Service only scores sql — python is absent.
         Http::fake([
             '*/api/v1/baseline' => Http::response([
                 'algorithm_version' => 'baseline-v1.0',
@@ -244,7 +207,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
             ],
         ])->assertStatus(200);
 
-        // Only what the service actually returned is persisted.
         $this->assertSame(1, SkillEvaluation::count());
         $this->assertSame(
             [Skill::where('slug', 'sql')->value('id')],
@@ -265,7 +227,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
             ->assertStatus(201)
             ->json('data.id');
 
-        // Only sql is evaluated by the assessment.
         Http::fake([
             '*/api/v1/baseline' => Http::response([
                 'algorithm_version' => 'baseline-v1.0',
@@ -282,8 +243,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
             ],
         ])->assertStatus(200);
 
-        // Readiness must still refuse: python has no evaluation, and the
-        // gap must NOT be filled from anywhere.
         Http::fake();
 
         $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
@@ -326,8 +285,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
 
         $this->assertSame(2, SkillEvaluation::count());
 
-        // Both role skills are now evaluated, so the ASSESSMENT_INCOMPLETE
-        // gate is satisfied and readiness proceeds to the next stage.
         Http::fake([
             '*' => Http::response([
                 'readiness_score' => 72.5,
@@ -345,16 +302,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * @param  array<int, string>  $skillSlugs
-     * @return array{0: BaselineAssessment, 1: CareerRole}
-     */
     private function start(array $skillSlugs, array $itemIds): array
     {
         $role = $this->role($skillSlugs);
@@ -370,9 +317,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         return [BaselineAssessment::with('questionSnapshots')->findOrFail($assessmentId), $role];
     }
 
-    /**
-     * @param  array<int, string>  $skillSlugs
-     */
     private function role(array $skillSlugs): CareerRole
     {
         $role = CareerRole::forceCreate([
@@ -422,9 +366,6 @@ class BaselineSubmissionAndReadinessTest extends TestCase
         );
     }
 
-    /**
-     * @param  array<int, string>  $slugs
-     */
     private function fakeIntelligence(array $slugs): void
     {
         Http::fake([

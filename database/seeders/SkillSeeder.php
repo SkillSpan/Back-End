@@ -7,18 +7,6 @@ use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
-/**
- * Skill taxonomy used by the dynamic assessment prototype.
- *
- * Seeded idempotently on `slug`, so re-running never creates duplicates and
- * existing skills are simply refreshed. Career roles (CareerRoleSeeder) and
- * baseline questions (BaselineAssessmentItemSeeder) resolve skills by these
- * slugs — no hard-coded ids anywhere.
- *
- * Entry format: [name, category, slug?]. The slug defaults to
- * Str::slug(name); it is overridden only where that would collide, e.g.
- * "C#" and "C++" both slug to "c".
- */
 class SkillSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -41,18 +29,9 @@ class SkillSeeder extends Seeder
         }
     }
 
-    /**
-     * @return array<int, array{0: string, 1: ?string, 2?: string}>
-     */
     private function skills(): array
     {
         return [
-            // ---- Languages / general ----
-            // MVP audit: these seven were the only skills with a NULL
-            // category. The category is display metadata only (it is shown in
-            // talent discovery, never used to filter or score), so filling it
-            // in is a safe, reversible improvement — no skill was renamed,
-            // re-slugged or removed.
             ['Python', 'Programming'],
             ['JavaScript', 'Programming'],
             ['TypeScript', 'Programming'],
@@ -63,7 +42,6 @@ class SkillSeeder extends Seeder
             ['PHP', 'Web Development'],
             ['C#', 'Game Development', 'csharp'],
 
-            // ---- Programming fundamentals ----
             ['Programming Fundamentals', 'Backend'],
             ['Data Structures', 'Programming'],
             ['Algorithms', 'Programming'],
@@ -72,7 +50,6 @@ class SkillSeeder extends Seeder
             ['Version Control (Git)', 'Programming'],
             ['Debugging', 'Programming'],
 
-            // ---- Web Development ----
             ['React', 'Web Development'],
             ['Node.js', 'Web Development'],
             ['REST APIs', 'Web Development'],
@@ -89,7 +66,6 @@ class SkillSeeder extends Seeder
             ['Backend Architecture', 'Backend'],
             ['Authentication & Authorization', 'Backend'],
 
-            // ---- Mobile ----
             ['Android Development', 'Mobile'],
             ['iOS Development', 'Mobile'],
             ['Swift', 'Mobile'],
@@ -103,7 +79,6 @@ class SkillSeeder extends Seeder
             ['REST API Integration', 'Mobile'],
             ['Local Data Storage', 'Mobile'],
 
-            // ---- Data & Analytics ----
             ['Pandas', 'Data & Analytics'],
             ['NumPy', 'Data & Analytics'],
             ['Statistics Fundamentals', 'Data & Analytics'],
@@ -123,7 +98,6 @@ class SkillSeeder extends Seeder
             ['Business Intelligence', 'Data & Analytics'],
             ['KPIs and Metrics', 'Data & Analytics'],
 
-            // ---- Machine Learning & AI ----
             ['Machine Learning', 'Machine Learning'],
             ['Neural Networks', 'Machine Learning'],
             ['Model Evaluation', 'Machine Learning'],
@@ -150,7 +124,6 @@ class SkillSeeder extends Seeder
             ['Prompt Engineering', 'Artificial Intelligence'],
             ['Retrieval-Augmented Generation', 'Artificial Intelligence'],
 
-            // ---- IT & Operating Systems ----
             ['Computer Hardware', 'IT'],
             ['Operating Systems', 'IT'],
             ['Troubleshooting', 'IT'],
@@ -164,7 +137,6 @@ class SkillSeeder extends Seeder
             ['IT Service Management', 'IT'],
             ['Virtualization', 'IT'],
 
-            // ---- Networking ----
             ['Networking Fundamentals', 'Networking'],
             ['Internet Fundamentals', 'Networking'],
             ['TCP/IP', 'Networking'],
@@ -178,7 +150,6 @@ class SkillSeeder extends Seeder
             ['Network Design', 'Networking'],
             ['Wireless Networking', 'Networking'],
 
-            // ---- Cloud & DevOps ----
             ['Cloud Computing Fundamentals', 'Cloud'],
             ['AWS', 'Cloud'],
             ['Microsoft Azure', 'Cloud'],
@@ -190,14 +161,12 @@ class SkillSeeder extends Seeder
             ['Terraform', 'DevOps'],
             ['Observability', 'DevOps'],
 
-            // ---- Databases ----
             ['SQL & Databases', 'Backend'],
             ['Database Design', 'Databases'],
             ['Query Optimization', 'Databases'],
             ['NoSQL', 'Databases'],
             ['Database Indexing', 'Databases'],
 
-            // ---- Business & Systems Analysis ----
             ['Requirements Analysis', 'Business Analysis'],
             ['Stakeholder Analysis', 'Business Analysis'],
             ['Business Requirements', 'Business Analysis'],
@@ -217,7 +186,6 @@ class SkillSeeder extends Seeder
             ['Change Management', 'Business Analysis'],
             ['Technology Consulting', 'Business Analysis'],
 
-            // ---- Cybersecurity ----
             ['Cybersecurity Fundamentals', 'Cybersecurity'],
             ['Threats & Vulnerabilities', 'Cybersecurity'],
             ['Authentication', 'Cybersecurity'],
@@ -244,7 +212,6 @@ class SkillSeeder extends Seeder
             ['Evidence Collection', 'Cybersecurity'],
             ['Cryptography', 'Cybersecurity'],
 
-            // ---- UI/UX ----
             ['UI Design', 'UI/UX'],
             ['UX Research', 'UI/UX'],
             ['Wireframing', 'UI/UX'],
@@ -254,14 +221,12 @@ class SkillSeeder extends Seeder
             ['Interaction Design', 'UI/UX'],
             ['Accessibility', 'UI/UX'],
 
-            // ---- Game Development ----
             ['Unity', 'Game Development'],
             ['Unreal Engine', 'Game Development'],
             ['Game Design', 'Game Development'],
             ['Gameplay Programming', 'Game Development'],
             ['3D Mathematics', 'Game Development'],
 
-            // ---- Quality Assurance ----
             ['Manual Testing', 'Quality Assurance'],
             ['Test Case Design', 'Quality Assurance'],
             ['Bug Reporting', 'Quality Assurance'],
@@ -270,14 +235,12 @@ class SkillSeeder extends Seeder
             ['Performance Testing', 'Quality Assurance'],
             ['API Testing', 'Quality Assurance'],
 
-            // ---- Blockchain ----
             ['Blockchain Fundamentals', 'Blockchain'],
             ['Solidity', 'Blockchain'],
             ['Smart Contracts', 'Blockchain'],
             ['Ethereum', 'Blockchain'],
             ['Web3 Development', 'Blockchain'],
 
-            // ---- Embedded Systems & IoT ----
             ['Embedded Systems', 'Embedded Systems'],
             ['Microcontrollers', 'Embedded Systems'],
             ['GPIO', 'Embedded Systems'],
@@ -295,7 +258,6 @@ class SkillSeeder extends Seeder
             ['Device Communication', 'IoT'],
             ['IoT Security', 'IoT'],
 
-            // ---- Robotics ----
             ['Robotics', 'Robotics'],
             ['ROS', 'Robotics'],
             ['Control Systems', 'Robotics'],

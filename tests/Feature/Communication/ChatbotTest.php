@@ -14,13 +14,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Chatbot communication endpoints: posting automated messages into a
- * mentor-student conversation, retrieving them in isolation from human
- * traffic, participant authorization, audit trail, and the guarantee
- * that a client cannot spoof a human message type through the chatbot
- * endpoint.
- */
 class ChatbotTest extends TestCase
 {
     use RefreshDatabase;
@@ -31,8 +24,6 @@ class ChatbotTest extends TestCase
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ─── Helpers ───────────────────────────────────────────────
 
     private function mentor(): User
     {
@@ -97,8 +88,6 @@ class ChatbotTest extends TestCase
         return [$mentor, $student, $conn, $conv];
     }
 
-    // ─── Authentication ────────────────────────────────────────
-
     public function test_chatbot_endpoints_require_authentication(): void
     {
         [, , , $conv] = $this->conversation();
@@ -108,8 +97,6 @@ class ChatbotTest extends TestCase
         $this->getJson("/api/v1/conversations/{$conv->id}/chatbot/messages")
             ->assertStatus(401);
     }
-
-    // ─── Posting ───────────────────────────────────────────────
 
     public function test_participant_can_post_a_chatbot_message(): void
     {
@@ -151,8 +138,6 @@ class ChatbotTest extends TestCase
 
         Sanctum::actingAs($mentor);
 
-        // Even if the client sends message_type=text, the endpoint forces
-        // 'chatbot' — the field is not in the request rules.
         $this->postJson("/api/v1/conversations/{$conv->id}/chatbot/messages", [
             'body' => 'Trying to look human.',
             'message_type' => 'text',
@@ -233,8 +218,6 @@ class ChatbotTest extends TestCase
             ->assertJsonValidationErrors(['body']);
     }
 
-    // ─── Audit + notification ──────────────────────────────────
-
     public function test_chatbot_message_writes_distinct_audit_action(): void
     {
         [$mentor, , , $conv] = $this->conversation();
@@ -287,13 +270,10 @@ class ChatbotTest extends TestCase
         $this->assertNotNull($conv->fresh()->last_message_at);
     }
 
-    // ─── Retrieval ─────────────────────────────────────────────
-
     public function test_retrieval_returns_only_chatbot_messages(): void
     {
         [$mentor, , , $conv] = $this->conversation();
 
-        // One human message and one chatbot message.
         Message::forceCreate([
             'conversation_id' => $conv->id,
             'sender_id' => $mentor->id,
@@ -339,8 +319,6 @@ class ChatbotTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('meta.total', 0);
     }
-
-    // ─── API security ──────────────────────────────────────────
 
     public function test_x_request_id_propagated_on_chatbot_post(): void
     {

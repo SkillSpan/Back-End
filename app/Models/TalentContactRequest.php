@@ -5,13 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * A company's recorded request to contact a candidate.
- *
- * This is what justifies withholding the student's e-mail from the talent
- * payload: the company asks through a row that both sides can see, instead of
- * harvesting an address from a list endpoint.
- */
 class TalentContactRequest extends Model
 {
     use HasFactory;

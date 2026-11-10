@@ -11,38 +11,6 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Calculates a skill's level and confidence from available evidence.
- *
- * Skill Level:
- *   - Same-source evidence is aggregated using:
- *
- *       SUM(normalized_value × recency_factor)
- *       -------------------------------------
- *              SUM(recency_factor)
- *
- *   - Source weight is applied once after same-source aggregation.
- *
- * Confidence:
- *   - Duplicate evidence identities are removed first.
- *   - Independent evidence records from the same source are aggregated using:
- *
- *       source_support =
- *           SUM(verification_factor × recency_factor)
- *           ----------------------------------------
- *                COUNT(distinct evidence records)
- *
- *   - Source weight is applied once:
- *
- *       source_contribution = source_weight × source_support
- *
- * Recency:
- *   - Calculated dynamically during every recalculate().
- *   - Based on calendar months from evidence_date to evaluation date.
- *
- * Recency version:
- *   evidence-recency-v1
- */
 class SkillEvaluationService
 {
     private const RECENCY_VERSION = 'evidence-recency-v1';
@@ -60,12 +28,6 @@ class SkillEvaluationService
             0.50
         );
 
-        /*
-         * One fixed evaluation timestamp is used for the whole calculation.
-         *
-         * This is important because every evidence record in the same
-         * calculation must use the same "assessment date".
-         */
         $evaluationDate = now();
 
         $evidenceBySource = SkillEvidence::where(
@@ -87,12 +49,6 @@ class SkillEvaluationService
         foreach ($sourceWeights as $source => $weight) {
             $weight = (float) $weight;
 
-            /*
-             * Confidence denominator always contains all configured
-             * source weights.
-             *
-             * Missing sources therefore reduce confidence.
-             */
             $confidenceDenominator += $weight;
 
             $records = $evidenceBySource->get($source, collect());
@@ -111,33 +67,8 @@ class SkillEvaluationService
                 continue;
             }
 
-            /*
-             * ---------------------------------------------------------
-             * 1. REMOVE DUPLICATES
-             * ---------------------------------------------------------
-             *
-             * Duplicate identity:
-             *
-             *   source_record_type + source_record_id
-             *
-             * If canonical identity is unavailable:
-             *
-             *   reference
-             *
-             * When duplicates exist, keep the newest evidence record.
-             */
             $distinctRecords = $this->deduplicateEvidenceRecords($records);
 
-            /*
-             * ---------------------------------------------------------
-             * 2. CALCULATE RECENCY DYNAMICALLY
-             * ---------------------------------------------------------
-             *
-             * Never rely on the persisted recency_factor.
-             *
-             * The value is calculated from evidence_date to the single
-             * evaluation timestamp.
-             */
             $distinctRecords->each(function (SkillEvidence $evidence) use (
                 $evaluationDate
             ) {
@@ -148,21 +79,6 @@ class SkillEvaluationService
                     );
             });
 
-            /*
-             * ---------------------------------------------------------
-             * 3. SKILL LEVEL
-             * ---------------------------------------------------------
-             *
-             * Only verified evidence contributes to Skill Level.
-             *
-             * Same-source aggregation:
-             *
-             * SUM(normalized_value × recency_factor)
-             * -------------------------------------
-             *       SUM(recency_factor)
-             *
-             * Then apply source weight ONCE.
-             */
             $verifiedRecords = $distinctRecords->filter(
                 fn (SkillEvidence $evidence) => $evidence->verification_status === 'verified'
             );
@@ -193,33 +109,6 @@ class SkillEvaluationService
                 $includedInLevel = true;
             }
 
-            /*
-             * ---------------------------------------------------------
-             * 4. CONFIDENCE
-             * ---------------------------------------------------------
-             *
-             * IMPORTANT:
-             *
-             * We DO NOT use "latest record only" anymore.
-             *
-             * Every independent evidence record contributes:
-             *
-             *   verification_factor × recency_factor
-             *
-             * Then:
-             *
-             *   source_support =
-             *       SUM(record_support)
-             *       ------------------
-             *       COUNT(records)
-             *
-             * Finally:
-             *
-             *   source_contribution =
-             *       source_weight × source_support
-             *
-             * This keeps the source weight applied only once.
-             */
             $recordSupports = $distinctRecords->map(
                 function (SkillEvidence $evidence) use (
                     $pendingVerifiedFactor
@@ -258,10 +147,6 @@ class SkillEvaluationService
 
             $confidenceNumerator += $sourceContribution;
 
-            /*
-             * Snapshot contains enough information to understand
-             * exactly how this source contributed to the decision.
-             */
             $contributions[$source] = [
                 'weight' => $weight,
 
@@ -283,11 +168,6 @@ class SkillEvaluationService
             ];
         }
 
-        /*
-         * ---------------------------------------------------------
-         * 5. FINAL SKILL LEVEL
-         * ---------------------------------------------------------
-         */
         $level = $levelDenominator > 0
             ? round(
                 $levelNumerator / $levelDenominator,
@@ -300,11 +180,6 @@ class SkillEvaluationService
             min(5.00, $level)
         );
 
-        /*
-         * ---------------------------------------------------------
-         * 6. FINAL CONFIDENCE
-         * ---------------------------------------------------------
-         */
         $confidence = $confidenceDenominator > 0
             ? round(
                 100 * $confidenceNumerator / $confidenceDenominator,
@@ -317,19 +192,8 @@ class SkillEvaluationService
             min(100.00, $confidence)
         );
 
-        /*
-         * One algorithm version for this calculation.
-         *
-         * Recency has its own version because it is an independent
-         * configurable decision component.
-         */
         $algorithmVersion = self::ALGORITHM_VERSION;
 
-        /*
-         * Snapshot metadata.
-         *
-         * This makes old evaluations traceable and reproducible.
-         */
         $snapshot = [
             'algorithm_version' => $algorithmVersion,
 
@@ -353,9 +217,6 @@ class SkillEvaluationService
             $algorithmVersion,
             $evaluationDate
         ) {
-            /*
-             * skill_evaluations is the authoritative historical record.
-             */
             $evaluation = SkillEvaluation::create([
                 'student_profile_id' => $studentProfile->id,
 
@@ -372,9 +233,6 @@ class SkillEvaluationService
                 'snapshot' => $snapshot,
             ]);
 
-            /*
-             * learner_skills is the current read projection.
-             */
             LearnerSkill::updateOrCreate(
                 [
                     'learner_id' => $studentProfile->user_id,
@@ -401,26 +259,11 @@ class SkillEvaluationService
         });
     }
 
-    /**
-     * Remove duplicate evidence records.
-     *
-     * Duplicate policy:
-     *
-     * 1. If source_record_type + source_record_id exist,
-     *    they form the canonical identity.
-     *
-     * 2. If canonical identity is unavailable, reference is used.
-     *
-     * 3. When duplicates exist, the newest record is retained.
-     */
     private function deduplicateEvidenceRecords(
         Collection $records
     ): Collection {
         $groups = $records->groupBy(
             function (SkillEvidence $evidence) {
-                /*
-                 * Canonical identity exists.
-                 */
                 if (
                     $evidence->source_record_type !== null
                     && $evidence->source_record_id !== null
@@ -431,32 +274,17 @@ class SkillEvaluationService
                         .$evidence->source_record_id;
                 }
 
-                /*
-                 * No canonical identity.
-                 * Use reference if available.
-                 */
                 if ($evidence->reference !== null) {
                     return 'reference:'
                         .(string) $evidence->reference;
                 }
 
-                /*
-                 * No identity information available.
-                 *
-                 * Treat each record as independent.
-                 */
                 return 'evidence:'.$evidence->id;
             }
         );
 
         return $groups
             ->map(function (Collection $duplicates) {
-                /*
-                 * Newest evidence_date wins.
-                 *
-                 * ID is used as a deterministic tie-breaker when
-                 * two records have the same evidence_date.
-                 */
                 return $duplicates
                     ->sortByDesc(
                         fn (SkillEvidence $evidence) => Carbon::parse($evidence->evidence_date)
@@ -468,18 +296,6 @@ class SkillEvaluationService
             ->values();
     }
 
-    /**
-     * Convert verification status into the numerical verification factor
-     * used by Confidence.
-     *
-     * BA-02: `revision` (the reviewer's "request clarification" outcome,
-     * SRS SKL-05) is spelled out explicitly rather than left to `default`.
-     * A clarification request is a decision NOT to accept the evidence yet,
-     * so it contributes 0.0 — the same as `rejected` and `expired`. It is
-     * deliberately not treated like `pending`: `pending` still carries the
-     * configured partial factor because nobody has judged it yet, whereas a
-     * reviewer has actively declined to accept `revision` evidence.
-     */
     private function verificationFactor(
         ?string $status,
         float $pendingVerifiedFactor
@@ -495,19 +311,6 @@ class SkillEvaluationService
         };
     }
 
-    /**
-     * Calculate evidence recency according to:
-     *
-     * 0-6 months       => 1.00
-     * >6-12 months     => 0.90
-     * >12-24 months    => 0.75
-     * >24 months       => 0.60
-     *
-     * Calendar months are used instead of approximating months as
-     * a fixed number of days.
-     *
-     * Exact 6/12/24 month boundaries belong to the preceding bucket.
-     */
     private function calculateRecencyFactor(
         Carbon $evidenceDate,
         Carbon $evaluationDate

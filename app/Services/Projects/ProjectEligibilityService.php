@@ -18,30 +18,6 @@ class ProjectEligibilityService
         return $this->check($project, $learner)->eligible;
     }
 
-    /**
-     * Check whether a learner satisfies the hard eligibility
-     * requirements for a project.
-     *
-     * Eligibility is checked AFTER availability and authorization.
-     * This service does NOT:
-     *   - check project availability (use ProjectAvailabilityService)
-     *   - check learner authorization (handled by ProjectController)
-     *   - calculate matching/ranking scores
-     *
-     * Rules implemented:
-     *   1. Critical required skills: learner must have a skill
-     *      evaluation whose level >= the project's minimum_level.
-     *   2. Project eligibility constraints: work_mode, schedule,
-     *      location, language — only if both the constraint and
-     *      learner profile data are present and comparable.
-     *   3. Duplicate active application: learner must not have a
-     *      pending/active application to the same project.
-     *   4. Conflicting active assignment: learner must not be
-     *      actively assigned to a team on the same project.
-     *
-     * Non-critical required skills are NOT hard eligibility
-     * blockers — they are matching inputs reserved for later tasks.
-     */
     public function check(Project $project, User $learner): object
     {
         $reasons = [];
@@ -83,17 +59,6 @@ class ProjectEligibilityService
         return $result;
     }
 
-    /**
-     * Check that every critical required skill is satisfied.
-     *
-     * Uses skill_evaluations (via the student profile) as the
-     * authoritative source of the learner's current skill level.
-     * Falls back to the learner_skills read projection when no
-     * evaluation exists, so eligibility can still be checked
-     * after an evaluation has been calculated.
-     *
-     * @param  array  $skillFailures  Filled with details of failed skills.
-     */
     private function checkCriticalSkills(
         Project $project,
         User $learner,
@@ -142,23 +107,14 @@ class ProjectEligibilityService
         return empty($skillFailures);
     }
 
-    /**
-     * Get the learner's current verified skill level.
-     *
-     * Authoritative source: the latest SkillEvaluation for the
-     * student profile. Falls back to the LearnerSkill read
-     * projection level when no evaluation exists.
-     */
     private function getLearnerSkillLevel(
         User $learner,
         int $skillId,
         ?StudentProfile $studentProfile
     ): ?float {
-        // Resolve the profile ID safely, even when no profile exists.
         $studentProfileId = $studentProfile?->id
             ?? $learner->studentProfile?->id;
 
-        // First, try to get the latest skill evaluation.
         if ($studentProfileId !== null) {
             $evaluation = SkillEvaluation::where('skill_id', $skillId)
                 ->where('student_profile_id', $studentProfileId)
@@ -171,7 +127,6 @@ class ProjectEligibilityService
             }
         }
 
-        // Fall back to the learner skills projection.
         $learnerSkill = LearnerSkill::where('learner_id', $learner->id)
             ->where('skill_id', $skillId)
             ->first();
@@ -181,15 +136,6 @@ class ProjectEligibilityService
             : null;
     }
 
-    /**
-     * Check project eligibility constraints (work_mode, schedule,
-     * location, language) against the learner's student profile.
-     *
-     * Only constraints that can be reliably validated against
-     * existing student profile data are enforced. Unsupported
-     * constraint types (location, language) are skipped because
-     * the student profile does not store comparable fields.
-     */
     private function checkEligibilityConstraints(
         Project $project,
         User $learner
@@ -232,10 +178,6 @@ class ProjectEligibilityService
         return ['passed' => empty($reasons), 'reasons' => $reasons];
     }
 
-    /**
-     * Determine whether a constraint type can be enforced given
-     * the current student profile schema.
-     */
     private function canEnforceConstraint(
         string $constraintType,
         ?StudentProfile $studentProfile
@@ -253,9 +195,6 @@ class ProjectEligibilityService
         };
     }
 
-    /**
-     * Get the learner's value for a given constraint type.
-     */
     private function getLearnerValueForConstraint(
         string $constraintType,
         ?StudentProfile $studentProfile
@@ -271,14 +210,6 @@ class ProjectEligibilityService
         };
     }
 
-    /**
-     * Check whether the learner already has an active (non-terminal)
-     * application to the same project.
-     *
-     * Active application statuses: submitted, shortlisted, accepted,
-     * waitlisted. Submitted applications that have not been withdrawn
-     * count as an active application.
-     */
     private function checkDuplicateActiveApplication(
         Project $project,
         User $learner
@@ -294,10 +225,6 @@ class ProjectEligibilityService
             ->exists();
     }
 
-    /**
-     * Check whether the learner already has an active assignment on
-     * the same project via project team membership.
-     */
     private function checkActiveAssignmentConflict(
         Project $project,
         User $learner

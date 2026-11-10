@@ -13,57 +13,14 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
-/**
- * The company's talent engagement surface: shortlists, notes, comparison and
- * contact requests.
- *
- * WHY THESE LIVE TOGETHER
- * -----------------------
- * All four answer the same question — "what does this company keep about the
- * people it is considering?" — and all four must apply the SAME visibility rule
- * as `GET /talent`. That rule already exists in TalentDiscoveryService, so this
- * class calls `profile()` for every student it is handed rather than re-querying
- * `student_profiles`. A candidate a company cannot see in the list cannot be
- * compared, noted, shortlisted or contacted either — otherwise the list's
- * visibility model would be decorative.
- *
- * SCOPING
- * -------
- * Every read and write is scoped to the organization the controller resolved
- * from the caller's admin membership. A list id from another company is a 404,
- * not a 403: a 403 would confirm the id exists.
- *
- * WHAT IS DELIBERATELY NOT HERE
- * -----------------------------
- * No e-mail is ever read or returned. `requestContact()` records a request and
- * stops there; delivering the learner's address is the learner's decision, and
- * nothing in this class shortcuts it.
- */
 class TalentEngagementService
 {
-    /** A comparison table is a UI affordance, not an export. */
     public const MAX_COMPARE = 5;
 
     public function __construct(
         private readonly TalentDiscoveryService $talent,
     ) {}
 
-    // -----------------------------------------------------------------
-    // Comparison
-    // -----------------------------------------------------------------
-
-    /**
-     * Compare two to five candidates the caller may actually see.
-     *
-     * A candidate who is not visible is REPORTED in `unavailable` rather than
-     * failing the whole request: a stale shortlist is normal, and losing the
-     * comparison because one person made their profile private would be a bad
-     * trade. But if fewer than two remain there is nothing to compare, so that
-     * is a 422.
-     *
-     * @param  array<int, int>  $studentIds
-     * @return array<string, mixed>
-     */
     public function compare(User $actor, array $studentIds): array
     {
         $profiles = [];
@@ -106,17 +63,6 @@ class TalentEngagementService
         ];
     }
 
-    /**
-     * One row per skill, one column per student, `null` where the student does
-     * not have it.
-     *
-     * Rows are ordered by how many of the compared students have the skill, so
-     * the things they share rise to the top — which is the only ordering that
-     * is useful in a comparison table.
-     *
-     * @param  array<int, array<string, mixed>>  $profiles
-     * @return array<int, array<string, mixed>>
-     */
     private function skillMatrix(array $profiles): array
     {
         $rows = [];
@@ -141,8 +87,6 @@ class TalentEngagementService
             }
         }
 
-        // Fill the gaps explicitly, so every row has a value for every student
-        // and the client never has to distinguish "missing key" from "no skill".
         foreach ($rows as $name => $row) {
             foreach ($profiles as $profile) {
                 $key = (string) $profile['id'];
@@ -162,13 +106,6 @@ class TalentEngagementService
         return array_values($rows);
     }
 
-    // -----------------------------------------------------------------
-    // Shortlists
-    // -----------------------------------------------------------------
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
     public function createList(Organization $organization, User $actor, array $data): TalentList
     {
         return TalentList::create([
@@ -189,12 +126,6 @@ class TalentEngagementService
             ->paginate($perPage);
     }
 
-    /**
-     * A list belonging to this organization, or 404.
-     *
-     * The organization is part of the WHERE, not a check after the fetch, so a
-     * foreign id never loads the row at all.
-     */
     public function findList(Organization $organization, int $listId): TalentList
     {
         $list = TalentList::query()
@@ -214,14 +145,6 @@ class TalentEngagementService
         return $list;
     }
 
-    /**
-     * Add a candidate to a list.
-     *
-     * Idempotent on purpose: a "add to shortlist" button gets pressed twice, and
-     * a 422 the second time is a worse experience than the same row coming back.
-     * The UNIQUE index is the real guard; `firstOrCreate` is what makes the
-     * second press harmless.
-     */
     public function addCandidate(
         Organization $organization,
         User $actor,
@@ -231,8 +154,6 @@ class TalentEngagementService
     ): array {
         $list = $this->findList($organization, $listId);
 
-        // Same visibility rule as the list endpoint: a company cannot shortlist
-        // someone it is not allowed to see.
         $this->assertVisible($actor, $studentId);
 
         $candidate = TalentListCandidate::query()->firstOrCreate(
@@ -242,7 +163,6 @@ class TalentEngagementService
 
         $alreadyListed = ! $candidate->wasRecentlyCreated;
 
-        // A note supplied on a repeat press is an edit, not a no-op.
         if ($alreadyListed && $note !== null && $note !== $candidate->note) {
             $candidate->note = $note;
             $candidate->save();
@@ -254,16 +174,6 @@ class TalentEngagementService
         ];
     }
 
-    // -----------------------------------------------------------------
-    // Editing a list
-    // -----------------------------------------------------------------
-
-    /**
-     * Rename a list, or change its description. A list is the company's own
-     * working set, so both fields are freely editable; what is NOT editable is
-     * who created it, and the organization is re-checked here rather than
-     * trusted from the route.
-     */
     public function updateList(Organization $organization, int $listId, array $data): TalentList
     {
         $list = $this->findList($organization, $listId);
@@ -281,10 +191,6 @@ class TalentEngagementService
         return $list->fresh(['creator:id,name', 'candidates.student:id,name']);
     }
 
-    /**
-     * Delete a list. The candidates go with it — they are rows *in* the list,
-     * not people — and the people themselves are untouched.
-     */
     public function deleteList(Organization $organization, int $listId): void
     {
         $list = $this->findList($organization, $listId);
@@ -295,13 +201,6 @@ class TalentEngagementService
         });
     }
 
-    /**
-     * Remove one candidate from a list.
-     *
-     * 404 rather than a silent success when they were not on it: the caller is
-     * looking at a row that should exist, and "it worked" would hide the stale
-     * screen that made them press it.
-     */
     public function removeCandidate(Organization $organization, int $listId, int $studentId): void
     {
         $list = $this->findList($organization, $listId);
@@ -321,18 +220,6 @@ class TalentEngagementService
         }
     }
 
-    /**
-     * The funnel the talent screen shows: saved → contacted → responded.
-     *
-     * Counted per PERSON, not per row. A candidate on three shortlists is one
-     * saved candidate, otherwise the numbers would grow every time someone
-     * tidies their lists, and the three stages would not be comparable.
-     *
-     * `responded` counts accepted invitations only — a decline is a response
-     * too, but a funnel that includes it cannot be read as progress.
-     *
-     * @return array<string, int>
-     */
     public function funnel(Organization $organization): array
     {
         $saved = TalentListCandidate::query()
@@ -358,10 +245,6 @@ class TalentEngagementService
         ];
     }
 
-    // -----------------------------------------------------------------
-    // Notes
-    // -----------------------------------------------------------------
-
     public function addNote(Organization $organization, User $actor, int $studentId, string $body): TalentNote
     {
         $this->assertVisible($actor, $studentId);
@@ -386,21 +269,6 @@ class TalentEngagementService
             ->paginate($perPage);
     }
 
-    // -----------------------------------------------------------------
-    // Contact
-    // -----------------------------------------------------------------
-
-    /**
-     * Record a message from this company to a candidate.
-     *
-     * ⚠️ A previous version refused a second request while one was still
-     * `pending`, on the theory that "the learner already has an unanswered
-     * request". In practice NOTHING could ever move a request out of `pending`
-     * — there is no learner accept/decline endpoint and no company cancel — so
-     * the first message locked that candidate out of contact forever. The
-     * company may now write as often as it needs to; every message is its own
-     * row and the learner sees them in order.
-     */
     public function requestContact(
         Organization $organization,
         User $actor,
@@ -418,17 +286,6 @@ class TalentEngagementService
         ])->fresh(['student:id,name', 'requester:id,name']);
     }
 
-    /**
-     * Send the same message to every student this company may see.
-     *
-     * One row per student rather than one broadcast row: the learner inbox is a
-     * list of messages TO ME, and it must not have to know that a message was
-     * addressed to a crowd. It also means a student who becomes visible later
-     * simply was not part of this send, which is the honest outcome.
-     *
-     * Returns the number of recipients. Zero is a legitimate answer (a company
-     * that can see nobody), not an error.
-     */
     public function broadcastContact(Organization $organization, User $actor, string $message): int
     {
         $studentIds = $this->talent->visibleStudentIds($actor);
@@ -453,13 +310,6 @@ class TalentEngagementService
         return count($rows);
     }
 
-    /**
-     * The messages THIS learner has received from companies, newest first.
-     *
-     * Read-only by design: the learner sees who wrote and what they said, and
-     * the company's e-mail is never included. There is no accept/decline —
-     * a message is a message, not a request the learner has to answer.
-     */
     public function messagesFor(User $student, int $perPage = 20): LengthAwarePaginator
     {
         return TalentContactRequest::query()
@@ -470,18 +320,6 @@ class TalentEngagementService
             ->paginate($perPage);
     }
 
-    // -----------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------
-
-    /**
-     * The student must be discoverable by THIS caller.
-     *
-     * Delegated to TalentDiscoveryService so there is one visibility model: if
-     * `GET /talent` would not show them, nothing here may act on them either.
-     * A hidden student is reported as `TALENT_NOT_FOUND` (404), matching what
-     * the detail endpoint says — never as a 403, which would confirm the id.
-     */
     private function assertVisible(User $actor, int $studentId): void
     {
         try {

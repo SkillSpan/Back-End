@@ -4,13 +4,6 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * A message in a support thread — from the learner or from a support person.
- *
- * One request class for both directions: the body rules are identical, and the
- * controller decides who is sending from the route it is on. Splitting it in two
- * would duplicate the rules and let the two drift.
- */
 class SendSupportMessageRequest extends FormRequest
 {
     public function authorize(): bool

@@ -13,14 +13,6 @@ use Illuminate\Support\Facades\Config;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Task C — question content validation.
- *
- * A selected question must be usable: a non-empty authored prompt, plus
- * options that satisfy its declared item type. Invalid content is a
- * hard, explicit failure — the assessment is refused rather than
- * shipping a blank question or inventing a placeholder prompt.
- */
 class QuestionContentValidationTest extends TestCase
 {
     use RefreshDatabase;
@@ -67,8 +59,6 @@ class QuestionContentValidationTest extends TestCase
         $python = Skill::firstOrCreate(['slug' => 'python'], ['name' => 'Python', 'status' => 'active']);
 
         $this->makeItem('sql-001', $sql->id, 'single_choice', ['A', 'B'], 'Valid SQL prompt?');
-        // The only Python question is broken — the assessment must not
-        // quietly proceed with SQL alone.
         $this->makeItem('python-001', $python->id, 'single_choice', ['A', 'B'], null);
 
         $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
@@ -98,8 +88,6 @@ class QuestionContentValidationTest extends TestCase
 
         $role = $this->role(['sql']);
         $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
-        // Duplicates collapse to a single distinct option — not a real
-        // choice, so the answer could never be validated meaningfully.
         $this->makeItem('sql-001', $sql->id, 'single_choice', ['A', 'A'], 'Only one real option?');
 
         $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
@@ -146,7 +134,6 @@ class QuestionContentValidationTest extends TestCase
         $role = $this->role(['sql']);
         $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
 
-        // Missing text AND insufficient options on the same question.
         $this->makeItem('sql-001', $sql->id, 'single_choice', ['A'], null);
 
         $response = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
@@ -174,7 +161,6 @@ class QuestionContentValidationTest extends TestCase
         $assessmentId = $response->json('data.id');
         $this->assertSame('Which clause filters rows?', $response->json('data.questions.0.question_text'));
 
-        // Frozen into the snapshot, so the content survives bank edits.
         $this->assertDatabaseHas('baseline_question_snapshots', [
             'baseline_assessment_id' => $assessmentId,
             'item_id' => 'sql-001',
@@ -189,15 +175,6 @@ class QuestionContentValidationTest extends TestCase
             ->assertJsonPath('data.questions.0.question_text', 'Which clause filters rows?');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * @param  array<int, string>  $skillSlugs
-     */
     private function role(array $skillSlugs): CareerRole
     {
         $role = CareerRole::create([
@@ -225,9 +202,6 @@ class QuestionContentValidationTest extends TestCase
         return $role;
     }
 
-    /**
-     * @param  array<int, string>  $options
-     */
     private function makeItem(
         string $itemId,
         int $skillId,

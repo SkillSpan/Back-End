@@ -9,39 +9,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/**
- * US-REC-01 follow-up — an escalated assistant conversation.
- *
- * Created when the assistant answers `insufficient_context` and the learner
- * accepts the handoff, or when the learner asks for a human outright. A support
- * person (a mentor) picks it up from the admin panel and replies in the thread.
- *
- * `transcript` is a snapshot of the assistant exchange at handoff time. It is
- * the only place the learner's own words are persisted, and it exists because a
- * human needs them to help — `assistant_interactions` still stores no question
- * text (§12.5 data minimisation).
- */
 class SupportRequest extends Model
 {
     use HasFactory;
     use SoftDeletes;
 
-    /** Waiting for a support person to pick it up. */
     public const STATUS_PENDING = 'pending';
 
-    /** Claimed by a support person. */
     public const STATUS_ASSIGNED = 'assigned';
 
-    /** Answered and closed by the support person. */
     public const STATUS_RESOLVED = 'resolved';
 
-    /** Closed without resolution (duplicate, spam, learner gone). */
     public const STATUS_CLOSED = 'closed';
 
-    /** The assistant could not answer the question. */
     public const REASON_INSUFFICIENT_CONTEXT = 'insufficient_context';
 
-    /** The learner asked for a human without waiting for the assistant. */
     public const REASON_LEARNER_REQUESTED = 'learner_requested';
 
     protected $fillable = [
@@ -75,7 +57,6 @@ class SupportRequest extends Model
         return $this->belongsTo(StudentProfile::class);
     }
 
-    /** The support person (mentor) who owns this request. */
     public function assignee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
@@ -96,13 +77,11 @@ class SupportRequest extends Model
         return $this->hasMany(SupportMessage::class)->latest('created_at');
     }
 
-    /** Requests nobody has claimed yet. */
     public function scopePending(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_PENDING);
     }
 
-    /** Requests still needing attention (pending or claimed). */
     public function scopeOpen(Builder $query): Builder
     {
         return $query->whereIn('status', [self::STATUS_PENDING, self::STATUS_ASSIGNED]);

@@ -18,7 +18,6 @@ import sys
 BASE = "https://skillspan.alwaysdata.net"
 BODY = "storage/app/ro_body.json"
 
-
 def http(method: str, path: str, token: str | None = None, body=None) -> tuple[int, dict]:
     cmd = [
         "curl", "-s", "-o", BODY, "-w", "%{http_code}", "--noproxy", "*", "--max-time", "40",
@@ -36,7 +35,6 @@ def http(method: str, path: str, token: str | None = None, body=None) -> tuple[i
     except Exception:
         return int(status or 0), {}
 
-
 def rows(payload: dict) -> list:
     data = payload.get("data")
     if isinstance(data, list):
@@ -46,7 +44,6 @@ def rows(payload: dict) -> list:
             if isinstance(data.get(key), list):
                 return data[key]
     return []
-
 
 def main() -> None:
     args = sys.argv[1:]
@@ -97,7 +94,6 @@ def main() -> None:
     get("notifications", "/api/v1/notifications?per_page=5")
     get("unread count", "/api/v1/notifications/unread-count")
 
-    # Detail routes, using ids the lists just returned (still read-only).
     project_ids = [p.get("id") for p in rows(projects)][:2]
     for pid in project_ids:
         get(f"project {pid} detail", f"/api/v1/projects/{pid}")
@@ -109,7 +105,6 @@ def main() -> None:
     print(f"screens: {len(checks)}  ok: {len(checks) - len(bad)}  not-200: {len(bad)}")
     for label, status, detail in bad:
         print(f"  {label}: HTTP {status} {detail}")
-
 
 if __name__ == "__main__":
     main()

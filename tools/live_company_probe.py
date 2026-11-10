@@ -26,7 +26,6 @@ import sys
 BASE = os.environ.get("API_BASE", "https://skillspan.alwaysdata.net")
 ENV_FILE = os.path.join(os.path.dirname(__file__), "..", "postman_environment_mentor_e2e.json")
 
-# Company scope only. Admin and learner-only routes are deliberately excluded.
 ROUTES: list[tuple[str, str]] = [
     ("GET", "/api/v1/company/dashboard"),
     ("GET", "/api/v1/company/projects"),
@@ -77,7 +76,6 @@ ROUTES: list[tuple[str, str]] = [
     ("POST", "/api/v1/notifications/1/read"),
 ]
 
-
 def tokens() -> dict[str, str]:
     try:
         with open(ENV_FILE, encoding="utf-8") as handle:
@@ -89,7 +87,6 @@ def tokens() -> dict[str, str]:
         "learner": values.get("learner_token") or values.get("student_token") or "",
         "mentor": values.get("mentor_token") or values.get("token") or "",
     }
-
 
 def call(method: str, path: str, token: str | None) -> tuple[int, str]:
     cmd = [
@@ -115,7 +112,6 @@ def call(method: str, path: str, token: str | None) -> tuple[int, str]:
     except Exception:
         code = ""
     return int(status or 0), str(code)[:38]
-
 
 def main() -> None:
     tokens_ = tokens()
@@ -158,7 +154,6 @@ def main() -> None:
     print(f"missing       : {len(missing)}")
     for row in missing:
         print(f"  {row['method']} {row['path']}")
-
 
 if __name__ == "__main__":
     main()

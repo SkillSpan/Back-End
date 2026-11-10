@@ -141,8 +141,6 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
         return $this->snapshotService->createForProject($project, $learner);
     }
 
-    // --------------------------------------------------------------- tests
-
     public function test_validated_snapshot_produces_correct_payload(): void
     {
         $learner = $this->createLearnerWithProfile();
@@ -461,14 +459,6 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
         $this->assertNotEmpty($payload['validation']['constraints']);
     }
 
-    // ------------------------------------------------- interests propagation
-
-    /**
-     * Regression: ProjectMatchingSnapshotService never copied
-     * StudentProfile::interests into the snapshot, so the payload builder's
-     * interests branch was unreachable in the normal matching flow and
-     * `interest_match` had nothing to score.
-     */
     public function test_learner_interests_are_included_when_present(): void
     {
         $learner = $this->createLearnerWithProfile();
@@ -481,13 +471,11 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
 
         $snapshot = $this->makeValidatedSnapshot($learner, $project);
 
-        // The snapshot itself must carry them...
         $this->assertSame(
             ['web development', 'data science'],
             $snapshot->snapshot['learner']['interests'],
         );
 
-        // ...and the builder must forward them to the matching payload.
         $payload = $this->builder->build($snapshot);
 
         $this->assertArrayHasKey('interests', $payload['learner']);

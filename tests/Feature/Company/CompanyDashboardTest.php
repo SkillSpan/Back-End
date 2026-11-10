@@ -14,22 +14,6 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-COMP-03 — Company Dashboard & Overview.
- *
- * These tests pin the four things the story is really about:
- *
- *   1. WHO gets in — an admin of an approved organization, nobody else
- *      (BR-01 / AC-02), with a distinguishable code for a pending company.
- *   2. WHOSE data — always the caller's own organization, never another's
- *      (BR-02 / AC-13), even when the caller administers one and belongs to
- *      another.
- *   3. WHAT the numbers are — computed server-side from the approved status
- *      dictionary (BR-03 / BR-04), with an empty organization reporting zeros
- *      rather than omitting the keys.
- *   4. WHAT is not in the payload — no applicant identity in the funnel
- *      (BR-05 / AC-08).
- */
 class CompanyDashboardTest extends TestCase
 {
     use RefreshDatabase;
@@ -48,11 +32,6 @@ class CompanyDashboardTest extends TestCase
         $this->companyAdminRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
-
-    /** The enum is pending|verified|rejected — there is no 'approved' value. */
     private function organization(string $name = 'Acme', string $status = 'verified', array $attributes = []): Organization
     {
         return Organization::forceCreate(array_merge([
@@ -106,7 +85,6 @@ class CompanyDashboardTest extends TestCase
     {
         return Project::forceCreate(array_merge([
             'organization_id' => $organization->id,
-            // `projects.owner_id` is NOT NULL — every project has an author.
             'owner_id' => $this->owner()->id,
             'title' => 'Project '.uniqid(),
             'type' => 'company_sponsored',
@@ -117,7 +95,6 @@ class CompanyDashboardTest extends TestCase
         ], $attributes));
     }
 
-    /** One reusable author for every project a test creates. */
     private function owner(): User
     {
         return $this->owner ??= User::forceCreate([
@@ -150,10 +127,6 @@ class CompanyDashboardTest extends TestCase
             'read_at' => $read ? now() : null,
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // Access (BR-01 / AC-01 / AC-02)
-    // -----------------------------------------------------------------
 
     public function test_company_admin_of_an_approved_organization_can_load_the_dashboard(): void
     {
@@ -222,10 +195,6 @@ class CompanyDashboardTest extends TestCase
         $this->getJson('/api/v1/company/dashboard')->assertUnauthorized();
     }
 
-    // -----------------------------------------------------------------
-    // Scope (BR-02 / AC-13)
-    // -----------------------------------------------------------------
-
     public function test_another_organizations_projects_and_applications_never_appear(): void
     {
         $mine = $this->organization('Mine');
@@ -256,11 +225,6 @@ class CompanyDashboardTest extends TestCase
         $this->assertNotContains('Their Project', $funnelProjects);
     }
 
-    /**
-     * The dangerous variant: an admin of A who is a plain member of B must not
-     * read B. This is the exact bug OrganizationController::profile() was
-     * fixed for, so it is pinned here too.
-     */
     public function test_an_admin_of_one_organization_reads_that_one_not_another_they_belong_to(): void
     {
         $administered = $this->organization('Administered');
@@ -286,10 +250,6 @@ class CompanyDashboardTest extends TestCase
         $this->assertSame(['Administered Project'], array_column($response->json('data.recentProjects'), 'name'));
     }
 
-    // -----------------------------------------------------------------
-    // Section 3 — project counts (BR-04 / AC-05)
-    // -----------------------------------------------------------------
-
     public function test_project_counts_cover_every_lifecycle_state_including_zeros(): void
     {
         $organization = $this->organization();
@@ -305,7 +265,6 @@ class CompanyDashboardTest extends TestCase
 
         $states = $this->getJson('/api/v1/company/dashboard')->json('data.projectStates');
 
-        // Every status in the approved dictionary is present, zero included.
         foreach (Project::STATUSES as $status) {
             $this->assertArrayHasKey($status, $states);
         }
@@ -333,7 +292,6 @@ class CompanyDashboardTest extends TestCase
 
         $this->application($project, Application::STATUS_ACCEPTED);
         $this->application($project, Application::STATUS_ACCEPTED);
-        // Withdrawn never occupies a seat.
         $this->application($project, Application::STATUS_WITHDRAWN);
 
         Sanctum::actingAs($admin);
@@ -347,10 +305,6 @@ class CompanyDashboardTest extends TestCase
         $this->assertSame(4, $row['capacity']);
         $this->assertTrue($row['deadline']['closed']);
     }
-
-    // -----------------------------------------------------------------
-    // Section 2 — current tasks (AC-06 / AC-07)
-    // -----------------------------------------------------------------
 
     public function test_current_tasks_report_each_actionable_state(): void
     {
@@ -434,10 +388,6 @@ class CompanyDashboardTest extends TestCase
         $this->assertNull($tasks->firstWhere('type', 'deadline'));
     }
 
-    // -----------------------------------------------------------------
-    // Section 4 — funnel (AC-08 / BR-05)
-    // -----------------------------------------------------------------
-
     public function test_the_funnel_counts_each_status_and_totals_correctly(): void
     {
         $organization = $this->organization();
@@ -464,15 +414,9 @@ class CompanyDashboardTest extends TestCase
         $this->assertSame(1, $funnel['stages']['withdrawn']);
         $this->assertSame(0, $funnel['stages']['expired']);
 
-        // The stages must never sum to more than the total they report.
         $this->assertSame($funnel['total'], array_sum($funnel['stages']));
     }
 
-    /**
-     * `expired` is not a value anyone writes into `applications.status`; the
-     * funnel derives it from "still submitted, but the project's deadline has
-     * passed", and must not count those rows twice.
-     */
     public function test_undecided_applications_on_a_closed_project_are_reported_as_expired(): void
     {
         $organization = $this->organization();
@@ -517,10 +461,6 @@ class CompanyDashboardTest extends TestCase
         $this->assertStringNotContainsString('applicant', $payload);
     }
 
-    // -----------------------------------------------------------------
-    // Scenario 2 — a brand new organization
-    // -----------------------------------------------------------------
-
     public function test_a_new_organization_gets_zero_counts_and_an_empty_dashboard(): void
     {
         $organization = $this->organization('Brand New');
@@ -554,26 +494,11 @@ class CompanyDashboardTest extends TestCase
         $this->assertSame(2, $this->getJson('/api/v1/company/dashboard')->json('data.counts.unreadNotifications'));
     }
 
-    // -----------------------------------------------------------------
-    // BR-12 / NFR-PERF-06 — no N+1, no unbounded scan
-    // -----------------------------------------------------------------
-
-    /**
-     * The whole point of aggregating in SQL is that the number of queries does
-     * not depend on how much data the organization has. A per-project
-     * ProjectCapacityPolicy call (the obvious implementation) would make this
-     * grow linearly, so the assertion is a delta, not an absolute.
-     */
     public function test_the_query_count_does_not_grow_with_the_number_of_projects(): void
     {
         $organization = $this->organization();
         $admin = $this->companyAdmin($organization);
 
-        // One project in every state the dashboard branches on, so the first
-        // measurement already runs all of the task queries. Without this the
-        // second measurement would add a *fixed* handful of queries simply
-        // because a branch became non-empty for the first time — a constant,
-        // not an N+1, and the assertion below would be meaningless.
         foreach ($this->states() as $index => $status) {
             $this->seedProject($organization, $status, $index);
         }
@@ -582,8 +507,6 @@ class CompanyDashboardTest extends TestCase
 
         $small = $this->countQueries();
 
-        // 20 more projects over the same four states: only the row count
-        // changes, every query that could run already runs.
         foreach (range(1, 20) as $i) {
             $this->seedProject($organization, $this->states()[$i % 4], $i % 5);
         }
@@ -597,12 +520,6 @@ class CompanyDashboardTest extends TestCase
         );
     }
 
-    /**
-     * A bounded absolute cost, so a future edit that adds a query *per* section
-     * (still constant per project) cannot creep past the NFR-PERF-06 budget
-     * unnoticed. The bound covers authentication and authorization too, hence
-     * the headroom over the aggregate queries themselves.
-     */
     public function test_the_whole_request_costs_a_bounded_number_of_queries(): void
     {
         $organization = $this->organization();
@@ -621,7 +538,6 @@ class CompanyDashboardTest extends TestCase
         );
     }
 
-    /** The four states that each open a different branch inside `tasks()`. */
     private function states(): array
     {
         return [
@@ -636,7 +552,6 @@ class CompanyDashboardTest extends TestCase
     {
         $project = $this->project($organization, [
             'status' => $status,
-            // Inside the configured deadline window (7 days).
             'application_deadline' => now()->addDays($dayOffset)->toDateString(),
         ]);
 
@@ -658,10 +573,6 @@ class CompanyDashboardTest extends TestCase
 
         return $count;
     }
-
-    // -----------------------------------------------------------------
-    // AUTH-04 / Scenario 5 — denials are audited
-    // -----------------------------------------------------------------
 
     public function test_a_denied_dashboard_access_is_recorded_as_an_audit_event(): void
     {
@@ -694,15 +605,6 @@ class CompanyDashboardTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // AC-01 — a company login lands on the dashboard
-    // -----------------------------------------------------------------
-
-    /**
-     * The redirect itself is the client's job, but the server states where the
-     * representative belongs so the client does not have to re-derive it from
-     * roles. Same `redirect_url` convention as the password-reset response.
-     */
     public function test_a_company_login_states_the_dashboard_as_its_destination(): void
     {
         $organization = $this->organization();

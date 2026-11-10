@@ -13,20 +13,6 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Per-user rate limits on the expensive endpoints.
- *
- * These routes are the ones that cost real money or real CPU — an external
- * Data Science / assistant round trip, an uploaded file, or a write that fans
- * out notifications — so each carries a named limiter registered in
- * AppServiceProvider from config/rate_limits.php.
- *
- * The limiter sits AFTER auth but BEFORE validation and the controller, which
- * is what these tests exploit: the ceiling can be lowered to 1 and the
- * endpoint exercised without any of the external services being reachable. The
- * assertion that matters is the pair — the request still reaches the
- * application while budget remains, and the next one is refused with 429.
- */
 class ExpensiveEndpointRateLimitTest extends TestCase
 {
     use RefreshDatabase;
@@ -68,10 +54,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
         return Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid()]);
     }
 
-    /**
-     * Lower one limiter to $limit, spend that budget, then require the next
-     * call to be refused with 429.
-     */
     private function assertThrottled(callable $send, string $configKey, int $limit = 1): void
     {
         config([$configKey => $limit]);
@@ -86,8 +68,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
 
         $send()->assertStatus(429);
     }
-
-    // ------------------------------------------------------- the limits
 
     public function test_assistant_ask_is_rate_limited(): void
     {
@@ -129,13 +109,11 @@ class ExpensiveEndpointRateLimitTest extends TestCase
 
         config(['rate_limits.readiness_calculate' => 1]);
 
-        // Spend the single unit on /readiness/calculate…
         $this->assertNotSame(
             429,
             $this->postJson('/api/v1/readiness/calculate', [])->getStatusCode(),
         );
 
-        // …and /skill-match, being the same Data Science call, is now out too.
         $this->postJson('/api/v1/skill-match', [
             'student_profile_id' => $learner->studentProfile->id,
             'career_role_id' => 1,
@@ -157,8 +135,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
     {
         Sanctum::actingAs($this->learnerWithProfile());
 
-        // The id need not resolve: the limiter runs before route-model binding,
-        // so a 404 here is the proof that the request was not throttled.
         $this->assertThrottled(
             fn () => $this->postJson('/api/v1/projects/1/match', []),
             'rate_limits.project_matching',
@@ -191,8 +167,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
         );
     }
 
-    // ------------------------------------------- the limit behaves sanely
-
     public function test_the_budget_is_per_user_and_not_shared(): void
     {
         config(['rate_limits.assistant_ask' => 1]);
@@ -209,8 +183,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
         $this->assertNotSame(429, $ask()->getStatusCode());
         $ask()->assertStatus(429);
 
-        // The second learner has their own bucket: one account exhausting its
-        // budget must not lock anyone else out.
         Sanctum::actingAs($second);
         $this->assertNotSame(429, $ask()->getStatusCode());
     }
@@ -237,7 +209,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
             'question' => 'What should I focus on next?',
         ])->assertStatus(429);
 
-        // Exhausting the assistant budget leaves readiness untouched.
         $this->assertNotSame(
             429,
             $this->postJson('/api/v1/readiness/calculate', [])->getStatusCode(),
@@ -246,9 +217,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
 
     public function test_baseline_submit_is_rate_limited(): void
     {
-        // Submitting a baseline scores the whole attempt through a synchronous
-        // Data Science call — the same class of cost as readiness/intelligence.
-        // It was the one such route left uncovered.
         Sanctum::actingAs($this->learnerWithProfile());
 
         $this->assertThrottled(
@@ -261,8 +229,6 @@ class ExpensiveEndpointRateLimitTest extends TestCase
 
     public function test_ordinary_usage_stays_well_inside_the_default_limits(): void
     {
-        // No config override: this is the shipped ceiling. A learner asking a
-        // few questions in a row must never see a 429.
         Sanctum::actingAs($this->learnerWithProfile());
 
         for ($i = 0; $i < 5; $i++) {

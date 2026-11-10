@@ -13,28 +13,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * The learner's side of a team invitation — `GET /api/v1/team-invitations/{id}`
- * and `POST /api/v1/team-invitations/{id}/response`.
- *
- * A separate controller from ProjectTeamController because the caller is a
- * different person with a different rule: the team endpoints are the company
- * acting on a project it owns, these two are the invitee acting on an
- * invitation addressed to them. Same service, opposite direction.
- *
- * No `role:` middleware: the invited person is identified by the row, not by a
- * role, and an administrator has to be able to read one to support it. Both
- * rules live in ProjectTeamService.
- */
 class TeamInvitationController extends Controller
 {
     public function __construct(
         private readonly ProjectTeamService $teamService,
     ) {}
 
-    /**
-     * GET /api/v1/team-invitations/{invitation}
-     */
     public function show(Request $request, int $invitation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -65,11 +49,6 @@ class TeamInvitationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/team-invitations/{invitation}/response
-     *
-     * Body: { "response": "accepted" | "declined" }
-     */
     public function respond(Request $request, int $invitation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -136,9 +115,6 @@ class TeamInvitationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function payload(TeamInvitation $invitation): array
     {
         return [

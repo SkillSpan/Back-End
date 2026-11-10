@@ -16,20 +16,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The team screen's read, removing a participant, and invitations.
- *
- * Three rules are worth pinning here, because each one is a way the screen
- * could lie:
- *
- *   1. the payload is built from ACCEPTED APPLICATIONS, not from team rows, so a
- *      participant the company accepted but has not placed yet is still on
- *      screen — that person is the reason the screen exists;
- *   2. removing a member frees the seat without deleting history, and cancels a
- *      pending invitation so the learner is not left with a dead link;
- *   3. an invitation can only be answered by the person it is addressed to, and
- *      only once.
- */
 class TeamReadAndInvitationsTest extends TestCase
 {
     use RefreshDatabase;
@@ -42,10 +28,6 @@ class TeamReadAndInvitationsTest extends TestCase
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Test Org'): Organization
     {
@@ -134,10 +116,6 @@ class TeamReadAndInvitationsTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // GET /projects/{project}/team
-    // -----------------------------------------------------------------
-
     public function test_the_owner_reads_the_team_with_unplaced_accepted_applicants(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -159,15 +137,12 @@ class TeamReadAndInvitationsTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.project.id', $project->id);
 
-        // Both accepted applicants are on the screen — the placed one AND the
-        // one still waiting to be placed. The rejected one is not.
         $ids = collect($response->json('data.participants'))->pluck('application_id')->all();
         sort($ids);
         $expected = [$placed->id, $waiting->id];
         sort($expected);
         $this->assertSame($expected, $ids);
 
-        // Demand is two, one is staffed, so the role still needs one person.
         $roleRow = collect($response->json('data.roles'))->firstWhere('name', 'Data Analyst');
         $this->assertSame(2, $roleRow['capacity']);
         $this->assertSame(1, $roleRow['assigned']);
@@ -175,7 +150,6 @@ class TeamReadAndInvitationsTest extends TestCase
         $this->assertFalse($response->json('data.composition.valid'));
         $this->assertSame('Data Analyst', $response->json('data.composition.unfilled_roles.0.name'));
 
-        // The waitlisted applicant is offered separately, never as a participant.
         $this->assertSame($onHold->id, $response->json('data.waitlist.0.application_id'));
     }
 
@@ -223,10 +197,6 @@ class TeamReadAndInvitationsTest extends TestCase
         $this->getJson('/api/v1/projects/1/team')->assertStatus(401);
     }
 
-    // -----------------------------------------------------------------
-    // DELETE /projects/{project}/team/assignments/{application}
-    // -----------------------------------------------------------------
-
     public function test_removing_a_participant_frees_the_seat_and_keeps_the_row(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -241,7 +211,6 @@ class TeamReadAndInvitationsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        // History survives: the row is still there, marked removed.
         $this->assertDatabaseHas('project_team_members', [
             'id' => $member->id,
             'assignment_state' => 'removed',
@@ -285,7 +254,6 @@ class TeamReadAndInvitationsTest extends TestCase
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
         $project = $this->project($owner, Project::STATUS_SELECTION);
 
-        // A team exists, but not for this application.
         $this->staff($project, $this->application($project, $this->learner('other@test.com')));
 
         $application = $this->application($project, $this->learner('member@test.com'));
@@ -305,7 +273,6 @@ class TeamReadAndInvitationsTest extends TestCase
         $application = $this->application($project, $this->learner('member@test.com'));
         $this->staff($project, $application);
 
-        // Complete and archive it, then try to change the team.
         $project->update(['status' => Project::STATUS_ARCHIVED]);
 
         Sanctum::actingAs($owner);
@@ -329,10 +296,6 @@ class TeamReadAndInvitationsTest extends TestCase
         $this->deleteJson("/api/v1/projects/{$project->id}/team/assignments/{$application->id}")
             ->assertStatus(403);
     }
-
-    // -----------------------------------------------------------------
-    // POST /projects/{project}/team/invitations
-    // -----------------------------------------------------------------
 
     public function test_inviting_the_team_creates_one_pending_invitation_each(): void
     {
@@ -394,10 +357,6 @@ class TeamReadAndInvitationsTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_TEAM_EMPTY');
     }
 
-    // -----------------------------------------------------------------
-    // The learner's side
-    // -----------------------------------------------------------------
-
     public function test_the_invited_person_reads_and_accepts_their_invitation(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -442,7 +401,6 @@ class TeamReadAndInvitationsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', TeamInvitation::STATUS_DECLINED);
 
-        // The company sees the decline instead of an unexplained empty seat.
         Sanctum::actingAs($owner);
         $this->getJson("/api/v1/projects/{$project->id}/team")
             ->assertOk()

@@ -11,20 +11,8 @@ use App\Models\RoadmapActionPrerequisite;
 use App\Models\SkillGapResult;
 use Illuminate\Support\Facades\DB;
 
-/**
- * US-INT-01 §22 — atomic persistence for a complete intelligence
- * decision: skill gaps + readiness + roadmap in ONE transaction. If any
- * part fails, nothing persists and previous historical results remain
- * untouched.
- */
 class IntelligencePersistenceService
 {
-    /**
-     * @param  array<string, mixed>  $skillGap  validated skill-gap response
-     * @param  array<string, mixed>  $readiness  validated readiness response
-     * @param  array<string, mixed>|null  $roadmap  validated roadmap response (nullable when disabled)
-     * @param  array<string, string>  $skillNameById
-     */
     public function persistCompleteDecision(
         DecisionSnapshot $snapshot,
         array $skillGap,
@@ -99,16 +87,6 @@ class IntelligencePersistenceService
             'practical_experience_component' => $result['practical_experience_component'] ?? null,
             'assessment_reliability_component' => $result['assessment_reliability_component'] ?? null,
             'profile_completeness_component' => $result['profile_completeness_component'] ?? null,
-            /*
-             * Optional by design: the cap is Laravel's decision, so the
-             * service is not obliged to report it (see
-             * IntelligenceResponseValidator::validateReadiness()).
-             *
-             * Follow-up (US-INT-01): this path should derive the cap from the
-             * per-skill `is_critical` + `match_ratio` data the way
-             * ReadinessService does, rather than trusting the service. Until
-             * then an omitted flag is recorded as "not applied".
-             */
             'critical_cap_applied' => (bool) ($result['critical_skill_cap_applied'] ?? false),
             'band' => $result['band'] ?? null,
             'algorithm_version' => $algorithmVersion,
@@ -124,9 +102,6 @@ class IntelligencePersistenceService
         ]);
     }
 
-    /**
-     * @return list<SkillGapResult>
-     */
     private function persistSkillGaps(DecisionSnapshot $snapshot, array $skillGap): array
     {
         $results = [];
@@ -170,25 +145,12 @@ class IntelligencePersistenceService
             $configurationVersion,
             $requestId,
         ) {
-            // Historical versioning: only ONE active roadmap per
-            // (learner, role) — the previous one is superseded, never
-            // deleted or updated; its actions remain accessible.
             Roadmap::query()
                 ->where('student_profile_id', $snapshot->student_profile_id)
                 ->where('career_role_id', $snapshot->career_role_id)
                 ->where('status', Roadmap::STATUS_ACTIVE)
                 ->update(['status' => Roadmap::STATUS_SUPERSEDED]);
 
-            /*
-             * Roadmap version semantics (US-INT-01 / Roadmap v1): Laravel
-             * owns the persisted roadmap version AND status — the version is
-             * always the highest existing version for this (learner, role)
-             * plus one, so historical roadmaps can never collapse onto the
-             * same version, and the previous active roadmap is superseded
-             * above. FastAPI is NOT required to send `roadmap_version` /
-             * `status`: a stateless service cannot know the learner's
-             * history, so those values are never taken from the response.
-             */
             $nextVersion = ((int) Roadmap::query()
                 ->where('student_profile_id', $snapshot->student_profile_id)
                 ->where('career_role_id', $snapshot->career_role_id)
@@ -202,26 +164,10 @@ class IntelligencePersistenceService
                 'version' => $nextVersion,
                 'status' => Roadmap::STATUS_ACTIVE,
                 'generated_at' => now(),
-                /*
-                 * Ownership: FastAPI owns the roadmap algorithm/configuration
-                 * versions and echoes them on its OWN roadmap response — they
-                 * are NOT taken from the skill-gap response, which describes a
-                 * different calculation and may legitimately report different
-                 * values. The skill-gap-derived values remain a defensive
-                 * fallback only.
-                 */
                 'algorithm_version' => $roadmap['algorithm_version'] ?? $algorithmVersion,
                 'configuration_version' => $roadmap['configuration_version'] ?? $configurationVersion,
                 'request_id' => $requestId,
                 'explanation' => $roadmap['explanation'] ?? null,
-                /*
-                 * Roadmap-level totals and limitations are FastAPI-owned and
-                 * are stored VERBATIM from the validated response: the total
-                 * is never re-derived by summing the actions, the calendar
-                 * duration is never recomputed from hours, and limitations
-                 * are never dropped. `estimated_duration_weeks` is an
-                 * integer or null (Roadmap v1).
-                 */
                 'estimated_total_hours' => isset($roadmap['estimated_total_hours'])
                     && is_numeric($roadmap['estimated_total_hours'])
                     ? (float) $roadmap['estimated_total_hours']
@@ -245,16 +191,6 @@ class IntelligencePersistenceService
         });
     }
 
-    /**
-     * Persist every roadmap action together with its FULL prerequisite set.
-     *
-     * Multiple prerequisites are stored in `roadmap_action_prerequisites`;
-     * the legacy single column keeps the first prerequisite so existing
-     * readers that only know about it do not regress.
-     *
-     * @param  array<string, string>  $skillNameById
-     * @return array<string, RoadmapAction> FastAPI action_id => persisted action
-     */
     private function persistRoadmapActions(Roadmap $roadmap, array $result, array $skillNameById): array
     {
         $orderIndex = 0;
@@ -273,9 +209,6 @@ class IntelligencePersistenceService
                     'phase' => $this->mapPhase($phase['phase']),
                     'type' => $this->mapType($action['action_type']),
                     'target_skill_id' => $targetSkillId !== null ? (int) $targetSkillId : null,
-                    // Legacy single-prerequisite column: first id only, for
-                    // backward compatibility. The relation below is the source
-                    // of truth for the complete set.
                     'prerequisite_skill_id' => $prerequisiteSkillIds[0] ?? null,
                     'title' => (string) $action['title'],
                     'objective' => $action['objective'] ?? null,
@@ -286,13 +219,6 @@ class IntelligencePersistenceService
                     'estimated_hours' => isset($action['estimated_hours']) && is_numeric($action['estimated_hours'])
                         ? (float) $action['estimated_hours']
                         : null,
-                    /*
-                     * Stored exactly as FastAPI returned it — the calendar
-                     * duration in weeks is FastAPI's calculation (it depends
-                     * on the learner's weekly availability) and is NEVER
-                     * re-derived from hours here. The legacy
-                     * `estimated_duration_hours` column is not written.
-                     */
                     'estimated_duration_weeks' => isset($action['estimated_duration_weeks'])
                         && is_numeric($action['estimated_duration_weeks'])
                         ? (float) $action['estimated_duration_weeks']
@@ -303,12 +229,6 @@ class IntelligencePersistenceService
                         : null,
                     'completion_criteria' => $action['completion_criteria'] ?? null,
                     'explanation' => $action['explanation'] ?? null,
-                    /*
-                     * Distinct from `prerequisite_skill_ids`: these are the
-                     * skills CURRENTLY blocking the action. Stored verbatim
-                     * as a JSON list (or null) and never merged into the
-                     * prerequisite relation.
-                     */
                     'blocking_prerequisite_skill_ids' => $action['blocking_prerequisite_skill_ids'] ?? null,
                 ]);
 
@@ -328,16 +248,6 @@ class IntelligencePersistenceService
         return $actionIdMap;
     }
 
-    /**
-     * Resolve FastAPI's next_best_action_id to the persisted action of the
-     * SAME roadmap. The map is built only from this roadmap's actions, so a
-     * cross-roadmap reference can never be stored; an id that does not map
-     * to a returned action is left unset (the response validator already
-     * rejects such a response before persistence).
-     *
-     * @param  array<string, mixed>  $roadmap
-     * @param  array<string, RoadmapAction>  $actionIdMap
-     */
     private function resolveNextBestActionId(array $roadmap, array $actionIdMap): ?int
     {
         $nextBestActionId = $roadmap['next_best_action_id'] ?? null;
@@ -351,20 +261,6 @@ class IntelligencePersistenceService
         return $action instanceof RoadmapAction ? (int) $action->id : null;
     }
 
-    /**
-     * Explicit, non-silent prerequisite id list.
-     *
-     * null / absent means "no prerequisites". Anything else must already be
-     * a list of integer ids: a non-array (e.g. "2,5,8") or a non-integer
-     * element is a contract violation and fails loudly rather than being
-     * silently discarded — the response validator enforces the same rule
-     * before persistence, so this is a defensive guard, not a normalizer.
-     * Duplicates are NOT collapsed here; the response validator rejects
-     * them, and the unique index on roadmap_action_prerequisites would
-     * reject them at the database level too.
-     *
-     * @return list<int>
-     */
     private function normalizePrerequisiteIds(mixed $ids): array
     {
         if ($ids === null) {
@@ -398,12 +294,6 @@ class IntelligencePersistenceService
         return $normalized;
     }
 
-    /**
-     * Validate-and-return the phase name. There is deliberately NO
-     * fallback: an unknown phase is a FastAPI contract violation and must
-     * never be silently rewritten to "core_skills". The known phases live
-     * once, on RoadmapAction::PHASE_ORDER.
-     */
     private function mapPhase(string $phase): string
     {
         if (! array_key_exists($phase, RoadmapAction::PHASE_ORDER)) {
@@ -418,11 +308,6 @@ class IntelligencePersistenceService
         return $phase;
     }
 
-    /**
-     * Validate-and-return the action type. There is deliberately NO
-     * fallback: an unknown type is a FastAPI contract violation and must
-     * never be silently rewritten to "practice".
-     */
     private function mapType(string $type): string
     {
         if (! in_array($type, RoadmapAction::TYPES, true)) {

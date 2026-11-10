@@ -19,14 +19,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/**
- * Task 10 — ProjectMatchingService contract integration.
- *
- * Exercises the Laravel -> FastAPI POST /api/v1/project-matching call
- * against the verified ProjectMatchingRequest / ProjectMatchingResponse
- * schema: payload shape, auth headers, correlation, schema validation,
- * and the full error taxonomy. No live service is contacted.
- */
 class ProjectMatchingServiceTest extends TestCase
 {
     use RefreshDatabase;
@@ -59,8 +51,6 @@ class ProjectMatchingServiceTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------------------ fixtures
 
     private function createLearner(): User
     {
@@ -112,13 +102,6 @@ class ProjectMatchingServiceTest extends TestCase
         ], $attributes));
     }
 
-    /**
-     * A project with one NON-critical required skill, so eligibility
-     * passes on skill grounds regardless of the learner's level, while
-     * still producing a meaningful required_skills block.
-     *
-     * @return array{0: Project, 1: Skill}
-     */
     private function createProjectWithSkill(): array
     {
         $skill = Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
@@ -145,13 +128,6 @@ class ProjectMatchingServiceTest extends TestCase
         return $this->snapshotService->createForProject($project, $learner);
     }
 
-    /**
-     * A response body that satisfies the verified ProjectMatchingResponse
-     * schema for the given snapshot.
-     *
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
     private function validResponse(ProjectMatchingSnapshot $snapshot, array $overrides = []): array
     {
         return array_merge([
@@ -210,8 +186,6 @@ class ProjectMatchingServiceTest extends TestCase
         $this->fail("Expected IntelligenceException [{$codeName}] but none was thrown.");
     }
 
-    // --------------------------------------------------------- gating tests
-
     public function test_disabled_integration_is_rejected_before_any_request(): void
     {
         config(['services.data_science.project_matching_enabled' => false]);
@@ -260,8 +234,6 @@ class ProjectMatchingServiceTest extends TestCase
 
         Http::assertNothingSent();
     }
-
-    // -------------------------------------------------------- happy path
 
     public function test_successful_match_returns_normalized_result(): void
     {
@@ -344,8 +316,6 @@ class ProjectMatchingServiceTest extends TestCase
         });
     }
 
-    // ------------------------------------------------- correlation failures
-
     public function test_request_id_mismatch_is_rejected(): void
     {
         $snapshot = $this->makeSnapshot();
@@ -408,9 +378,6 @@ class ProjectMatchingServiceTest extends TestCase
 
     public function test_missing_algorithm_version_is_rejected(): void
     {
-        // algorithm_version is REQUIRED by the agreed contract: the service
-        // must echo the version Laravel sent, never omit it and never
-        // substitute its own default.
         $snapshot = $this->makeSnapshot();
 
         $body = $this->validResponse($snapshot);
@@ -468,8 +435,6 @@ class ProjectMatchingServiceTest extends TestCase
 
         $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
     }
-
-    // --------------------------------------------------- schema violations
 
     public function test_missing_recommendation_is_rejected(): void
     {
@@ -545,8 +510,6 @@ class ProjectMatchingServiceTest extends TestCase
 
     public function test_missing_skill_results_is_accepted(): void
     {
-        // skill_results is OPTIONAL in ProjectRecommendationResult, so its
-        // absence must not fail the call.
         $snapshot = $this->makeSnapshot();
 
         $body = $this->validResponse($snapshot);
@@ -602,9 +565,6 @@ class ProjectMatchingServiceTest extends TestCase
 
         $body = $this->validResponse($snapshot);
 
-        // A JSON OBJECT on the wire, not an array: it encodes as
-        // {"skill_id":1} and decodes to a PHP array whose values are not
-        // objects — so it must be rejected, never silently skipped.
         $body['recommendation']['skill_results'] = ['skill_id' => 1];
         $this->assertStringStartsWith('{', json_encode($body['recommendation']['skill_results']));
 
@@ -633,8 +593,6 @@ class ProjectMatchingServiceTest extends TestCase
 
         $this->assertFailsWith('INTELLIGENCE_INVALID_RESPONSE', 502, fn () => $this->service->match($snapshot));
     }
-
-    // ------------------------------------------------------ transport errors
 
     public function test_upstream_422_is_reported_as_validation_error(): void
     {

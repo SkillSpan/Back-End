@@ -20,23 +20,6 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Task A — snapshot integrity.
- *
- * A baseline question snapshot is a historical record of exactly what a
- * learner was shown and how their answers are validated. Once created it
- * must survive arbitrary mutation of the source data it was copied from:
- *
- *   - deleting a question from the bank must NOT delete the snapshot;
- *   - editing a question's text/options/type must NOT change the
- *     snapshot;
- *   - deactivating a question must NOT invalidate an in-flight
- *     assessment;
- *   - deleting a skill must NOT silently cascade the snapshot away.
- *
- * Retrieval and submission must keep working from the frozen snapshot
- * alone, even after the source row is gone.
- */
 class SnapshotIntegrityTest extends TestCase
 {
     use RefreshDatabase;
@@ -57,24 +40,14 @@ class SnapshotIntegrityTest extends TestCase
         Config::set('services.data_science.service_token', 'test-service-token');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Schema / foreign-key design
-    |--------------------------------------------------------------------------
-    */
-
     public function test_snapshot_foreign_keys_are_non_destructive(): void
     {
         $this->assertSame('sqlite', DB::connection()->getDriverName());
 
         $byColumn = $this->foreignKeyActions('baseline_question_snapshots');
 
-        // Deleting a source question detaches the snapshot; it does not
-        // destroy it.
         $this->assertSame('SET NULL', $byColumn['baseline_assessment_item_id'] ?? null);
 
-        // A skill is a stable taxonomy node: refuse the delete rather
-        // than orphan the snapshot's skill mapping.
         $this->assertSame('RESTRICT', $byColumn['skill_id'] ?? null);
     }
 
@@ -102,8 +75,6 @@ class SnapshotIntegrityTest extends TestCase
             BaselineQuestionSnapshot::where('baseline_assessment_id', $assessmentId)->count()
         );
 
-        // The parent assessment owns its snapshot rows — deleting it
-        // legitimately removes them (this cascade is intentionally kept).
         $assessment->delete();
 
         $this->assertSame(
@@ -121,18 +92,10 @@ class SnapshotIntegrityTest extends TestCase
 
         $skillId = (int) $assessment->questionSnapshots()->value('skill_id');
 
-        // RESTRICT: the delete must fail loudly rather than silently
-        // cascade the assessment's skill mapping out of existence.
         $this->expectException(QueryException::class);
 
         Skill::query()->whereKey($skillId)->delete();
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Source-question deletion / modification
-    |--------------------------------------------------------------------------
-    */
 
     public function test_deleting_a_source_question_does_not_delete_its_snapshot(): void
     {
@@ -147,8 +110,6 @@ class SnapshotIntegrityTest extends TestCase
 
         $this->assertNotNull($itemId);
 
-        // Hard-delete the source question straight through the query
-        // builder so Eloquent events cannot mask the DB-level behaviour.
         BaselineAssessmentItem::query()->whereKey($itemId)->delete();
 
         $stillThere = BaselineQuestionSnapshot::find($snapshotId);
@@ -159,7 +120,6 @@ class SnapshotIntegrityTest extends TestCase
             'The snapshot should be detached from the deleted source question.'
         );
 
-        // Frozen content is intact and still identifies the question.
         $this->assertNotEmpty($stillThere->item_id);
         $this->assertSame('single_choice', $stillThere->item_type);
         $this->assertNotEmpty($stillThere->options);
@@ -187,7 +147,6 @@ class SnapshotIntegrityTest extends TestCase
 
         $this->assertCount(2, $before);
 
-        // Wipe the entire source bank.
         BaselineAssessmentItem::query()->delete();
 
         $after = BaselineQuestionSnapshot::query()
@@ -225,8 +184,6 @@ class SnapshotIntegrityTest extends TestCase
             'options' => $snapshot->options,
         ];
 
-        // Rewrite the live question: new text, new options, new type,
-        // and deactivate it.
         BaselineAssessmentItem::query()
             ->where('item_id', 'sql-001')
             ->update([
@@ -244,11 +201,6 @@ class SnapshotIntegrityTest extends TestCase
         $this->assertSame($frozen['options'], $reloaded->options);
     }
 
-    /**
-     * The Intelligence request is rebuilt from the snapshot, so the SCORING
-     * inputs must be frozen too — otherwise editing the bank after the
-     * learner started would silently change their score.
-     */
     public function test_scoring_inputs_are_frozen_at_assessment_start(): void
     {
         [$user] = $this->createLearner();
@@ -273,7 +225,6 @@ class SnapshotIntegrityTest extends TestCase
         $this->assertSame(1.0, (float) $frozen['weight']);
         $this->assertSame('sql', $frozen['skill_slug']);
 
-        // Rewrite every scoring input on the live item.
         BaselineAssessmentItem::query()
             ->where('item_id', 'sql-001')
             ->update([
@@ -303,7 +254,6 @@ class SnapshotIntegrityTest extends TestCase
             ->where('item_id', 'sql-001')
             ->firstOrFail();
 
-        // seedItems() writes item weight 1.000; the role skill weight is 0.9.
         $this->assertSame(1.0, (float) $snapshot->weight);
         $this->assertSame(0.9, (float) $snapshot->importance_weight);
         $this->assertNotEquals(
@@ -321,18 +271,11 @@ class SnapshotIntegrityTest extends TestCase
 
         BaselineAssessmentItem::query()->update(['is_active' => false]);
 
-        // Retrieval still returns the frozen question set.
         $this->getJson("/api/v1/baseline-assessments/{$assessment->id}")
             ->assertStatus(200)
             ->assertJsonPath('data.status', 'in_progress')
             ->assertJsonCount(2, 'data.questions');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Retrieval from the frozen snapshot
-    |--------------------------------------------------------------------------
-    */
 
     public function test_retrieval_uses_frozen_content_after_source_deletion(): void
     {
@@ -385,22 +328,6 @@ class SnapshotIntegrityTest extends TestCase
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Submission from the frozen snapshot
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Hard-deleting the source item detaches the snapshot (ON DELETE SET
-     * NULL), which destroys the numeric `baseline_assessment_item_id` the
-     * Intelligence contract requires. The frozen content survives, but the
-     * submission must fail closed: sending a fabricated id would score the
-     * learner against a question that no longer exists.
-     *
-     * (The admin question-bank refuses this delete outright with a 409; this
-     * test covers the out-of-band DB case.)
-     */
     public function test_submission_fails_closed_after_source_questions_are_deleted(): void
     {
         [$user] = $this->createLearner();
@@ -408,8 +335,6 @@ class SnapshotIntegrityTest extends TestCase
 
         [$assessment] = $this->startDynamicAssessment($user, ['sql', 'python']);
 
-        // Answers are derived from the FROZEN snapshot before the bank is
-        // wiped, then the bank is removed entirely.
         $responses = $assessment->questionSnapshots
             ->map(fn (BaselineQuestionSnapshot $s) => [
                 'question_id' => $s->item_id,
@@ -428,12 +353,10 @@ class SnapshotIntegrityTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'ASSESSMENT_SNAPSHOT_INCOMPLETE');
 
-        // Nothing was scored and the attempt is still resumable.
         Http::assertNothingSent();
         $this->assertSame(0, SkillEvaluation::count());
         $this->assertSame('in_progress', $assessment->fresh()->status);
 
-        // The frozen content itself is still intact.
         $snapshot = BaselineQuestionSnapshot::query()
             ->where('baseline_assessment_id', $assessment->id)
             ->firstOrFail();
@@ -458,14 +381,12 @@ class SnapshotIntegrityTest extends TestCase
 
         $frozenFirstOption = (string) $snapshot->options[0];
 
-        // The live options no longer contain the frozen answer.
         BaselineAssessmentItem::query()
             ->where('item_id', 'sql-001')
             ->update(['options' => json_encode(['X', 'Y', 'Z'])]);
 
         $responses = $assessment->questionSnapshots
             ->map(fn (BaselineQuestionSnapshot $s) => [
-                // Send a value that is only valid under the FROZEN list.
                 'question_id' => $s->item_id,
                 'answer' => $s->item_id === 'sql-001'
                     ? $frozenFirstOption
@@ -476,7 +397,6 @@ class SnapshotIntegrityTest extends TestCase
 
         $this->fakeIntelligence($assessment);
 
-        // Accepted, because validation reads the frozen option list.
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
             'responses' => $responses,
         ])->assertStatus(200);
@@ -496,8 +416,6 @@ class SnapshotIntegrityTest extends TestCase
         $responses = $assessment->questionSnapshots
             ->map(fn (BaselineQuestionSnapshot $s) => [
                 'question_id' => $s->item_id,
-                // 'X' exists only in the NEW live options — the frozen
-                // snapshot never offered it, so it must be rejected.
                 'answer' => $s->item_id === 'sql-001' ? 'X' : (string) ($s->options[0] ?? 'A'),
             ])
             ->values()
@@ -510,15 +428,6 @@ class SnapshotIntegrityTest extends TestCase
             ->assertJsonPath('code', 'INVALID_ANSWER_OPTION');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * @return array<string, string> column => ON DELETE action
-     */
     private function foreignKeyActions(string $table): array
     {
         $actions = [];

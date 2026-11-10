@@ -4,26 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-COMP-03 — the Database task list asks every notification to carry the
- * organization it belongs to and the entity it is about, not just a free-text
- * `link`.
- *
- * Until now a notification knew *who* it was for (`user_id`), *what kind* of
- * event it was (`category`) and *where* it pointed (`link`) — but not *which
- * organization* produced it and *which record* it refers to. That is fine for
- * the mentor/student traffic this table was built for, and it is what the
- * company dashboard needs once US-PRJ-01 starts emitting project events: a
- * notification list that can be filtered per organization, and a client that
- * can open the exact record instead of parsing a URL.
- *
- * All three columns are nullable: every row written before this migration is
- * still valid, and a notification that genuinely has no organization (a
- * learner-to-mentor message) stays valid too.
- *
- * Guarded with hasColumn() so a re-run — or a database where the columns were
- * added by hand — is a no-op instead of an error.
- */
 return new class extends Migration
 {
     public function up(): void

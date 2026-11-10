@@ -13,9 +13,6 @@ class VerifyRequest extends FormRequest
 
     public function rules(): array
     {
-        // No `exists:users,email`: an unknown address must produce the exact
-        // same "invalid or expired code" outcome as a wrong OTP, otherwise
-        // this endpoint reveals which emails are registered.
         return [
             'email' => ['required', 'email'],
             'otp' => ['required', 'string', 'size:6'],

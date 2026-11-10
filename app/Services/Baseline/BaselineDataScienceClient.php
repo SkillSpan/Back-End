@@ -11,71 +11,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * Server-to-server client for the SkillSpan Intelligence (FastAPI) baseline
- * assessment endpoint. The result of a learner's baseline responses is
- * computed by the intelligence service and returned as an authoritative,
- * normalized payload — never trusted from the requesting client.
- *
- * Expected contract (the FastAPI `BaselineRequest` schema is the source of
- * truth; see App\Services\Baseline\BaselineIntelligencePayloadBuilder):
- *
- * POST {url}/api/v1/baseline
- *
- * Request:
- * {
- *   "student_profile_id": 15,
- *   "user_id": 20,
- *   "career_role_id": 3,
- *   "assessment_version": "v1.0",
- *   "questions": [
- *     {
- *       "question_id": 27,
- *       "question_type": "single_choice",
- *       "options": ["A", "B", "C", "D"],
- *       "correct_answer": "A",
- *       "scoring_rule": null,
- *       "weight": 1.0,
- *       "skill_mappings": [
- *         { "skill_id": 7, "skill_slug": "sql", "weight": 1.0 }
- *       ]
- *     }
- *   ],
- *   "responses": [
- *     { "question_id": 27, "answer": "A" }
- *   ]
- * }
- *
- * Identifier note:
- * `questions[].question_id` and `responses[].question_id` are the SAME
- * numeric `baseline_assessment_item_id`. The public/client identifier
- * (`item_id`, e.g. "sql-001") never leaves Laravel — it is translated while
- * the payload is built from the frozen snapshot.
- *
- * Response 200:
- * {
- *   "algorithm_version": "baseline-v2.0",
- *   "assessment_version": "v1.0",
- *   "career_role_id": 3,
- *   "student_profile_id": 15,
- *   "overall_score": 87.5,
- *   "skills": [
- *     { "skill_id": 7, "slug": "sql", "level": 4.38, "confidence": 1.0 }
- *   ]
- * }
- *
- * `algorithm_version` is mandatory. `skills` must be non-empty. When
- * `skill_id` is present it MUST equal the id of the skill named by `slug`;
- * a disagreement is rejected by the caller as INTELLIGENCE_SKILL_MISMATCH.
- * Every returned skill must belong to the request's career role, or it is
- * rejected as INTELLIGENCE_SKILL_OUT_OF_SCOPE.
- */
 class BaselineDataScienceClient
 {
-    /**
-     * @param  array<int, array<string, mixed>>  $questions  FastAPI `questions[]`, already frozen.
-     * @param  array<int, array<string, mixed>>  $responses  FastAPI `responses[]` with integer question_id.
-     */
     public function compute(
         StudentProfile $studentProfile,
         string $assessmentVersion,
@@ -110,9 +47,6 @@ class BaselineDataScienceClient
             '/'
         );
 
-        // The configured Data Science timeout (60s by default) — Render cold
-        // starts measure 24.7-33.8s, so a short fallback would turn a healthy
-        // service into a false outage.
         $timeout = (int) config(
             'services.data_science.timeout',
             60
@@ -120,8 +54,6 @@ class BaselineDataScienceClient
 
         $endpoint = $baseUrl.'/'.$path;
 
-        // US-INT-01 §4: dedicated service credential, mandatory on every
-        // Laravel -> FastAPI call — never a learner Sanctum token.
         $serviceToken = trim(
             (string) config('services.data_science.service_token', '')
         );
@@ -134,9 +66,6 @@ class BaselineDataScienceClient
             );
         }
 
-        // Last line of defence: the builder already validated the full
-        // contract, but a request with no questions/responses (or without the
-        // required career_role_id) must never reach the wire.
         if ($questions === [] || $responses === [] || $careerRoleId === null) {
             $problems = [];
 
@@ -155,7 +84,6 @@ class BaselineDataScienceClient
             throw BaselineAssessmentException::invalidIntelligencePayload($problems);
         }
 
-        // Exactly the fields of the FastAPI BaselineRequest — no more.
         $payload = [
             'student_profile_id' => (int) $studentProfile->id,
             'user_id' => (int) $studentProfile->user_id,
@@ -227,10 +155,6 @@ class BaselineDataScienceClient
         $status = $response->status();
 
         if ($status === 422) {
-            // The FastAPI validation body echoes the submitted input values —
-            // i.e. the learner's answers. It is summarised (bounded, and only
-            // the service's own `detail` string is kept) for the log, and is
-            // never copied into the client-facing error.
             $this->logFailure(
                 $payload,
                 $requestId,
@@ -247,17 +171,6 @@ class BaselineDataScienceClient
         }
 
         if ($status >= 500) {
-            // Never let an upstream 5xx become a black box.
-            //
-            // The response body is the only place the service explains
-            // itself. FastAPI answers a 503 with a plain
-            // {"detail": "..."} — and discarding that detail is exactly what
-            // turned a one-line configuration problem into an opaque
-            // "intelligence service failed to process the request".
-            //
-            // The body is logged, not returned: the public response shape
-            // stays as it was, and the service token travels in a request
-            // header that the intelligence service never echoes back.
             $this->logFailure(
                 $payload,
                 $requestId,
@@ -324,18 +237,6 @@ class BaselineDataScienceClient
         return $data;
     }
 
-    /**
-     * A bounded, single-line summary of the upstream failure body, for the log
-     * only — never the body itself.
-     *
-     * The body comes from a different service, so it is untrusted text: on a
-     * 5xx it can be a debug page or traceback that echoes the request, and the
-     * request here is the learner's own record. {@see SafeLog::upstreamBody()}
-     * keeps only the service's documented `{"detail": "..."}` explanation and
-     * summarises anything else by size. Bounded so a pathological response
-     * cannot flood the log, and collapsed to one line so the JSON stays
-     * greppable next to the request id.
-     */
     private function bodyExcerpt(Response $response): string
     {
         return SafeLog::upstreamBody((string) $response->body());

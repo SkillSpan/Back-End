@@ -14,22 +14,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Admin control of `career_roles.is_active`.
- *
- * Creating a role from the panel leaves it inactive, so the panel also needs a
- * way to publish it — and to retire a single role without editing
- * config/mvp.php and re-seeding. These endpoints are additive: the existing
- * admin and public payloads are untouched.
- *
- * The rules under test:
- *  - only an administrator may call them;
- *  - activating requires `status = approved` (409 otherwise);
- *  - deactivating never deletes the row, its skills, its questions or its
- *    pivot links;
- *  - a deactivated role leaves the learner-facing list; an activated one
- *    appears in it.
- */
 class AdminCareerRoleActivationTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,8 +29,6 @@ class AdminCareerRoleActivationTest extends TestCase
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ------------------------------------------------ authorization
 
     public function test_a_guest_cannot_use_the_activation_endpoints(): void
     {
@@ -69,8 +51,6 @@ class AdminCareerRoleActivationTest extends TestCase
 
         $this->assertTrue((bool) $role->fresh()->is_active, 'A learner must not be able to switch a role off.');
     }
-
-    // ------------------------------------------------ list
 
     public function test_an_admin_can_list_career_roles_with_their_activation_state(): void
     {
@@ -111,8 +91,6 @@ class AdminCareerRoleActivationTest extends TestCase
         $this->assertSame($active->slug, $onlyActive->json('data.data.0.slug'));
     }
 
-    // ------------------------------------------------ deactivate
-
     public function test_deactivating_a_role_removes_it_from_the_learner_list_without_deleting_anything(): void
     {
         $role = $this->careerRole('Backend Developer');
@@ -134,12 +112,10 @@ class AdminCareerRoleActivationTest extends TestCase
 
         $this->assertFalse((bool) $role->fresh()->is_active);
 
-        // Nothing was deleted.
         $this->assertSame($skillIds, $role->fresh()->roleSkills()->pluck('skill_id')->all());
         $this->assertSame($questionCount, $this->questionsForRole($role));
         $this->assertSame(1, $specialization->fresh()->careerRoles()->count());
 
-        // …and the role is gone from the learner-facing list.
         Sanctum::actingAs($this->learnerWithProfile());
 
         $titles = array_column(
@@ -160,8 +136,6 @@ class AdminCareerRoleActivationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.is_active', false);
     }
-
-    // ------------------------------------------------ activate
 
     public function test_an_admin_can_activate_an_approved_role_and_it_appears_for_learners(): void
     {
@@ -214,8 +188,6 @@ class AdminCareerRoleActivationTest extends TestCase
             ->assertJsonPath('code', 'CAREER_ROLE_ACTIVATION_REFUSED');
     }
 
-    // ------------------------------------------------ interaction with creation
-
     public function test_a_role_created_from_the_panel_is_inactive_and_hidden_from_learners(): void
     {
         $this->actingAs($this->admin());
@@ -240,7 +212,6 @@ class AdminCareerRoleActivationTest extends TestCase
 
         $this->assertNotContains('Smart Contract Developer', $titles);
 
-        // …and an administrator can publish it explicitly.
         $this->actingAs($this->admin())
             ->postJson('/admin/api/career-roles/'.$roleId.'/activate')
             ->assertOk()
@@ -248,8 +219,6 @@ class AdminCareerRoleActivationTest extends TestCase
 
         $this->assertTrue((bool) $role->fresh()->is_active);
     }
-
-    // ------------------------------------------------ helpers
 
     private function admin(): User
     {

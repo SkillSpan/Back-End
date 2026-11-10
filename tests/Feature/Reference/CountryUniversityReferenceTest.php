@@ -10,12 +10,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/**
- * countries → universities reference data (countries task):
- * the public country list, the country-filtered university list, the
- * 404 for an unknown country, the Eloquent relationship, and seeder
- * idempotency (the university import must never duplicate rows).
- */
 class CountryUniversityReferenceTest extends TestCase
 {
     use RefreshDatabase;
@@ -54,7 +48,6 @@ class CountryUniversityReferenceTest extends TestCase
                 ],
             ]);
 
-        // Stable alphabetical ordering by English name.
         $this->assertSame(
             ['Jordan', 'Palestine'],
             array_column($response->json('data'), 'name')
@@ -115,8 +108,6 @@ class CountryUniversityReferenceTest extends TestCase
 
     public function test_same_university_name_is_allowed_in_different_countries(): void
     {
-        // Hipolabs contains repeated names across countries; the schema
-        // must accept them (UNIQUE(country_id, name), not UNIQUE(name)).
         $palestine = $this->country();
 
         $jordan = Country::create([
@@ -143,7 +134,6 @@ class CountryUniversityReferenceTest extends TestCase
 
         $this->assertSame($firstCount, Country::count());
 
-        // Palestine (PS) is present with its Arabic name from the snapshot.
         $this->assertDatabaseHas('countries', [
             'iso2' => 'PS',
             'name' => 'Palestine',
@@ -154,7 +144,6 @@ class CountryUniversityReferenceTest extends TestCase
     {
         $this->seed(CountrySeeder::class);
 
-        // The committed snapshot is used when present — no HTTP involved.
         $this->seed(UniversitySeeder::class);
         $firstCount = University::count();
 
@@ -167,8 +156,6 @@ class CountryUniversityReferenceTest extends TestCase
 
     public function test_university_seeder_handles_hipolabs_failures_gracefully(): void
     {
-        // Snapshot missing + network down: the seeder warns and returns
-        // without inserting anything or throwing.
         config(['database.data.snapshot_path' => null]);
 
         $snapshotPath = database_path('data/universities.json');
@@ -191,7 +178,6 @@ class CountryUniversityReferenceTest extends TestCase
             $this->assertSame(0, University::count());
             $this->assertGreaterThan(0, Country::count());
         } finally {
-            // Never leave the snapshot deleted, even on failure.
             if (file_exists($backup) && ! file_exists($snapshotPath)) {
                 rename($backup, $snapshotPath);
             } elseif (file_exists($backup)) {

@@ -16,21 +16,8 @@ use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 
-/**
- * Learner profile endpoints (SRS PROF-01, PROF-04, PROF-05 / UC-02).
- * Every route sits behind 'auth:sanctum' + 'role:learner' (see routes/api.php),
- * so only an authenticated learner can create/read/update their own profile —
- * there is no {user} route param, the profile is always resolved from the
- * authenticated request, which also removes any IDOR risk.
- */
 class ProfileController extends Controller
 {
-    /**
-     * Fields that count toward profile completeness. Kept in one place so
-     * store()/update() and the percentage calculation can't drift apart.
-     * university/specialization are normalized Foreign Keys per the
-     * learner-profile task list (not plain text).
-     */
     private const COMPLETENESS_FIELDS = [
         'university_name',
         'student_university_number',
@@ -41,18 +28,11 @@ class ProfileController extends Controller
         'availability',
     ];
 
-    /**
-     * POST /api/v1/profile
-     */
     public function store(StoreProfileRequest $request): JsonResponse
     {
         $user = $request->user();
         $data = $request->validated();
 
-        // A StudentProfile row is created at registration (see
-        // AuthService::createStudentProfile()), so POST behaves as an
-        // upsert: create when missing, otherwise update in place instead
-        // of rejecting with a confusing conflict error.
         $existing = $user->studentProfile;
 
         if ($existing) {
@@ -96,9 +76,6 @@ class ProfileController extends Controller
         ], 201);
     }
 
-    /**
-     * GET /api/v1/profile
-     */
     public function show(Request $request): JsonResponse
     {
         $profile = $request->user()->studentProfile;
@@ -117,9 +94,6 @@ class ProfileController extends Controller
         ]);
     }
 
-    /**
-     * PUT /api/v1/profile
-     */
     public function update(UpdateProfileRequest $request): JsonResponse
     {
         $profile = $request->user()->studentProfile;
@@ -134,11 +108,6 @@ class ProfileController extends Controller
         $validated = $request->validated();
         $visibility = Arr::pull($validated, 'visibility');
 
-        /*
-         * US-INT-01 §24: a primary career-role change closes the old
-         * CareerGoalHistory entry, opens a new one, and queues an
-         * intelligence recalculation against the new role.
-         */
         $oldCareerRoleId = $profile->primary_career_role_id;
 
         $profile->fill($validated);
@@ -169,11 +138,6 @@ class ProfileController extends Controller
         ]);
     }
 
-    /**
-     * SRS PROF-05: "the system shall calculate profile completeness from
-     * configured required and recommended fields." Re-normalized against
-     * COMPLETENESS_FIELDS every time so it never drifts from the model.
-     */
     private function calculateCompleteness(StudentProfile $profile): int
     {
         $filled = 0;
@@ -222,16 +186,8 @@ class ProfileController extends Controller
         ];
     }
 
-    /**
-     * POST /api/v1/profile/avatar
-     *
-     * The avatar is the learner's own face on the profile and in the support
-     * thread, so it is stored and served exactly like the panel avatar: decoded,
-     * centre-cropped, re-encoded to a fixed square — never trusted as-is.
-     */
     public function storeAvatar(Request $request): JsonResponse
     {
-        /** @var UploadedFile|null $file */
         $file = $request->file('avatar');
 
         if (! $file instanceof UploadedFile) {
@@ -242,15 +198,6 @@ class ProfileController extends Controller
             ], 422);
         }
 
-        // PHP-level upload errors (truncated mid-flight because the photo was
-        // bigger than `upload_max_filesize`, the connection dropped, the temp
-        // dir was full, …) are mapped to a clear message here. Without this
-        // branch the service would still detect the failure — but `$file->get()`
-        // on an errored upload returns a partial / empty payload that
-        // `imagecreatefromstring` then rejects with the opaque "could not be
-        // processed" message. Telling the caller what PHP rejected and why
-        // (vs. silently re-encoding the error as a downstream GD failure) is
-        // the fix that came out of the dashboard bug.
         if (! $file->isValid()) {
             $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
 
@@ -274,9 +221,6 @@ class ProfileController extends Controller
             ], 422);
         }
 
-        // Bytes can only be checked on a valid upload — for an INI_SIZE failure
-        // $file->getSize() returns the truncated size, not the intended one,
-        // so this guard would either be a no-op or mislead the caller.
         $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);
 
         if (($file->getSize() / 1024) > $maxKb) {
@@ -304,11 +248,6 @@ class ProfileController extends Controller
         ], 200);
     }
 
-    /**
-     * DELETE /api/v1/profile/avatar
-     *
-     * Back to initials. Idempotent: removing an absent avatar is a success.
-     */
     public function removeAvatar(Request $request): JsonResponse
     {
         $profile = $this->avatarService()->removeAvatar($request->user());
@@ -320,13 +259,6 @@ class ProfileController extends Controller
         ], 200);
     }
 
-    /**
-     * GET /api/v1/profile/avatar
-     *
-     * The raw image bytes for the authenticated learner's own avatar. Served
-     * from a stable URL (versioned by `avatar_updated_at`) so the browser can
-     * cache it; 404 when there is none.
-     */
     public function avatar(Request $request): Response|JsonResponse
     {
         $profile = $request->user()->studentProfile;
@@ -352,17 +284,6 @@ class ProfileController extends Controller
         ]);
     }
 
-    /**
-     * A learner without a photo is a normal state, not a failure, but the
-     * response still has to be readable: a bare `abort(404)` sends an empty
-     * body, so the frontend cannot tell "no photo yet" from "this endpoint
-     * does not exist" and has nothing to show the learner.
-     *
-     * `no-store` matters as much as the body. The success response above is
-     * cached for 300s; without an explicit no-store on the miss, a browser
-     * that asked before the upload keeps serving its own cached 404 and the
-     * new photo appears not to have saved.
-     */
     private function avatarMissing(string $code, string $message): JsonResponse
     {
         return response()->json([
@@ -379,11 +300,6 @@ class ProfileController extends Controller
         return new StudentProfileService;
     }
 
-    /**
-     * US-INT-01 §24 — track career-goal history: close the previous
-     * goal entry (replaced_at) and open a new one for the current role.
-     * The CareerGoalHistory table pre-exists; this finally writes it.
-     */
     private function recordCareerGoalChange(StudentProfile $profile, ?int $oldCareerRoleId): void
     {
         if ($oldCareerRoleId !== null) {

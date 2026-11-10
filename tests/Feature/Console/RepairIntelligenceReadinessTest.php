@@ -12,17 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
 
-/**
- * The repair command exists because the post-assessment recalculation is
- * queued and swallows its own failures. When it aborted on
- * `CAREER_ROLE_REQUIRED`, nothing was written and nothing surfaced: the
- * learner had a completed assessment and both `latest` endpoints still
- * answered 404.
- *
- * These tests pin the two behaviours that matter — a dry run must not write
- * anything to a shared production database, and a forced run must recover the
- * role from the assessment and actually re-run the calculation.
- */
 class RepairIntelligenceReadinessTest extends TestCase
 {
     use RefreshDatabase;
@@ -63,11 +52,6 @@ class RepairIntelligenceReadinessTest extends TestCase
 
     private function completedAssessment(User $learner, CareerRole $role): BaselineAssessment
     {
-        /*
-         * `forceCreate` — `status` is not fillable, so create() would silently
-         * drop it and leave the attempt in_progress, which is exactly the state
-         * this command is supposed to ignore.
-         */
         return BaselineAssessment::forceCreate([
             'student_profile_id' => $learner->studentProfile->id,
             'career_role_id' => $role->id,

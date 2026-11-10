@@ -5,13 +5,6 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * One project team and its members.
- *
- * `assignment_state` is exposed because it is the only way a client can tell a
- * current member from one who was removed — the row is kept rather than
- * deleted, so the team's history survives a reassignment.
- */
 class ProjectTeamResource extends JsonResource
 {
     public function toArray(Request $request): array

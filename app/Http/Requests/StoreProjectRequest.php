@@ -9,36 +9,6 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-/**
- * Project Management Workflow — project creation.
- *
- * Shape and ranges only. Whether the actor may create at all, which
- * organization the project belongs to, and what status it starts in are
- * authorization / business questions answered by ProjectLifecycleService —
- * the same split StoreApplicationRequest uses.
- *
- * `organization_id` and `owner_id` are accepted but NOT authoritative:
- *
- *   - company_sponsored — the project is COMPANY OWNED. A company
- *     representative's project always belongs to their own organization and is
- *     owned by them, so a supplied value is ignored; a platform administrator
- *     creating on behalf of a company must name both, and both are validated
- *     against the organization's active administrators.
- *   - simulation — SkillSpan-internal. It is never auto-linked to the creator's
- *     organization, so `organization_id` stays null unless the caller names an
- *     organization they actually administer.
- *
- * Ownership is therefore never taken from the payload on trust — see
- * ProjectLifecycleService::resolveOwnership().
- *
- * Date ORDERING (end >= start, deadline <= start) is deliberately not expressed
- * with `after_or_equal` here: on an update a field may be omitted and taken
- * from the stored row, which a request-level comparison against a missing
- * sibling cannot see. The service validates ordering against the final state.
- *
- * The one exception is the LOWER bound: every date must be today or later, and
- * that needs no sibling, so it is enforced here — see the note on the rules.
- */
 class StoreProjectRequest extends FormRequest
 {
     public function authorize(): bool
@@ -46,15 +16,6 @@ class StoreProjectRequest extends FormRequest
         return true;
     }
 
-    /**
-     * US-MATCH-DATA-03 — normalise the minimum required level field name.
-     *
-     * The canonical field is `minimum_required_level`. The legacy
-     * `minimum_level` name is accepted as an alias so existing clients keep
-     * working. Both are written to the same single value so the service can
-     * keep reading `minimum_level` (the actual `project_required_skills`
-     * column) with no duplicate source of truth.
-     */
     protected function prepareForValidation(): void
     {
         $skills = $this->input('required_skills');
@@ -79,14 +40,6 @@ class StoreProjectRequest extends FormRequest
         $this->merge(['required_skills' => $skills]);
     }
 
-    /**
-     * The career role a submitted skill must belong to.
-     *
-     * On create this is simply the submitted `career_role_id`. UpdateProjectRequest
-     * overrides this to fall back to the project's stored career role when the
-     * caller does not resend it, so a partial update is validated against the
-     * role the project actually has.
-     */
     protected function careerRoleIdForValidation(): ?int
     {
         $value = $this->input('career_role_id');
@@ -107,46 +60,20 @@ class StoreProjectRequest extends FormRequest
             'difficulty' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:5'],
             'work_mode' => ['sometimes', 'nullable', 'string', 'max:50'],
 
-            // US-MATCH-DATA-03 — a project MUST target a real career role. This
-            // is the source of truth for which skills may be required, and it
-            // replaces the old free-text `role` column as the writable input.
-            // The legacy `role` value is now derived from the career role title
-            // by ProjectLifecycleService.
             'career_role_id' => ['required', 'integer', 'gt:0', 'exists:career_roles,id'],
 
             'schedule' => ['sometimes', 'nullable', 'string', 'max:255'],
             'capacity' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'min_team_size' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
-            // A project that is already past its own dates is invisible to
-            // every learner even while its status reads `open`, because
-            // ProjectAccessService drops expired rows. Allowing such a date
-            // through here produced exactly that trap: a project could be
-            // submitted, approved and opened with `application_deadline` in
-            // the past, and NOTHING could fix it afterwards — editing is only
-            // permitted in `draft` / `changes_requested`, so the row was
-            // permanently dead. Dates are therefore rejected at the door.
             'start_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
             'end_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
             'application_deadline' => ['sometimes', 'nullable', 'date', 'after_or_equal:today'],
             'confidentiality' => ['sometimes', 'string', Rule::in(['public', 'restricted'])],
             'organization_id' => ['sometimes', 'nullable', 'integer', 'gt:0', 'exists:organizations,id'],
 
-            // Only honoured when a PLATFORM ADMINISTRATOR creates a
-            // company_sponsored project on behalf of a company — the company
-            // representative who will own it. A company representative's own
-            // project is always owned by them, and a simulation is always owned
-            // by its creator, so the value is ignored in those cases rather than
-            // silently reassigning ownership.
             'owner_id' => ['sometimes', 'nullable', 'integer', 'gt:0', 'exists:users,id'],
 
-            // `distinct` mirrors the unique indexes on the child tables, so a
-            // duplicated skill or role title is reported as a validation error
-            // instead of surfacing as a database constraint violation.
             'required_skills' => ['sometimes', 'array', 'max:50'],
-            // Every required skill must exist AND be part of the selected
-            // career role's approved mapping. The custom rule checks the
-            // existing `career_role_skills` rows, not merely the global
-            // `skills` table.
             'required_skills.*.skill_id' => [
                 'required',
                 'integer',
@@ -155,8 +82,6 @@ class StoreProjectRequest extends FormRequest
                 'distinct',
                 new SkillMappedToCareerRole($this->careerRoleIdForValidation()),
             ],
-            // The minimum required level is REQUIRED for every attached skill.
-            // Numeric, 0–5, decimals supported (the column is decimal(3,2)).
             'required_skills.*.minimum_required_level' => ['required', 'numeric', 'min:0', 'max:5'],
             'required_skills.*.minimum_level' => ['sometimes', 'numeric', 'min:0', 'max:5'],
             'required_skills.*.is_critical_entry' => ['sometimes', 'boolean'],
@@ -166,8 +91,6 @@ class StoreProjectRequest extends FormRequest
             'roles.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'roles.*.is_active' => ['sometimes', 'boolean'],
 
-            // The constraint vocabulary is the one ProjectEligibilityService
-            // already understands — no new types are invented here.
             'eligibility_constraints' => ['sometimes', 'array', 'max:50'],
             'eligibility_constraints.*.constraint_type' => ['required', Rule::in(['location', 'language', 'schedule', 'work_mode'])],
             'eligibility_constraints.*.value' => ['required', 'string', 'max:255'],
@@ -193,11 +116,6 @@ class StoreProjectRequest extends FormRequest
         ];
     }
 
-    /**
-     * Laravel validates before the controller body runs, so the framework
-     * default would emit a 422 with no `code` — unlike every other error this
-     * API returns. Emit the shared VALIDATION_ERROR envelope instead.
-     */
     protected function failedValidation(Validator $validator): void
     {
         $requestId = (string) ($this->header('X-Request-ID') ?: Str::uuid());

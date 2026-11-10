@@ -16,25 +16,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Session-authenticated endpoints behind the admin "Specializations" page.
- *
- * Like the projects and questions panels, these live under
- * `/admin/api/specializations/*` on the normal web session (the panel has a
- * cookie, not a bearer token). The route group carries
- * `auth` + `account.active` + `admin` — no middleware is weakened.
- *
- * All logic lives in SpecializationService; this class only shapes HTTP.
- */
 class AdminSpecializationController extends Controller
 {
     public function __construct(
         private readonly SpecializationService $service,
     ) {}
 
-    /**
-     * GET /admin/api/specializations
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -67,9 +54,6 @@ class AdminSpecializationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /admin/api/specializations
-     */
     public function store(StoreSpecializationRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -83,9 +67,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * PATCH /admin/api/specializations/{specialization}
-     */
     public function update(UpdateSpecializationRequest $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -99,9 +80,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/specializations/{specialization}/activate
-     */
     public function activate(Request $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -115,13 +93,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/specializations/{specialization}/deactivate
-     *
-     * The safe alternative to deleting a specialization that is still in
-     * use: it disappears from the learner-facing reference list without
-     * losing its career-role links.
-     */
     public function deactivate(Request $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -135,11 +106,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * DELETE /admin/api/specializations/{specialization}
-     *
-     * Refused with a 409 when the specialization is still in use.
-     */
     public function destroy(Request $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -160,11 +126,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * GET /admin/api/specializations/{specialization}/career-roles
-     *
-     * Every career role with an `attached` flag, for the manage modal.
-     */
     public function careerRoles(Request $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -180,12 +141,6 @@ class AdminSpecializationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * PUT /admin/api/specializations/{specialization}/career-roles
-     *
-     * Replaces the linked set. Refused for the free track, whose roles are
-     * resolved from its flag rather than from the pivot.
-     */
     public function syncCareerRoles(Request $request, Specialization $specialization): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -213,11 +168,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    /**
-     * GET /admin/api/specializations/skills
-     *
-     * Skill options for the "create career role" form.
-     */
     public function skills(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -230,9 +180,6 @@ class AdminSpecializationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /admin/api/specializations/career-roles
-     */
     public function storeCareerRole(StoreCareerRoleRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -262,10 +209,6 @@ class AdminSpecializationController extends Controller
         }
     }
 
-    // -----------------------------------------------------------------
-    // Response helpers
-    // -----------------------------------------------------------------
-
     private function specializationResponse(
         Specialization $specialization,
         string $message,
@@ -282,9 +225,6 @@ class AdminSpecializationController extends Controller
         ], $status, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function transform(Specialization $specialization): array
     {
         return [

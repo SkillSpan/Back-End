@@ -4,19 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the readiness, intelligence, baseline-assessment
- * and assistant endpoints:
- *   App\Http\Controllers\Api\ReadinessController
- *   App\Http\Controllers\Api\SkillMatchController
- *   App\Http\Controllers\Api\IntelligenceController
- *   App\Http\Controllers\Api\BaselineAssessmentController
- *   App\Http\Controllers\Api\AssistantController
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php. Every operation is protected by
- * `auth:sanctum` + `account.active` + `role:learner`.
- */
 class ReadinessIntelligenceEndpoints
 {
     #[OA\Post(

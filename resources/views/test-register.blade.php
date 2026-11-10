@@ -16,7 +16,7 @@
         .message { padding: 10px; margin-top: 10px; border-radius: 5px; display: none; }
         .success { background: #d4edda; color: #155724; display: block; }
         .error { background: #f8d7da; color: #721c24; display: block; }
-    </style>
+</style>
 </head>
 <body>
 <div class="container">

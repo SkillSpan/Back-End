@@ -13,14 +13,6 @@ use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Regression coverage for EvidenceController::review().
- *
- * There was no test for this endpoint at all, which is how a dead-code bug
- * survived in it: the method returned early, so the SkillDataChanged
- * dispatch and the `data` key in the response were both unreachable. The
- * queued intelligence recalculation silently never fired.
- */
 class EvidenceReviewTest extends TestCase
 {
     use RefreshDatabase;
@@ -72,11 +64,6 @@ class EvidenceReviewTest extends TestCase
         ]);
     }
 
-    /**
-     * The core regression: reviewing evidence must enqueue the intelligence
-     * recalculation. Before the fix this assertion failed because the
-     * dispatch sat after an early return.
-     */
     public function test_review_dispatches_skill_data_changed(): void
     {
         Event::fake();
@@ -93,10 +80,6 @@ class EvidenceReviewTest extends TestCase
         );
     }
 
-    /**
-     * The second half of the same bug: the response must carry the reviewed
-     * record. Callers used to get only `success` and `message`.
-     */
     public function test_review_returns_the_reviewed_record(): void
     {
         Event::fake();
@@ -112,14 +95,9 @@ class EvidenceReviewTest extends TestCase
             ->assertJsonPath('data.id', $evidence->id)
             ->assertJsonPath('data.verification_status', 'verified');
 
-        // The reviewer must be recorded, not just the status.
         $this->assertNotNull($evidence->fresh()->reviewer_id);
     }
 
-    /**
-     * A rejection is also a skill-data change (it lowers the effective
-     * level), so it must enqueue a recalculation too.
-     */
     public function test_rejection_also_dispatches_skill_data_changed(): void
     {
         Event::fake();

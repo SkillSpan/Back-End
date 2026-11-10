@@ -4,21 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-COMP-04 — documents are versioned, not overwritten.
- *
- * Scenario 4 requires that "the previous document reference remains in the
- * audit history", and the Database task list asks for a "document version and
- * replaced-document reference". So a replacement inserts a NEW row and points
- * at the one it supersedes; nothing is deleted and nothing is updated in
- * place. `version` makes the sequence readable without walking the chain, and
- * `original_name` keeps the name the user uploaded (the stored path is
- * hashed/opaque, so it is the only human-readable label we have).
- *
- * `screened_at` records when the content check ran. It is nullable on purpose:
- * rows written before this migration, and any deployment with scanning turned
- * off, must stay valid.
- */
 return new class extends Migration
 {
     public function up(): void

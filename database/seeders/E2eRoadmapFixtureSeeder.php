@@ -14,37 +14,12 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
-/**
- * Dedicated, DETERMINISTIC fixtures for the Roadmap v1 Production E2E.
- *
- * Two isolated learners are created; nothing else in the database is
- * touched. The seeder is idempotent — re-running it never duplicates rows
- * and never mutates another learner's data.
- *
- *   #1 primary  — real skill gaps + real prerequisite relationships +
- *                 weekly_availability_hours > 0, so FastAPI should return
- *                 phases/actions with totals, limitations and a next best
- *                 action.
- *   #2 all-met  — every role skill already met (no gap), so FastAPI should
- *                 return no actions, estimated_total_hours = 0,
- *                 estimated_duration_weeks = 0 and next_best_action_id null.
- *
- * Test-only: it never runs in production. It does NOT use `prerequisite_skill_id`
- * (the legacy single-prerequisite column) — prerequisites are created through
- * the real `career_role_skill_dependencies` relation.
- */
 class E2eRoadmapFixtureSeeder extends Seeder
 {
     private const PRIMARY_EMAIL = 'e2e.roadmap.primary@skillspan.local';
 
     private const ALL_MET_EMAIL = 'e2e.roadmap.allmet@skillspan.local';
 
-    /**
-     * Deterministic role skills: [name, required_level, importance_weight,
-     * is_critical, current_level].
-     *
-     * @var list<array{0: string, 1: float, 2: float, 3: bool, 4: float}>
-     */
     private const PRIMARY_SKILLS = [
         ['SQL', 4.0, 0.40, true, 2.0],
         ['Python', 4.0, 0.30, true, 3.0],
@@ -52,11 +27,6 @@ class E2eRoadmapFixtureSeeder extends Seeder
         ['Statistics', 4.0, 0.10, false, 2.5],
     ];
 
-    /**
-     * Every skill already met (current == required) — no gap at all.
-     *
-     * @var list<array{0: string, 1: float, 2: float, 3: bool, 4: float}>
-     */
     private const ALL_MET_SKILLS = [
         ['SQL', 4.0, 0.40, true, 4.0],
         ['Python', 4.0, 0.30, true, 4.0],
@@ -79,8 +49,6 @@ class E2eRoadmapFixtureSeeder extends Seeder
             ['name' => 'Learner', 'description' => 'Student or Graduate'],
         );
 
-        // #1 — SQL and Python have real gaps; Power BI is already met.
-        //      SQL declares Python and Statistics as its prerequisites.
         $this->seedLearner(
             $learnerRole,
             self::PRIMARY_EMAIL,
@@ -91,7 +59,6 @@ class E2eRoadmapFixtureSeeder extends Seeder
             ['SQL' => ['Python', 'Statistics']],
         );
 
-        // #2 — every role skill is already at the required level.
         $this->seedLearner(
             $learnerRole,
             self::ALL_MET_EMAIL,
@@ -103,10 +70,6 @@ class E2eRoadmapFixtureSeeder extends Seeder
         );
     }
 
-    /**
-     * @param  list<array{0: string, 1: float, 2: float, 3: bool, 4: float}>  $skillData
-     * @param  array<string, list<string>>  $prerequisites  skill name => prerequisite skill names
-     */
     private function seedLearner(
         Role $learnerRole,
         string $email,

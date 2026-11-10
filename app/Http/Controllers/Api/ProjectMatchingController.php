@@ -17,34 +17,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Task 10 / Task 11 — POST /api/v1/projects/{project}/match
- *
- * Thin controller, following the project's existing convention
- * (validation in a FormRequest, orchestration in services, presentation
- * in a resource). Three services are composed here and none is
- * duplicated:
- *
- *   1. ProjectMatchingSnapshotService (Task 8) validates availability,
- *      authorization and eligibility, then persists one immutable
- *      validated snapshot.
- *   2. ProjectMatchingService (Task 10) builds the FastAPI payload,
- *      calls POST /api/v1/project-matching through IntelligenceClient,
- *      validates the response schema and correlation, and normalizes it.
- *   3. ProjectMatchingRecommendationService (Task 11) persists that
- *      already-validated result against the snapshot's learner — in the
- *      same request, with no second FastAPI call.
- *
- * Every failure mode is a typed ReadinessException (IntelligenceException)
- * carrying a stable `codeName` and HTTP status, which maps straight onto
- * the shared error envelope below.
- *
- * Request-id note: the envelope's top-level `request_id` is the caller's
- * X-Request-ID (or a generated one), matching every other controller in
- * this codebase. The id that travels to FastAPI is the snapshot's own
- * `request_id`, surfaced as `data.request_id`. The two are deliberately
- * distinct and both are preserved.
- */
 class ProjectMatchingController extends Controller
 {
     public function __construct(
@@ -76,14 +48,8 @@ class ProjectMatchingController extends Controller
 
             $result = $this->matchingService->match($snapshot);
 
-            // Task 11 — persist the already-validated result against the
-            // snapshot's learner, in this same request. No second FastAPI
-            // call, no duplicated calculation, and the response shape below
-            // is deliberately unchanged from Task 10.
             $this->recommendationService->persist($user, $snapshot, $result);
 
-            // Same success envelope as the sibling project endpoints
-            // (ProjectController): success / message / data / request_id.
             return (new ProjectMatchingResource($result))
                 ->additional([
                     'success' => true,
@@ -94,9 +60,6 @@ class ProjectMatchingController extends Controller
                 ->setStatusCode(200)
                 ->header('X-Request-ID', $requestId);
         } catch (ReadinessException $e) {
-            // IntelligenceException extends ReadinessException, so every
-            // domain failure from either service lands here with its own
-            // status and stable code name (PROJECT_MATCH_*, INTELLIGENCE_*).
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         } catch (Throwable $e) {
             Log::error('Project matching failed.', [
@@ -117,9 +80,6 @@ class ProjectMatchingController extends Controller
 
     private function requestId(Request $request): string
     {
-        // Correlate with the incoming X-Request-ID when present;
-        // otherwise generate one server-side. Same pattern as
-        // IntelligenceController and ProjectController.
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
     }
 

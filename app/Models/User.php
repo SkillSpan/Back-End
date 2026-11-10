@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Support\PanelAccess;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -63,13 +62,6 @@ class User extends Authenticatable
         return $this->hasOne(ProfessionalProfile::class);
     }
 
-    /**
-     * Panel presentation fields (display title, bio, age, avatar).
-     *
-     * Only ever populated for accounts that can open the admin panel. A learner
-     * has no row here, so every reader must tolerate `null` — see
-     * {@see PanelAccess} for who is allowed to have one.
-     */
     public function adminProfile()
     {
         return $this->hasOne(AdminProfile::class);
@@ -120,11 +112,6 @@ class User extends Authenticatable
         return $this->roles()->where('slug', $slug)->exists();
     }
 
-    /**
-     * دايمًا نخزّن الإيميل بحروف صغيرة وبدون مسافات زايدة، عشان
-     * البحث عنه لاحقًا (تسجيل دخول، تحقق، نسيت كلمة السر) ما يتأثر
-     * بحساسية الأحرف الكبيرة/الصغيرة أو نسخ-لصق فيه مسافات.
-     */
     public function setEmailAttribute(string $value): void
     {
         $this->attributes['email'] = strtolower(trim($value));

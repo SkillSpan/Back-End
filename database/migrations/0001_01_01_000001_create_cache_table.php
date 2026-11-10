@@ -6,16 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * NOTE (deployment fix): created only when missing. These are
-     * framework-owned tables that can already exist on a database that was
-     * populated before this migration was recorded in `migrations`; the
-     * unguarded Schema::create() then aborts `php artisan migrate --force`
-     * with SQLSTATE[42S01] "Table ... already exists". The guard is a no-op
-     * on a fresh database and never drops a table.
-     */
     public function up(): void
     {
         if (! Schema::hasTable('cache')) {
@@ -35,9 +25,6 @@ return new class extends Migration
         }
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('cache');

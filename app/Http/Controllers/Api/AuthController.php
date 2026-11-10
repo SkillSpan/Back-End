@@ -28,11 +28,6 @@ class AuthController extends Controller
 {
     public function __construct(protected AuthService $authService) {}
 
-    /**
-     * POST /api/auth/register
-     * Task: validate data, unique email, hash password, learner role,
-     * academic status, terms/privacy timestamps, OTP, email service.
-     */
     public function register(RegisterRequest $request): JsonResponse
     {
         $user = $this->authService->registerIndividual($request->validated());
@@ -54,10 +49,6 @@ class AuthController extends Controller
         ], 201);
     }
 
-    /**
-     * POST /api/auth/register/organization
-     * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب) مع ملف إثبات إلزامي.
-     */
     public function registerOrganization(RegisterOrganizationRequest $request): JsonResponse
     {
         $user = $this->authService->registerOrganization($request->validated());
@@ -69,40 +60,11 @@ class AuthController extends Controller
                 'user_id' => $user->id,
                 'email' => $user->email,
                 'status' => $user->status,
-                // This flow deliberately does NOT use an email OTP: the
-                // account is marked email-verified at registration and access
-                // is gated on the manual proof-document review instead (see
-                // AuthService::registerOrganization). The response used to
-                // report `true` here and hand back a `resend_available_at`
-                // window, which sent clients into a verification screen for a
-                // code that was never issued.
                 'requires_verification' => false,
             ],
         ], 201);
     }
 
-    /**
-     * POST /api/v1/auth/check-email
-     *
-     * Single-purpose endpoint: tells the client whether an address is already
-     * registered, so the sign-up form can say "this email already has an
-     * account — log in instead?" before the user fills in the whole form.
-     *
-     * ⚠️ This is an account-enumeration surface by design, and it is worth
-     * being explicit about that. It does not create a new leak — POST
-     * /auth/register already answers the same question via the
-     * `email.unique` rule ("This email is already registered."), and
-     * /auth/forgot-password behaves the same way. What this endpoint changes
-     * is the *cost* of asking: no form fill, no OTP email, one small request.
-     * Two mitigations therefore apply, and both matter:
-     *
-     *   1. It is throttled (throttle:10,1) so it cannot be used to sweep a
-     *      list of addresses quickly.
-     *   2. It returns the boolean and nothing else — no user id, name, status
-     *      or role — so a single call cannot confirm *whose* account it is.
-     *
-     * Do not add fields to `data` without re-reading this note.
-     */
     public function checkEmail(CheckEmailRequest $request): JsonResponse
     {
         $email = $request->validated('email');
@@ -113,8 +75,6 @@ class AuthController extends Controller
             'message' => 'Email availability checked.',
             'data' => [
                 'email' => $email,
-                // `exists` is the primary field; `available` is its inverse,
-                // sent so the client never has to negate it by hand.
                 'exists' => $exists,
                 'available' => ! $exists,
             ],
@@ -153,10 +113,6 @@ class AuthController extends Controller
         $email = strtolower(trim($request->input('email')));
         $decaySeconds = (int) config('verification.resend_interval_seconds', 60);
 
-        // ONE response shape for every outcome — unknown address, known
-        // address, and cooldown alike. Any difference here (status code,
-        // message text, or the mere presence of `data`) turns this endpoint
-        // into an account-existence oracle.
         $neutralResponse = fn () => response()->json([
             'success' => true,
             'message' => 'If an account with that email exists, a new verification code has been sent.',
@@ -165,26 +121,16 @@ class AuthController extends Controller
             ],
         ]);
 
-        // Keyed on the REQUEST (email + IP), not on the resolved user id.
-        // The previous key ('resend-otp:'.$user->id) could only ever exist
-        // for a registered address, so a 429 was a definitive "this email is
-        // registered" signal that an unknown address could never produce —
-        // exactly the leak this endpoint's neutral copy was trying to avoid.
         $key = 'resend-otp:'.hash('sha256', $email.'|'.$request->ip());
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
             return $neutralResponse();
         }
 
-        // Consume the cooldown for every address, registered or not, so the
-        // rate-limit state itself carries no information about the account.
         RateLimiter::hit($key, $decaySeconds);
 
         $user = User::where('email', $email)->first();
 
-        // Send only for a real account allowed to receive a challenge.
-        // AuthService::resendOtp() additionally refuses suspended/deleted
-        // accounts, so a blocked user is never issued a fresh code.
         if ($user) {
             $this->authService->resendOtp($user);
         }
@@ -192,11 +138,6 @@ class AuthController extends Controller
         return $neutralResponse();
     }
 
-    /**
-     * POST /api/auth/login/google
-     * Verify Google's ID token on the backend, then login or create an
-     * individual learner account.
-     */
     public function loginWithGoogle(GoogleLoginRequest $request): JsonResponse
     {
         $result = $this->authService->loginWithGoogle(
@@ -235,11 +176,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/auth/login/organization
-     * تسجيل دخول خاص بحسابات المؤسسات (شركة / جامعة / جهة تدريب) فقط.
-     * يرفض أي حساب فرد (learner) حتى لو الإيميل وكلمة السر صحيحين.
-     */
     public function loginOrganization(LoginRequest $request): JsonResponse
     {
         [$user, $tokenResult, $organization] = $this->attemptLogin($request, 'organization');
@@ -252,10 +188,6 @@ class AuthController extends Controller
                 'organizations' => [$organization],
                 'token' => $tokenResult->plainTextToken,
                 'token_type' => 'Bearer',
-                // US-COMP-03 / AC-01: a company login lands on the Company
-                // Dashboard. Same `redirect_url` convention the password-reset
-                // and logout responses already use, so the client has one
-                // place to read it from instead of re-deriving it from roles.
                 'redirect_url' => '/company/dashboard',
             ],
         ]);
@@ -270,11 +202,6 @@ class AuthController extends Controller
             $seconds = RateLimiter::availableIn($throttleKey);
             $message = "Too many login attempts. Please try again in {$seconds} seconds.";
 
-            // 429 + Retry-After, not a plain 422: clients (and standard
-            // HTTP backoff logic) must be able to tell a lockout apart
-            // from a field validation failure. The JSON shape mirrors
-            // ValidationException's rendering so existing frontends keep
-            // working unchanged.
             throw new HttpResponseException(
                 response()->json([
                     'message' => $message,
@@ -286,7 +213,7 @@ class AuthController extends Controller
         $user = User::where('email', $email)->first();
 
         if (! $user || ! Hash::check($request->input('password'), $user->password)) {
-            RateLimiter::hit($throttleKey, 300); // قفل مؤقت 5 دقائق بعد المحاولة الفاشلة
+            RateLimiter::hit($throttleKey, 300);
 
             throw ValidationException::withMessages([
                 'email' => 'The provided credentials are incorrect.',
@@ -304,10 +231,6 @@ class AuthController extends Controller
         $organization = null;
 
         if ($mode === 'organization') {
-            // Scope to an ACTIVE admin membership rather than "first linked
-            // organization": this endpoint is the organization administrator
-            // login, so a plain member (or a membership marked 'removed')
-            // must not be treated as an organization account.
             $organization = $user->organizations()
                 ->wherePivot('role_in_org', 'admin')
                 ->wherePivot('status', 'active')
@@ -330,19 +253,8 @@ class AuthController extends Controller
         return [$user, $tokenResult, $organization];
     }
 
-    /**
-     * يتحقق من حالة موافقة المؤسسة لأي يوزر مرتبط بمؤسسة، ويمنع الدخول
-     * لو كانت pending أو rejected — بغض النظر عن أي endpoint استُخدم
-     * لتسجيل الدخول (login أو login/organization). هذا يمنع الـ bypass
-     * الأمني عبر استخدام الـ generic login endpoint.
-     */
     private function assertOrganizationIsApproved(User $user): void
     {
-        // Deliberately checks EVERY active membership rather than just the
-        // first one. A user can belong to more than one organization, and a
-        // membership marked 'removed' must neither gate this check nor be
-        // usable to bypass it. This is a state gate for any organization-
-        // linked account, so it is intentionally not limited to admins.
         $blocking = $user->organizations()
             ->wherePivot('status', 'active')
             ->whereIn('verification_status', ['pending', 'rejected'])
@@ -363,21 +275,12 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/auth/forgot-password
-     * Task: validate email exists, generate OTP, email it, rate-limit resends.
-     */
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
         $email = strtolower(trim($request->input('email')));
         $user = User::where('email', $email)->first();
         $decaySeconds = (int) config('password_reset.resend_interval_seconds', 60);
 
-        // التوقيت هون ثابت (الآن + المدة المحددة) بغض النظر عن وجود
-        // المستخدم من عدمه، فإرجاعه ما بيكشف أي معلومة إضافية عن الحساب —
-        // بيحافظ على الرد المحايد، وبنفس الوقت بيعطي الفرونت اند قيمة
-        // حقيقية يقدر يبني عليها عداد الانتظار (بدل ما يضل العداد صفر
-        // دايمًا لأنه data.resend_available_at كانت مفقودة من الرد).
         $neutralResponse = fn () => response()->json([
             'success' => true,
             'message' => 'If an account with that email exists, a password reset code has been sent.',
@@ -387,15 +290,12 @@ class AuthController extends Controller
         ]);
 
         if (! $user) {
-            // نفس الرد المحايد بالضبط، بدون ما نكشف إذا الإيميل مسجل أصلاً.
             return $neutralResponse();
         }
 
         $key = 'forgot-password:'.$user->id;
 
         if (RateLimiter::tooManyAttempts($key, 1)) {
-            // نفس الرد المحايد أيضًا هون — منع كشف حتى عبر توقيت الاستجابة
-            // أو رسائل مختلفة بحالة rate limiting.
             return $neutralResponse();
         }
 
@@ -405,10 +305,6 @@ class AuthController extends Controller
         return $neutralResponse();
     }
 
-    /**
-     * POST /api/auth/forgot-password/resend
-     * Task: re-send password reset OTP respecting the resend interval.
-     */
     public function resendPasswordReset(ForgotPasswordRequest $request): JsonResponse
     {
         $email = strtolower(trim($request->input('email')));
@@ -439,15 +335,6 @@ class AuthController extends Controller
         return $neutralResponse();
     }
 
-    /**
-     * POST /api/auth/forgot-password/verify
-     * Task: check the OTP is valid WITHOUT resetting the password, so the
-     * frontend can move to the "set new password" screen only when the
-     * code is actually correct. Does not consume the code — the real
-     * consumption still happens in resetPassword(). Shares the same
-     * attempts counter as resetPassword() to keep brute-force protection
-     * consistent no matter which endpoint the guesses go through.
-     */
     public function verifyPasswordReset(VerifyPasswordResetRequest $request): JsonResponse
     {
         $isValid = $this->authService->verifyPasswordResetOtp(
@@ -467,10 +354,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/auth/reset-password
-     * Task: validate OTP against password_reset_tokens, update password.
-     */
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
         $reset = $this->authService->resetPassword(
@@ -494,14 +377,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/v1/auth/logout
-     * US-AUTH-06 (AC-01..AC-05) / AUTH-05, AUTH-13.
-     * Revokes only the Sanctum token used to authenticate this request,
-     * and marks the matching auth_sessions row's revoked_at so the
-     * revocation is auditable per SRS §12.1 — not just removed from
-     * Sanctum's own token table.
-     */
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -525,16 +400,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/v1/auth/logout-all
-     * US-AUTH-06 (AC-06, AC-07) / AUTH-13.
-     * Revokes every Sanctum token belonging to the user — including the
-     * one used to make this very request, with no exception for the
-     * current device — and records revoked_at for each affected
-     * auth_sessions row. The learner ends up fully signed out everywhere
-     * and must log in again, hence the "/login" redirect (not "/",
-     * unlike the single-device logout above).
-     */
     public function logoutAll(Request $request): JsonResponse
     {
         $user = $request->user();

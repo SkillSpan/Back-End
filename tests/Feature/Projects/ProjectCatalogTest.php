@@ -105,11 +105,9 @@ class ProjectCatalogTest extends TestCase
 
     public function test_authenticated_learner_receives_accessible_projects(): void
     {
-        // Use the helper to ensure consistent setup, like other passing tests
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
-        // Create a public project in the learner's organization
         $project = Project::create([
             'organization_id' => $learner->organization_id,
             'owner_id' => $learner->id,
@@ -124,7 +122,6 @@ class ProjectCatalogTest extends TestCase
             'version' => 1,
         ]);
 
-        // Verify project exists in database
         $this->assertDatabaseHas('projects', ['id' => $project->id, 'status' => 'open']);
 
         $response = $this->getJson('/api/v1/projects');
@@ -185,10 +182,6 @@ class ProjectCatalogTest extends TestCase
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
-        // A DIFFERENT organization. createLearnerWithOrg() already put the
-        // learner in the first organization, so Organization::first() would
-        // have attached the project to the learner's OWN organization — where
-        // it is legitimately visible — instead of testing exclusion.
         $otherOrganization = Organization::create([
             'name' => 'Other Organization',
             'type' => 'company',
@@ -199,9 +192,6 @@ class ProjectCatalogTest extends TestCase
             'organization_id' => $otherOrganization->id,
         ]);
 
-        // Guard against a vacuous pass: the project really exists, really is
-        // restricted, and really belongs to an organization the learner is
-        // NOT a member of — so an empty catalog is a genuine exclusion.
         $this->assertDatabaseHas('projects', [
             'id' => $restricted->id,
             'confidentiality' => 'restricted',
@@ -220,11 +210,9 @@ class ProjectCatalogTest extends TestCase
 
     public function test_public_project_is_included(): void
     {
-        // Use helper for consistent setup
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
-        // Create a public project in the learner's organization
         Project::create([
             'organization_id' => $learner->organization_id,
             'owner_id' => $learner->id,
@@ -437,13 +425,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_discovery_does_not_filter_by_hard_eligibility(): void
     {
-        // Documented existing business rule: the discovery catalog applies
-        // availability (open status + application deadline) and authorization
-        // (confidentiality / organization), but NOT hard eligibility.
-        // Eligibility is enforced in the matching flow
-        // (ProjectMatchingSnapshotService) instead. A project whose critical
-        // skill the learner lacks is therefore still discoverable — this test
-        // pins that behaviour rather than silently changing the contract.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -461,7 +442,6 @@ class ProjectCatalogTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // The learner has no Rust evaluation at all.
         $this->assertDatabaseCount('skill_evaluations', 0);
 
         $this->getJson('/api/v1/projects')
@@ -471,9 +451,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_pagination_is_deterministic_when_created_at_is_identical(): void
     {
-        // `created_at` has second precision, so several projects can share it.
-        // Without a tie-breaker the database may return them in any order,
-        // which lets a row appear on two pages or vanish between them.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -486,13 +463,11 @@ class ProjectCatalogTest extends TestCase
                 'organization_id' => $learner->organization_id,
             ]);
 
-            // Bypass mass assignment: created_at is not fillable.
             Project::query()->whereKey($project->id)->update(['created_at' => $sameMoment]);
 
             $ids[] = $project->id;
         }
 
-        // Ordered by created_at DESC, id DESC — the documented tie-breaker.
         $expected = [array_reverse($ids)[0], array_reverse($ids)[1], array_reverse($ids)[2], array_reverse($ids)[3], array_reverse($ids)[4]];
 
         $collected = [];
@@ -557,9 +532,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_discovery_response_keeps_the_established_envelope(): void
     {
-        // Backward compatibility: `data` stays a flat array of projects and the
-        // success/message/request_id envelope is unchanged. Pagination only
-        // ADDED a `meta` key.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -583,10 +555,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_full_project_capacity_does_not_change_discovery_under_current_rules(): void
     {
-        // ProjectAvailabilityService currently gates discovery on open status
-        // and application_deadline only. There is no capacity/team-size gate
-        // yet, so a capacity=0 project remains discoverable until the business
-        // rule is implemented in production code.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -602,10 +570,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_duplicate_skill_ids_are_treated_as_one_required_skill(): void
     {
-        // REGRESSION: the required-skills filter counts how many of the supplied
-        // ids the project matches, using count($skillIds). Duplicated ids
-        // inflated that count while the pivot can only match DISTINCT skills,
-        // so `skill_ids[]=1&skill_ids[]=1` matched no projects at all.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -630,9 +594,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_minimum_level_without_skill_ids_is_rejected(): void
     {
-        // minimum_level is the per-skill floor for the required-skills filter,
-        // so on its own it is meaningless. It used to be silently ignored, so a
-        // caller could believe a filter was applied and get unfiltered results.
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -644,7 +605,6 @@ class ProjectCatalogTest extends TestCase
 
     public function test_minimum_level_of_zero_without_skill_ids_is_also_rejected(): void
     {
-        // 0 is falsy, so the guard must not use empty().
         $learner = $this->createLearnerWithOrg();
         Sanctum::actingAs($learner);
 
@@ -699,10 +659,6 @@ class ProjectCatalogTest extends TestCase
             ->assertJsonPath('code', 'STUDENT_PROFILE_NOT_FOUND');
     }
 
-    /**
-     * Build a learner and two public open projects with distinct
-     * text/type/domain/work_mode/difficulty values for filter tests.
-     */
     private function createFilterFixtures(): array
     {
         $learner = $this->createLearnerWithOrg();
@@ -819,15 +775,6 @@ class ProjectCatalogTest extends TestCase
             ->assertJsonMissing(['title' => 'Laravel API Service']);
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Role filter
-    //
-    // A project advertises a role in two places: `projects.role` (the headline
-    // role, free text) and `project_roles` (the roles a learner may apply as,
-    // surfaced as `available_project_roles`). The filter must match EITHER, and
-    // must ignore a deactivated project_role.
-    // ─────────────────────────────────────────────────────────────────────
-
     public function test_role_filter_matches_the_headline_role_column(): void
     {
         $fixtures = $this->createFilterFixtures();
@@ -846,8 +793,6 @@ class ProjectCatalogTest extends TestCase
     {
         $fixtures = $this->createFilterFixtures();
 
-        // The headline role deliberately does NOT match, so this can only pass
-        // through the `project_roles` branch.
         $fixtures['laravel']->update(['role' => 'Backend Developer']);
         $fixtures['react']->update(['role' => 'Frontend Developer']);
 
@@ -871,8 +816,6 @@ class ProjectCatalogTest extends TestCase
         $fixtures['laravel']->update(['role' => 'Backend Developer']);
         $fixtures['react']->update(['role' => 'Frontend Developer']);
 
-        // A deactivated role is not something a learner can apply to, so
-        // filtering by it must not surface the project.
         ProjectRole::create([
             'project_id' => $fixtures['laravel']->id,
             'title' => 'Retired Role',
@@ -892,8 +835,6 @@ class ProjectCatalogTest extends TestCase
         $fixtures['laravel']->update(['role' => 'Backend Developer']);
         $fixtures['react']->update(['role' => 'Frontend Developer']);
 
-        // No `role` param → the full catalog, so the filter can never narrow
-        // discovery for a client that does not use it.
         $this->getJson('/api/v1/projects')
             ->assertStatus(200)
             ->assertJsonCount(2, 'data');
@@ -903,8 +844,6 @@ class ProjectCatalogTest extends TestCase
     {
         $this->createFilterFixtures();
 
-        // Free-text by design (like `domain`) — an unmatched value is an empty
-        // page, NOT a 422.
         $this->getJson('/api/v1/projects?role=Astronaut')
             ->assertStatus(200)
             ->assertJsonCount(0, 'data');
@@ -914,8 +853,6 @@ class ProjectCatalogTest extends TestCase
     {
         $fixtures = $this->createFilterFixtures();
 
-        // A closed project that matches the role must stay hidden: the role
-        // filter is additive on top of the access rules, never a bypass.
         $fixtures['laravel']->update(['role' => 'Backend Developer', 'status' => 'draft']);
         $fixtures['react']->update(['role' => 'Frontend Developer']);
 
@@ -932,7 +869,6 @@ class ProjectCatalogTest extends TestCase
         $fixtures['laravel']->update(['role' => 'Backend Developer']);
         $fixtures['react']->update(['role' => 'Frontend Developer']);
 
-        // `react` is type=simulation, `laravel` company_sponsored.
         $response = $this->getJson('/api/v1/projects?'.http_build_query(['role' => 'Frontend Developer', 'type' => 'simulation']));
 
         $response->assertStatus(200)
@@ -1011,7 +947,6 @@ class ProjectCatalogTest extends TestCase
         $php = Skill::create(['name' => 'PHP', 'slug' => 'php-two']);
         $js = Skill::create(['name' => 'JavaScript', 'slug' => 'javascript-two']);
 
-        // Only project A requires both PHP + JS.
         $projectA = $this->createOpenProject([
             'organization_id' => $learner->organization_id,
             'title' => 'Full Stack App',
@@ -1040,7 +975,6 @@ class ProjectCatalogTest extends TestCase
         $php = Skill::create(['name' => 'PHP', 'slug' => 'php-level']);
         $js = Skill::create(['name' => 'JavaScript', 'slug' => 'js-level']);
 
-        // Project A requires PHP at level 2; project B requires PHP at level 4.
         $projectA = $this->createOpenProject([
             'organization_id' => $learner->organization_id,
             'title' => 'Easy PHP App',
@@ -1311,11 +1245,6 @@ class ProjectCatalogTest extends TestCase
     {
         $learner = $this->createLearnerWithOrg();
 
-        // Organization membership lives in the organization_members pivot —
-        // there is no users.organization_id column, so reading
-        // $learner->organization_id silently yielded null and the project was
-        // created with organization_id = null (never visible to anyone).
-        // Resolve the learner's real, ACTIVE membership instead.
         $organization = $learner->organizations()
             ->wherePivot('status', 'active')
             ->first();
@@ -1415,8 +1344,6 @@ class ProjectCatalogTest extends TestCase
             'version' => 1,
         ]);
 
-        // Even though the ID is valid and the project exists, the learner
-        // is not authorized — must NOT be exposed via the details endpoint.
         $this->getJson('/api/v1/projects/'.$hidden->id)
             ->assertStatus(403)
             ->assertJsonPath('code', 'PROJECT_UNAUTHORIZED');

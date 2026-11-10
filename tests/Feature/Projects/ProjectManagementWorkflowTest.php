@@ -17,18 +17,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Project Management Workflow (Pilot) — the owner / administrator side.
- *
- *   draft → submitted → approved → open
- *              ↓  ↓
- *   changes_requested  rejected
- *
- * Covers the runtime layer end to end: creation, update, submission
- * completeness, every review decision, opening, authorization on each step
- * (including cross-organization access), the lifecycle transition guards, the
- * versioning rule and the audit trail.
- */
 class ProjectManagementWorkflowTest extends TestCase
 {
     use RefreshDatabase;
@@ -43,15 +31,6 @@ class ProjectManagementWorkflowTest extends TestCase
         Role::create(['name' => 'University Admin', 'slug' => 'university_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
-
-    /**
-     * A VERIFIED company — the only kind that may sponsor a company_sponsored
-     * project. `forceCreate` is required because `verification_status` is
-     * deliberately not mass-assignable on the Organization model.
-     */
     private function organization(string $name = 'Test Org'): Organization
     {
         return Organization::forceCreate([
@@ -61,10 +40,6 @@ class ProjectManagementWorkflowTest extends TestCase
         ]);
     }
 
-    /**
-     * An organization of another type, to prove a company_sponsored project
-     * cannot be sponsored by a university or a training partner.
-     */
     private function university(string $name = 'Test University'): Organization
     {
         return Organization::forceCreate([
@@ -74,9 +49,6 @@ class ProjectManagementWorkflowTest extends TestCase
         ]);
     }
 
-    /**
-     * A company that has not been approved yet.
-     */
     private function pendingCompany(string $name = 'Pending Company'): Organization
     {
         return Organization::forceCreate([
@@ -86,9 +58,6 @@ class ProjectManagementWorkflowTest extends TestCase
         ]);
     }
 
-    /**
-     * A user holding a role, optionally administering an organization.
-     */
     private function user(string $email, string $role, ?Organization $organization = null): User
     {
         $user = User::forceCreate([
@@ -129,10 +98,6 @@ class ProjectManagementWorkflowTest extends TestCase
         return Skill::first() ?? Skill::create(['name' => 'PHP', 'slug' => 'php', 'category' => 'backend']);
     }
 
-    /**
-     * US-MATCH-DATA-03 — the career role every project must now target, with
-     * the test skill approved in its mapping so a project may require it.
-     */
     private function careerRole(): CareerRole
     {
         $role = CareerRole::first() ?? CareerRole::create([
@@ -156,11 +121,6 @@ class ProjectManagementWorkflowTest extends TestCase
         return $role;
     }
 
-    /**
-     * A complete, submittable creation payload.
-     *
-     * @return array<string, mixed>
-     */
     private function payload(array $overrides = []): array
     {
         return array_merge([
@@ -186,10 +146,6 @@ class ProjectManagementWorkflowTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * A project persisted directly in a given lifecycle state. Bypasses the
-     * workflow on purpose, so each test starts from the state it is about.
-     */
     private function projectInState(string $status, ?User $owner = null, ?Organization $organization = null): Project
     {
         $owner ??= $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -213,9 +169,6 @@ class ProjectManagementWorkflowTest extends TestCase
         ]);
     }
 
-    /**
-     * A project with the child rows submission requires.
-     */
     private function completeProject(string $status = Project::STATUS_DRAFT, ?User $owner = null): Project
     {
         $project = $this->projectInState($status, $owner);
@@ -230,10 +183,6 @@ class ProjectManagementWorkflowTest extends TestCase
 
         return $project->fresh();
     }
-
-    // -----------------------------------------------------------------
-    // A. Creation
-    // -----------------------------------------------------------------
 
     public function test_an_authorized_company_representative_can_create_a_draft_project(): void
     {
@@ -251,11 +200,9 @@ class ProjectManagementWorkflowTest extends TestCase
 
         $project = Project::find($response->json('data.id'));
 
-        // Owner and organization are derived, never taken from the payload.
         $this->assertSame($actor->id, $project->owner_id);
         $this->assertSame($organization->id, $project->organization_id);
 
-        // The child collections were persisted.
         $this->assertSame(1, $project->requiredSkills()->count());
         $this->assertSame(1, $project->projectRoles()->count());
 
@@ -292,7 +239,6 @@ class ProjectManagementWorkflowTest extends TestCase
 
         $project = Project::find($response->json('data.id'));
 
-        // A project is never created open, and never into someone else's org.
         $this->assertSame(Project::STATUS_DRAFT, $project->status);
         $this->assertSame($ownOrganization->id, $project->organization_id);
     }
@@ -325,10 +271,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame(0, Project::count());
     }
 
-    // -----------------------------------------------------------------
-    // B. Update
-    // -----------------------------------------------------------------
-
     public function test_the_owner_can_update_a_draft_project(): void
     {
         $project = $this->completeProject();
@@ -355,10 +297,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame('Existing Project', $project->fresh()->title);
     }
 
-    /**
-     * A representative of a DIFFERENT organization must not be able to touch
-     * the project even though they hold the same role.
-     */
     public function test_a_project_from_another_organization_cannot_be_updated(): void
     {
         $project = $this->completeProject();
@@ -373,11 +311,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_NOT_OWNED');
     }
 
-    /**
-     * The type is immutable once the project is live: editing is only possible
-     * in the revisable window, so an OPEN project cannot be edited at all and
-     * its type can therefore never change while it is receiving applications.
-     */
     public function test_the_project_type_cannot_change_once_the_project_is_open(): void
     {
         $project = $this->completeProject(Project::STATUS_OPEN);
@@ -405,22 +338,16 @@ class ProjectManagementWorkflowTest extends TestCase
         $project = $this->completeProject();
         Sanctum::actingAs($project->owner);
 
-        // Descriptive only — the matching snapshot is unaffected.
         $this->patchJson("/api/v1/projects/{$project->id}", ['title' => 'New title'])
             ->assertOk()
             ->assertJsonPath('data.version', 1);
 
-        // `difficulty` is part of the FastAPI project snapshot.
         $this->patchJson("/api/v1/projects/{$project->id}", ['difficulty' => 4])
             ->assertOk()
             ->assertJsonPath('data.version', 2);
 
         $this->assertSame(2, $project->fresh()->version);
     }
-
-    // -----------------------------------------------------------------
-    // C. Submission
-    // -----------------------------------------------------------------
 
     public function test_a_complete_draft_can_be_submitted(): void
     {
@@ -448,7 +375,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INCOMPLETE');
 
-        // Every missing piece is reported at once, not just the first.
         $missing = $response->json('details.missing');
         $this->assertContains('required_skills', $missing);
         $this->assertContains('roles', $missing);
@@ -470,10 +396,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame(Project::STATUS_DRAFT, $project->fresh()->status);
     }
 
-    // -----------------------------------------------------------------
-    // D. Approval
-    // -----------------------------------------------------------------
-
     public function test_an_administrator_can_approve_a_submitted_project(): void
     {
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
@@ -490,20 +412,12 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($admin->id, $fresh->approved_by);
         $this->assertNotNull($fresh->approved_at);
 
-        // Approval must NOT activate or open the project.
         $this->assertNotSame(Project::STATUS_ACTIVE, $fresh->status);
         $this->assertNotSame(Project::STATUS_OPEN, $fresh->status);
     }
 
     public function test_a_project_owner_who_is_not_an_admin_cannot_approve_their_own_project(): void
     {
-        // The default fixture owner is a company_admin, NOT a platform admin, so
-        // the refusal here is "you are not an admin" - and NOT the self-review
-        // rule, which was removed. It comes from the `admin` ROUTE MIDDLEWARE,
-        // which runs first and checks the same `hasRole('admin')` predicate as
-        // the service, so the service's PROJECT_REVIEW_FORBIDDEN is the second
-        // line of defence and is never reached over HTTP. Assert the middleware's
-        // shape, not a service code.
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
 
         Sanctum::actingAs($project->owner);
@@ -538,10 +452,6 @@ class ProjectManagementWorkflowTest extends TestCase
 
         $this->assertSame(Project::STATUS_DRAFT, $project->fresh()->status);
     }
-
-    // -----------------------------------------------------------------
-    // E. Request changes
-    // -----------------------------------------------------------------
 
     public function test_an_administrator_can_request_changes_and_the_reason_is_recorded(): void
     {
@@ -600,10 +510,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('data.status', Project::STATUS_SUBMITTED);
     }
 
-    // -----------------------------------------------------------------
-    // F. Rejection
-    // -----------------------------------------------------------------
-
     public function test_an_administrator_can_reject_a_submitted_project(): void
     {
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
@@ -622,19 +528,12 @@ class ProjectManagementWorkflowTest extends TestCase
 
         Sanctum::actingAs($project->owner);
 
-        // The `admin` middleware's shape, not a service code: it runs first and
-        // checks the same predicate, so PROJECT_REVIEW_FORBIDDEN never fires
-        // over HTTP. This is the other half of the review gate.
         $this->postJson("/api/v1/projects/{$project->id}/reject")
             ->assertStatus(403)
             ->assertJsonPath('success', false);
 
         $this->assertSame(Project::STATUS_SUBMITTED, $project->fresh()->status);
     }
-
-    // -----------------------------------------------------------------
-    // G. Open
-    // -----------------------------------------------------------------
 
     public function test_an_approved_project_can_be_opened(): void
     {
@@ -699,10 +598,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_NOT_OWNED');
     }
 
-    // -----------------------------------------------------------------
-    // H. Interaction with the existing application workflow
-    // -----------------------------------------------------------------
-
     public function test_an_opened_project_is_discoverable_and_accepts_applications(): void
     {
         $project = $this->completeProject(Project::STATUS_APPROVED);
@@ -711,11 +606,6 @@ class ProjectManagementWorkflowTest extends TestCase
 
         $learner = $this->learner();
 
-        // The project requires the skill as a CRITICAL entry requirement, so the
-        // learner needs it evaluated above the minimum to be eligible. Created
-        // directly here because eligibility itself is already covered by
-        // ProjectEligibilityServiceTest — this test is about the project's
-        // status gating the application, not about the eligibility rules.
         SkillEvaluation::create([
             'student_profile_id' => $learner->studentProfile->id,
             'skill_id' => $this->skill()->id,
@@ -725,7 +615,6 @@ class ProjectManagementWorkflowTest extends TestCase
             'calculated_at' => now(),
         ]);
 
-        // Discoverable in the catalog the learner already uses.
         Sanctum::actingAs($learner);
         $catalog = $this->getJson('/api/v1/projects')->assertOk();
         $this->assertContains($project->id, collect($catalog->json('data'))->pluck('id')->all());
@@ -734,10 +623,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertStatus(201);
     }
 
-    /**
-     * The whole point of the approval gate: a project that has been approved
-     * but not opened is NOT yet accepting applications.
-     */
     public function test_an_approved_but_unopened_project_rejects_applications(): void
     {
         $project = $this->completeProject(Project::STATUS_APPROVED);
@@ -758,10 +643,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $catalog = $this->getJson('/api/v1/projects')->assertOk();
         $this->assertNotContains($project->id, collect($catalog->json('data'))->pluck('id')->all());
     }
-
-    // -----------------------------------------------------------------
-    // I. Ownership — company_sponsored = COMPANY OWNED
-    // -----------------------------------------------------------------
 
     public function test_a_company_sponsored_project_must_name_an_organization(): void
     {
@@ -801,10 +682,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_ORGANIZATION_NOT_VERIFIED')
             ->assertJsonPath('details.verification_status', 'pending');
     }
-
-    // -----------------------------------------------------------------
-    // J. Ownership — administrator creating on behalf of a company
-    // -----------------------------------------------------------------
 
     public function test_an_administrator_creating_on_behalf_of_a_company_does_not_become_the_owner(): void
     {
@@ -878,10 +755,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame(0, Project::count());
     }
 
-    /**
-     * A plain member of the company is not a company representative — the
-     * pivot has to say `admin`.
-     */
     public function test_an_administrator_cannot_assign_a_plain_member_as_the_owner(): void
     {
         $company = $this->organization('Sponsored Company');
@@ -897,10 +770,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_OWNER_NOT_ORGANIZATION_REPRESENTATIVE');
     }
-
-    // -----------------------------------------------------------------
-    // K. Ownership — simulation
-    // -----------------------------------------------------------------
 
     public function test_an_authorized_actor_can_create_a_simulation_project(): void
     {
@@ -918,11 +787,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($admin->id, $project->owner_id);
     }
 
-    /**
-     * The creator's organization must NOT be attached automatically — that is
-     * what would silently turn a SkillSpan-internal simulation into a company
-     * project.
-     */
     public function test_a_simulation_is_not_automatically_linked_to_the_creators_organization(): void
     {
         $company = $this->organization('Sponsoring Company');
@@ -992,12 +856,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertJsonPath('data.status', Project::STATUS_OPEN);
     }
 
-    /**
-     * The conversion guard: a simulation must not become a "company project"
-     * that names no company. A company representative is covered by the test
-     * below (their company is derived from their own membership); this is the
-     * case where there is genuinely no company to derive.
-     */
     public function test_a_simulation_cannot_be_converted_to_company_sponsored_without_a_company(): void
     {
         $admin = $this->user('admin@test.com', 'admin');
@@ -1058,13 +916,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($actor->id, $fresh->owner_id);
     }
 
-    // -----------------------------------------------------------------
-    // L. Ownership — security
-    // -----------------------------------------------------------------
-
-    /**
-     * A cosmetic update must not be a way to re-point ownership.
-     */
     public function test_a_representative_cannot_reassign_ownership_through_an_ordinary_update(): void
     {
         $company = $this->organization('Sponsoring Company');
@@ -1092,10 +943,6 @@ class ProjectManagementWorkflowTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // Review separation was removed by product decision: an internal
-        // simulation owned by the administrator is reviewable by that same
-        // administrator. All three decisions used to answer 403
-        // PROJECT_REVIEW_SELF_FORBIDDEN.
         $approved = $this->completeProject(Project::STATUS_SUBMITTED, $admin);
 
         $this->postJson("/api/v1/projects/{$approved->id}/approve")
@@ -1114,15 +961,6 @@ class ProjectManagementWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_REJECTED);
     }
-
-    // -----------------------------------------------------------------
-    // M. Ownership re-validation on a TYPE CHANGE (update path)
-    //
-    // Creation and update are separate code paths, and ownership is
-    // re-resolved on update, so the same guarantees have to be proven there
-    // too — a gap here would let a simulation be converted into a company
-    // project with an owner the company never agreed to.
-    // -----------------------------------------------------------------
 
     public function test_a_type_change_cannot_assign_a_representative_of_another_company(): void
     {
@@ -1192,10 +1030,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame('simulation', $simulation->fresh()->type);
     }
 
-    /**
-     * A representative's own organization always wins over a supplied one, on
-     * the update path exactly as on create.
-     */
     public function test_a_representative_cannot_link_a_type_change_to_another_company(): void
     {
         $own = $this->organization('Own Company');
@@ -1217,10 +1051,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($actor->id, $fresh->owner_id);
     }
 
-    /**
-     * The reverse conversion preserves the existing owner — an administrator
-     * editing someone else's project must not inherit it by flipping the type.
-     */
     public function test_converting_to_simulation_preserves_the_existing_owner(): void
     {
         $company = $this->organization('Sponsoring Company');
@@ -1238,13 +1068,6 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame($representative->id, $project->fresh()->owner_id);
     }
 
-    /**
-     * Defence in depth at the single ownership decision point: an unrecognised
-     * type must be REFUSED, never quietly given simulation ownership (no
-     * company, creator as owner). The FormRequest already restricts the type,
-     * so this asserts against the service directly — the path a future caller
-     * would take.
-     */
     public function test_an_unknown_project_type_is_refused_by_the_ownership_resolver(): void
     {
         $actor = $this->user('company@test.com', 'company_admin', $this->organization());

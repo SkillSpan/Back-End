@@ -9,16 +9,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * GET /api/v1/rubrics — the rubric versions a company may attach to a project.
- *
- * The route did not exist at all. The company project form treats the rubric
- * picker as required, so with a 404 on this endpoint a company could never
- * publish a project from the UI.
- *
- * The company-facing vocabulary says "approved"; the column stores "published".
- * The alias is part of the contract, so it is pinned here.
- */
 class RubricListTest extends TestCase
 {
     use RefreshDatabase;
@@ -28,8 +18,6 @@ class RubricListTest extends TestCase
         $role = Role::create(['name' => ucfirst($slug), 'slug' => $slug, 'description' => '']);
 
         $user = User::factory()->create();
-        // `status` is not fillable, and `account.active` gates the route: without
-        // this the request is refused before the role check even runs.
         $user->forceFill(['status' => 'active', 'email_verified_at' => now()])->save();
         $user->roles()->attach($role->id);
 
@@ -42,7 +30,6 @@ class RubricListTest extends TestCase
             'title' => $title,
             'version' => $version,
         ]);
-        // `status` is not fillable — create() drops it and the row stays `draft`.
         $rubric->forceFill([
             'status' => $status,
             'published_at' => $status === 'published' ? now() : null,

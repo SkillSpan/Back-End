@@ -16,20 +16,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-MATCH-02 — project-details enrichment.
- *
- * The details endpoint now also reports, for the AUTHENTICATED learner:
- *   - `eligibility`            (from ProjectEligibilityService)
- *   - `capacity_state`         (from ProjectCapacityPolicy)
- *   - `available_project_roles`
- *   - `duration_days`
- *
- * The last two are pure presentation/derivation. The first two are attached
- * ONLY on the details endpoint — the catalog list must not run one eligibility
- * check per project, and the tests below pin that difference so it cannot
- * silently regress into an N+1.
- */
 class ProjectDetailsEnrichmentTest extends TestCase
 {
     use RefreshDatabase;
@@ -218,10 +204,6 @@ class ProjectDetailsEnrichmentTest extends TestCase
 
     public function test_the_catalog_list_does_not_compute_per_learner_eligibility(): void
     {
-        // Pins the deliberate difference: `eligibility` and `capacity_state` are
-        // attached only on the details endpoint, so a 50-project catalog page
-        // does not run 50 eligibility checks. An absent block must never be read
-        // as "eligible" — it is null, which is explicitly not a positive answer.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 

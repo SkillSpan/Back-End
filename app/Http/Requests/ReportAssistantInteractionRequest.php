@@ -6,17 +6,6 @@ use App\Models\AssistantInteraction;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/**
- * US-REC-01 — report an assistant response.
- *
- * SRS v1.1 §12.6 (incident and dispute flow) / REC-08: a learner may report
- * a response as unsafe, irrelevant, unfair or incorrect, and the recorded
- * reason travels with the classification.
- *
- * Ownership is NOT validated here — it is enforced by the scoped lookup in
- * AssistantService::report(), so an unauthorised id cannot be distinguished
- * from a non-existent one (BR-11).
- */
 class ReportAssistantInteractionRequest extends FormRequest
 {
     public function authorize(): bool

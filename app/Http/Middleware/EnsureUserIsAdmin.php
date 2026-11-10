@@ -8,10 +8,6 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureUserIsAdmin
 {
-    /**
-     * Restrict the route to authenticated users holding the "admin" role.
-     * Must run after the "auth:sanctum" middleware so $request->user() is resolved.
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();

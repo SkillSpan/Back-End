@@ -7,22 +7,6 @@ use App\Models\Specialization;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
-/**
- * Links each technical specialization to its career roles through the
- * `career_role_specialization` pivot.
- *
- * A role shared by several specializations (Backend Developer) is linked to
- * each of them here — it is the SAME career_roles row, never a copy.
- *
- * The "Self-Learning / Free Track" specialization is deliberately NOT listed:
- * its available roles are every role in the system, resolved at query time
- * from its `is_free_track` flag rather than by inserting a pivot row for
- * every role.
- *
- * Idempotent and non-destructive: `syncWithoutDetaching` never creates a
- * duplicate pair and never removes a link an administrator added from the
- * panel.
- */
 class CareerRoleSpecializationSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -33,7 +17,7 @@ class CareerRoleSpecializationSeeder extends Seeder
             $specialization = Specialization::where('name', $specializationName)->first();
 
             if (! $specialization) {
-                continue; // Skip if SpecializationsSeeder hasn't created it yet.
+                continue;
             }
 
             $careerRoleIds = CareerRole::whereIn('slug', $roleSlugs)->pluck('id')->all();
@@ -46,11 +30,6 @@ class CareerRoleSpecializationSeeder extends Seeder
         }
     }
 
-    /**
-     * specialization name => [career role slugs]
-     *
-     * @return array<string, array<int, string>>
-     */
     private function map(): array
     {
         return [

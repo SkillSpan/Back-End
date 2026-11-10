@@ -41,9 +41,6 @@ class Message extends Model
         return $this->belongsTo(User::class, 'read_by');
     }
 
-    /**
-     * Scope to only messages that are not system messages.
-     */
     public function scopeText($query)
     {
         return $query->where('message_type', 'text');

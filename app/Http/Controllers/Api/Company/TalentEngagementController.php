@@ -19,20 +19,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * The company's talent engagement surface: compare, shortlists, notes and
- * contact requests.
- *
- * These sit under `/api/v1/talent/...`, beside the discovery endpoints, because
- * that is where a client looks for them and what the requested contract names.
- * They share the discovery group's three gates (token, approved organization,
- * company role), so the whole talent surface refuses a pending or non-company
- * account identically.
- *
- * The organization is always resolved from the caller's admin membership via
- * the trait — never from a request parameter — so no id in the body can reach
- * another company's lists.
- */
 class TalentEngagementController extends Controller
 {
     use ResolvesCompanyOrganization;
@@ -45,9 +31,6 @@ class TalentEngagementController extends Controller
         private readonly TalentEngagementService $engagement,
     ) {}
 
-    /**
-     * POST /api/v1/company/talent/compare
-     */
     public function compare(CompareTalentRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -77,13 +60,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    // -----------------------------------------------------------------
-    // Shortlists
-    // -----------------------------------------------------------------
-
-    /**
-     * GET /api/v1/company/talent/lists
-     */
     public function indexLists(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -105,9 +81,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/company/talent/lists
-     */
     public function storeList(StoreTalentListRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -135,9 +108,6 @@ class TalentEngagementController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    /**
-     * GET /api/v1/company/talent/lists/{list}
-     */
     public function showList(Request $request, int $list): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -165,13 +135,6 @@ class TalentEngagementController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    /**
-     * PATCH /api/v1/talent/lists/{list}
-     *
-     * Rename a list or change its description. Both fields optional; a body
-     * with neither is a validation error rather than a silent no-op, because a
-     * caller who sent nothing meant to change something.
-     */
     public function updateList(Request $request, int $list): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -226,9 +189,6 @@ class TalentEngagementController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    /**
-     * DELETE /api/v1/talent/lists/{list}
-     */
     public function destroyList(Request $request, int $list): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -253,9 +213,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * DELETE /api/v1/talent/lists/{list}/candidates/{student}
-     */
     public function destroyListCandidate(Request $request, int $list, int $student): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -280,11 +237,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /api/v1/talent/funnel
-     *
-     * saved → contacted → responded, counted per person.
-     */
     public function funnel(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -303,12 +255,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/company/talent/lists/{list}/candidates
-     *
-     * 201 on a new row, 200 when the candidate was already on the list — the
-     * second press of an "add to shortlist" button is not an error.
-     */
     public function storeListCandidate(StoreTalentListCandidateRequest $request, int $list): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -351,13 +297,6 @@ class TalentEngagementController extends Controller
         ], $result['already_listed'] ? 200 : 201, ['X-Request-ID' => $requestId]);
     }
 
-    // -----------------------------------------------------------------
-    // Notes
-    // -----------------------------------------------------------------
-
-    /**
-     * GET /api/v1/company/talent/candidates/{student}/notes
-     */
     public function indexNotes(Request $request, int $student): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -396,9 +335,6 @@ class TalentEngagementController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/company/talent/candidates/{student}/notes
-     */
     public function storeNote(StoreTalentNoteRequest $request, int $student): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -438,16 +374,6 @@ class TalentEngagementController extends Controller
         ], 201, ['X-Request-ID' => $requestId]);
     }
 
-    // -----------------------------------------------------------------
-    // Contact
-    // -----------------------------------------------------------------
-
-    /**
-     * POST /api/v1/company/talent/candidates/{student}/contact
-     *
-     * Records the request and returns it. No address is read or returned: the
-     * learner decides whether to answer.
-     */
     public function storeContact(StoreTalentContactRequest $request, int $student): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -486,15 +412,6 @@ class TalentEngagementController extends Controller
         ], 201, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/talent/contact-all
-     *
-     * Send one message to EVERY student this company may see.
-     *
-     * `sent_to` is the number of students actually reached, which is the only
-     * thing the caller needs to report back. It can legitimately be 0 — a
-     * verified company that can currently see nobody.
-     */
     public function storeContactAll(StoreTalentContactRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -525,10 +442,6 @@ class TalentEngagementController extends Controller
         ], 201, ['X-Request-ID' => $requestId]);
     }
 
-    // -----------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------
-
     private function perPage(Request $request): int
     {
         $perPage = (int) $request->query('per_page', self::DEFAULT_PER_PAGE);
@@ -540,9 +453,6 @@ class TalentEngagementController extends Controller
         return min($perPage, self::MAX_PER_PAGE);
     }
 
-    /**
-     * @return array<string, int>
-     */
     private function meta($paginator): array
     {
         return [

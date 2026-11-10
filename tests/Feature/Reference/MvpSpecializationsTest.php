@@ -12,14 +12,6 @@ use Database\Seeders\SpecializationsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * The MVP specialization set.
- *
- * The product offers exactly eight academic tracks plus the self-learning
- * track. Everything else in the catalog is DEACTIVATED, never deleted, so an
- * existing student profile that names a legacy track still resolves and the
- * track can be brought back without a migration.
- */
 class MvpSpecializationsTest extends TestCase
 {
     use RefreshDatabase;
@@ -78,7 +70,6 @@ class MvpSpecializationsTest extends TestCase
         $this->assertNotNull($legacy, 'A deactivated specialization must stay in the database.');
         $this->assertFalse((bool) $legacy->is_active);
 
-        // The non-technical rows that predate the taxonomy are still there too.
         foreach (['Nursing', 'Law', 'Accounting'] as $name) {
             $row = Specialization::where('name', $name)->first();
 
@@ -106,8 +97,6 @@ class MvpSpecializationsTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertTrue((bool) $rows->first()->is_active);
 
-        // It inherits the roles of the tracks it merges, so the admin panel and
-        // the question-bank browser still show a coherent mapping.
         $this->assertGreaterThan(0, $rows->first()->careerRoles()->count());
     }
 
@@ -140,7 +129,6 @@ class MvpSpecializationsTest extends TestCase
         $legacy = Specialization::where('name', 'Cybersecurity')->firstOrFail();
         $legacy->update(['is_active' => true]);
 
-        // Prime the twelve-hour reference cache with the pre-policy list.
         cache()->forget(ReferenceCache::SPECIALIZATIONS);
 
         $before = array_column(
@@ -152,7 +140,6 @@ class MvpSpecializationsTest extends TestCase
 
         $this->seed(MvpCatalogSeeder::class);
 
-        // Without the cache flush this would still return the stale list.
         $after = array_column(
             $this->getJson('/api/v1/reference/specializations')->assertOk()->json('data'),
             'name',
@@ -173,9 +160,7 @@ class MvpSpecializationsTest extends TestCase
 
         $reloaded = Specialization::where('name', 'Cybersecurity')->firstOrFail();
 
-        // The policy seeder re-applies the MVP scope…
         $this->assertFalse((bool) $reloaded->is_active);
-        // …without ever replacing the row.
         $this->assertSame($originalId, $reloaded->id);
         $this->assertSame(1, Specialization::where('name', 'Cybersecurity')->count());
     }

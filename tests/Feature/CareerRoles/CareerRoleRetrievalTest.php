@@ -12,17 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-INT-01 — the career role retrieval API
- * (GET /api/v1/career-roles, /{id}, /{id}/skills): authorization (any active
- * account — companies need the same reference data to publish a project),
- * approved-only visibility, the paginator contract the
- * frontend is written against, and the decision-snapshot payload that
- * Readiness/Intelligence depend on.
- *
- * This suite is the regression net for the endpoints that feed the
- * intelligence flow; they had no coverage at all before it.
- */
 class CareerRoleRetrievalTest extends TestCase
 {
     use RefreshDatabase;
@@ -39,8 +28,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // ------------------------------------------------ authorization
-
     public function test_unauthenticated_user_is_rejected(): void
     {
         $this->getJson('/api/v1/career-roles')->assertStatus(401);
@@ -48,10 +35,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->getJson('/api/v1/career-roles/1/skills')->assertStatus(401);
     }
 
-    // A company representative must be able to read career roles: `career_role_id`
-    // is required to create a project and the project form fills its select from
-    // this endpoint. While these routes were learner-only the company got
-    // 403 LEARNER_ONLY, the select was empty, and "add project" was impossible.
     public function test_a_company_admin_can_list_career_roles(): void
     {
         $this->approvedRole('Data Analyst');
@@ -79,13 +62,6 @@ class CareerRoleRetrievalTest extends TestCase
 
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
-        /*
-         * The payload is the role's own mapping — required level, importance,
-         * prerequisites — not the caller's levels, so a company needs it to
-         * pick `required_skills` the server will accept: SkillMappedToCareerRole
-         * rejects any skill outside this map. It used to be learner-only, which
-         * left the project form picking from the whole taxonomy and failing 422.
-         */
         $response = $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')
             ->assertStatus(200)
             ->assertJsonPath('data.career_role.id', $role->id)
@@ -96,8 +72,6 @@ class CareerRoleRetrievalTest extends TestCase
             array_keys($response->json('data.skills.0')),
         );
     }
-
-    // ------------------------------------------------ index
 
     public function test_only_approved_roles_are_listed(): void
     {
@@ -126,14 +100,11 @@ class CareerRoleRetrievalTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('message', 'Career roles retrieved successfully.');
 
-        // The frontend reads the items from `data.data`, not `data`.
         $this->assertIsArray($response->json('data.data'));
         $this->assertSame(1, $response->json('data.current_page'));
         $this->assertSame(15, $response->json('data.per_page'));
         $this->assertSame(1, $response->json('data.total'));
 
-        // The paginator must not be nested under a `meta` key: that is
-        // Pattern C of the frontend handoff.
         $this->assertArrayNotHasKey('meta', $response->json());
     }
 
@@ -151,7 +122,6 @@ class CareerRoleRetrievalTest extends TestCase
 
     public function test_index_default_page_size_is_15_and_never_repeats_a_role(): void
     {
-        // 18 approved roles, no `per_page` sent: page 1 = 15, page 2 = 3.
         foreach (range(1, 18) as $index) {
             $this->approvedRole('Role '.$index);
         }
@@ -168,14 +138,9 @@ class CareerRoleRetrievalTest extends TestCase
         $idsPageOne = array_column($pageOne->json('data.data'), 'id');
         $idsPageTwo = array_column($pageTwo->json('data.data'), 'id');
 
-        // No row may appear on both pages, and together they must cover
-        // every approved role — the failure mode of an ordering without a
-        // deterministic tie-breaker.
         $this->assertSame([], array_intersect($idsPageOne, $idsPageTwo));
         $this->assertCount(18, array_unique(array_merge($idsPageOne, $idsPageTwo)));
 
-        // Ordering is version-descending with the id as the documented
-        // tie-breaker, so the order is fully determined.
         $versions = array_column($pageOne->json('data.data'), 'version');
         $sorted = $versions;
         rsort($sorted);
@@ -185,8 +150,6 @@ class CareerRoleRetrievalTest extends TestCase
         rsort($sortedIds);
         $this->assertSame($sortedIds, $idsPageOne, 'equal versions must be ordered by id descending');
     }
-
-    // ------------------------------------------------ pagination (BA-04)
 
     public function test_per_page_is_honoured(): void
     {
@@ -204,10 +167,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->assertSame(4, $response->json('data.last_page'));
     }
 
-    /**
-     * The case that motivated BA-04: the frontend asked for `per_page=50`
-     * and used to receive 15.
-     */
     public function test_per_page_50_is_honoured(): void
     {
         foreach (range(1, 55) as $index) {
@@ -230,7 +189,6 @@ class CareerRoleRetrievalTest extends TestCase
 
         Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
 
-        // An unbounded request must never pull the whole table.
         $response = $this->getJson('/api/v1/career-roles?per_page=100000')->assertOk();
 
         $this->assertSame(100, $response->json('data.per_page'));
@@ -261,10 +219,6 @@ class CareerRoleRetrievalTest extends TestCase
             ->assertJsonPath('data.per_page', 15);
     }
 
-    /**
-     * BA-04 must not change the response envelope: the paginator stays inside
-     * `data` and there is still no `meta` key (frontend handoff Pattern C).
-     */
     public function test_per_page_does_not_change_the_response_shape(): void
     {
         foreach (range(1, 3) as $index) {
@@ -304,9 +258,6 @@ class CareerRoleRetrievalTest extends TestCase
             '/api/v1/career-roles?specialization_id='.$specialization->id.'&per_page=2'
         )->assertOk();
 
-        // Since the MVP the specialization only ORDERS the list, so all five
-        // active roles are in scope (4 curated + 1 outside the pivot) and the
-        // page size still applies to that whole set.
         $this->assertSame(5, $response->json('data.total'));
         $this->assertSame(2, $response->json('data.per_page'));
         $this->assertCount(2, $response->json('data.data'));
@@ -336,8 +287,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->assertSame([], $response->json('data.data'));
         $this->assertSame(0, $response->json('data.total'));
     }
-
-    // ------------------------------------------------ show
 
     public function test_show_returns_the_approved_role(): void
     {
@@ -379,8 +328,6 @@ class CareerRoleRetrievalTest extends TestCase
             ->assertJsonPath('code', 'CAREER_ROLE_NOT_APPROVED');
     }
 
-    // ------------------------------------------------ skills
-
     public function test_skills_returns_the_decision_snapshot_payload(): void
     {
         $role = $this->approvedRole('Data Analyst');
@@ -411,7 +358,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->assertSame(0.45, (float) $skills[0]['importance_weight']);
         $this->assertTrue($skills[0]['is_critical']);
 
-        // Average importance weight is derived, never hardcoded.
         $this->assertSame(0.35, (float) $response->json('data.statistics.average_importance_weight'));
     }
 
@@ -421,7 +367,6 @@ class CareerRoleRetrievalTest extends TestCase
         $sql = $this->attachSkill($role, 'SQL', requiredLevel: 4.0, weight: 0.5, critical: true);
         $python = $this->attachSkill($role, 'Python', requiredLevel: 3.0, weight: 0.5, critical: false);
 
-        // Python requires SQL — stored relationally, not as free text.
         $python->prerequisites()->attach($sql->skill_id);
 
         Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
@@ -436,7 +381,6 @@ class CareerRoleRetrievalTest extends TestCase
         $this->assertSame($sql->skill_id, $pythonSkill['prerequisites'][0]['skill_id']);
         $this->assertSame('SQL', $pythonSkill['prerequisites'][0]['name']);
 
-        // A skill with no dependency must report an empty list, never null.
         $this->assertSame([], $skills->firstWhere('skill_name', 'SQL')['prerequisites']);
     }
 
@@ -470,8 +414,6 @@ class CareerRoleRetrievalTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'CAREER_ROLE_NOT_APPROVED');
     }
-
-    // ------------------------------------------------ helpers
 
     private function approvedRole(string $title, int $version = 1): CareerRole
     {

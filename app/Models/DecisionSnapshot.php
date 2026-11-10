@@ -8,11 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-/**
- * US-INT-01 — one immutable decision per intelligence calculation.
- * The snapshot column holds the validated pre-FastAPI input state
- * (role, required skills, learner skills, availability, versions).
- */
 class DecisionSnapshot extends Model
 {
     use HasFactory;
@@ -23,14 +18,6 @@ class DecisionSnapshot extends Model
 
     public const STATUS_FAILED = 'failed';
 
-    /**
-     * Which flow produced the decision. Two flows persist succeeded
-     * snapshots: the intelligence flow (skill gaps + readiness + roadmap)
-     * and the legacy composite readiness flow (readiness + skill-match
-     * gaps, no roadmap). `GET /api/v1/intelligence/latest` reads the
-     * intelligence flow only — without this discriminator a readiness
-     * decision silently shadowed the learner's roadmap.
-     */
     public const FLOW_INTELLIGENCE = 'intelligence';
 
     public const FLOW_READINESS_LEGACY = 'readiness_legacy';
@@ -54,11 +41,6 @@ class DecisionSnapshot extends Model
         'calculated_at' => 'datetime',
     ];
 
-    /**
-     * Decisions produced by the intelligence flow. A NULL flow is treated
-     * as intelligence: that is what every row written before the column
-     * existed was, and the migration backfills them anyway.
-     */
     public function scopeIntelligenceFlow(Builder $query): Builder
     {
         return $query->where(function (Builder $query): void {

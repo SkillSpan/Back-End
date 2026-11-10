@@ -6,17 +6,6 @@ use App\Services\Intelligence\IntelligenceClient;
 use ReflectionProperty;
 use Tests\TestCase;
 
-/**
- * Regression coverage for IntelligenceClient timeout resolution.
- *
- * The constructor used to default `$timeout` to the literal 10, which made its
- * own `$timeout > 0` branch always win and left
- * config('services.data_science.timeout') permanently unreachable. Every caller
- * that did `new IntelligenceClient` — notably ProjectMatchingService — therefore
- * used 10 s instead of the configured 60 s, so the first call after a Render
- * free-tier cold start (24.7-33.8 s) failed with a false
- * INTELLIGENCE_UNAVAILABLE even though the service was healthy.
- */
 class IntelligenceClientTimeoutTest extends TestCase
 {
     private function timeoutOf(IntelligenceClient $client): int
@@ -36,7 +25,6 @@ class IntelligenceClientTimeoutTest extends TestCase
 
     public function test_a_default_client_follows_a_reconfigured_timeout(): void
     {
-        // Proves the value is read at construction time, not hardcoded.
         config(['services.data_science.timeout' => 45]);
 
         $this->assertSame(45, $this->timeoutOf(new IntelligenceClient));
@@ -64,11 +52,6 @@ class IntelligenceClientTimeoutTest extends TestCase
         $this->assertSame(60, $this->timeoutOf(new IntelligenceClient(timeout: -5)));
     }
 
-    /**
-     * Drift guard on the shipped fallback. The configured value must survive a
-     * cold start, so the literal in config/services.php must not drop back to a
-     * value that a free-tier idle wake-up can exceed.
-     */
     public function test_the_shipped_config_fallback_is_sixty_seconds(): void
     {
         $source = file_get_contents(base_path('config/services.php'));

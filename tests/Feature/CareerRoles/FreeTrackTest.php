@@ -17,17 +17,6 @@ use Illuminate\Support\Facades\Config;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The "Self-Learning / Free Track" specialization.
- *
- * Its available career roles are EVERY role in the system, resolved from its
- * `is_free_track` flag rather than from pivot rows, so a learner who studied
- * outside a formal academic track can pick any role.
- *
- * MVP NOTE: every specialization now offers every active role, so the free
- * track's distinguishing property is that it carries NO priority list (its
- * list is the neutral order) and needs no pivot rows at all.
- */
 class FreeTrackTest extends TestCase
 {
     use RefreshDatabase;
@@ -61,9 +50,6 @@ class FreeTrackTest extends TestCase
         $this->assertTrue($free->isFreeTrack());
     }
 
-    /**
-     * The whole point: the free track must NOT need a pivot row per role.
-     */
     public function test_the_free_track_has_no_pivot_rows(): void
     {
         $free = Specialization::where('is_free_track', true)->firstOrFail();
@@ -84,8 +70,6 @@ class FreeTrackTest extends TestCase
         $selectable = CareerRole::where('status', 'approved')->where('is_active', true)->count();
 
         $this->assertSame($selectable, $freeTotal);
-        // MVP policy: a normal specialization offers the SAME set as the free
-        // track — the specialization decides the order, not the availability.
         $this->assertSame($selectable, $softwareTotal);
     }
 
@@ -95,21 +79,12 @@ class FreeTrackTest extends TestCase
 
         Sanctum::actingAs($this->learnerWithProfile());
 
-        // The catalog is larger than one page, so walk it rather than assuming
-        // the role we look for lands on page 1.
         $titles = $this->allTitles('?specialization_id='.$cyber->id.'&per_page=100');
 
         $this->assertContains('Security Analyst', $titles);
-        // Not linked to Cybersecurity, but active — still offered (in the
-        // neutral "rest" block after the priority roles).
         $this->assertContains('Frontend Developer', $titles);
     }
 
-    /**
-     * Every title the endpoint returns, across all pages.
-     *
-     * @return list<string>
-     */
     private function allTitles(string $query): array
     {
         $titles = [];
@@ -150,8 +125,6 @@ class FreeTrackTest extends TestCase
 
         Sanctum::actingAs($this->learnerWithProfile());
 
-        // MVP policy: the specialization no longer gates the assessment. The
-        // only remaining gate is the role being approved AND active.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $cyber->id,
             'career_role_id' => $frontend->id,

@@ -13,44 +13,6 @@ use App\Traits\AuditsActions;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
-/**
- * US-MATCH-02 — the project-application workflow.
- *
- * Orchestration only. Every rule it applies already exists somewhere else and
- * is delegated rather than re-implemented:
- *
- *   - project state + deadline      → ProjectAvailabilityService (reused as-is)
- *   - skills / constraints / team   → ProjectEligibilityService (reused as-is)
- *   - seats                         → ProjectCapacityPolicy (the single seam)
- *   - notifications                 → NotificationService (preference-aware)
- *   - audit rows                    → AuditsActions trait → audit_events
- *
- * Nothing here decides what "full" means, and nothing here counts applications
- * to do it — that would duplicate the capacity policy.
- *
- * ORDER OF CHECKS (deliberate)
- * ----------------------------
- *   1. idempotent replay     — a retry must return the original result and must
- *                              NOT be re-validated, because the world may have
- *                              changed since (e.g. the project filled up).
- *   2. availability          — is the project open and within its deadline?
- *   3. client references     — does the requested role belong to this project
- *                              and is it still active; does the referenced
- *                              recommendation belong to this learner and point
- *                              at this project? Both are validated together so a
- *                              bad reference is never masked by a later
- *                              business-state error.
- *   4. duplicate             — at most one ACTIVE application per learner per
- *                              project (the DB enforces this too, via
- *                              unique(project_id, applicant_id, active_key)).
- *   5. capacity              — only if the project is actually full.
- *   6. eligibility           — critical skills, constraints, team conflicts.
- *   7. persist + audit + notify, in one transaction.
- *
- * Steps 2/4/6 come from existing services; their reason strings are surfaced
- * verbatim in `details.reasons` rather than being reworded, so the frontend
- * sees exactly what the existing catalog/eligibility endpoints report.
- */
 class ApplicationService
 {
     use AuditsActions;
@@ -62,13 +24,6 @@ class ApplicationService
         private readonly NotificationService $notificationService = new NotificationService,
     ) {}
 
-    /**
-     * Submit an application for a project.
-     *
-     * @param  array{project_role_id?: int|null, application_data?: array|null, recommendation_id?: int|null, idempotency_key?: string|null}  $payload
-     *
-     * @throws ApplicationException on any domain failure.
-     */
     public function submit(
         Project $project,
         User $learner,
@@ -80,7 +35,6 @@ class ApplicationService
         $idempotencyKey = $this->normalizeKey($payload['idempotency_key'] ?? null);
         $fingerprint = $idempotencyKey === null ? null : $this->fingerprint($payload);
 
-        // 1. Idempotent replay. Returns the ORIGINAL row untouched.
         if ($idempotencyKey !== null) {
             $existing = Application::where('applicant_id', $learner->id)
                 ->where('project_id', $project->id)
@@ -101,7 +55,6 @@ class ApplicationService
             }
         }
 
-        // 2. Availability — status + deadline. Reused service, verbatim reasons.
         $availability = $this->availabilityService->check($project);
 
         if (! $availability->available) {
@@ -113,17 +66,9 @@ class ApplicationService
             );
         }
 
-        // 3. Client-supplied references. Both are validated HERE, together,
-        //    BEFORE any business-state check — a bad reference must be reported
-        //    as a bad reference, not masked by a duplicate/capacity error that
-        //    happens to be true as well.
-        //      - the role must belong to THIS project and still be active
-        //      - the recommendation must belong to THIS learner and point at
-        //        THIS project
         $projectRole = $this->resolveProjectRole($project, $payload['project_role_id'] ?? null);
         $recommendation = $this->resolveRecommendation($project, $learner, $payload['recommendation_id'] ?? null);
 
-        // 4. Duplicate active application.
         if ($this->hasActiveApplication($project, $learner)) {
             throw new ApplicationException(
                 'You already have an active application for this project.',
@@ -133,7 +78,6 @@ class ApplicationService
             );
         }
 
-        // 5. Capacity — decided ONLY by the policy seam.
         if ($this->capacityPolicy->blocksNewApplication($project)) {
             $check = $this->capacityPolicy->check($project);
 
@@ -150,9 +94,6 @@ class ApplicationService
             );
         }
 
-        // 6. Eligibility — critical skills, constraints, team conflicts.
-        //    The duplicate rule inside this service is already satisfied by
-        //    step 4, so it never fires twice.
         $eligibility = $this->eligibilityService->check($project, $learner);
 
         if (! $eligibility->eligible) {
@@ -187,16 +128,11 @@ class ApplicationService
                     'request_fingerprint' => $fingerprint,
                 ]);
 
-                // active_key and submitted_at are derived by the model.
                 $application->save();
 
                 return $application;
             });
         } catch (QueryException $e) {
-            // Two concurrent submissions for the same learner+project can both
-            // pass step 4 and then race on the unique index. Translate the
-            // database's answer into the same domain error the sequential path
-            // produces, rather than leaking a 500.
             if ($this->isUniqueViolation($e)) {
                 throw new ApplicationException(
                     'You already have an active application for this project.',
@@ -232,24 +168,9 @@ class ApplicationService
 
         $this->notifyOwner($application, $learner);
 
-        // Deliberately NOT fresh(): the in-memory model already carries every
-        // attribute this workflow set (the derived submitted_at and active_key
-        // are written by the model's own hooks before the insert), and keeping
-        // the original instance lets the controller distinguish a genuine
-        // insert from an idempotent replay via wasRecentlyCreated — a replay
-        // must not answer 201 for a resource that already existed.
         return $application;
     }
 
-    /**
-     * Withdraw the learner's OWN application.
-     *
-     * Ownership is enforced here, not by the route, because the route only
-     * knows the learner role — it cannot know whose application an id refers
-     * to. A learner therefore cannot withdraw someone else's application, and
-     * the response for a foreign id is deliberately the same 403 shape as a
-     * genuine authorization failure.
-     */
     public function withdraw(
         Application $application,
         User $learner,
@@ -285,8 +206,6 @@ class ApplicationService
         DB::transaction(function () use ($application): void {
             $application->status = Application::STATUS_WITHDRAWN;
             $application->withdrawn_at = now();
-            // active_key is recomputed by the model's saving hook, which is what
-            // releases the unique slot and (with the default policy) the seat.
             $application->save();
         });
 
@@ -299,9 +218,6 @@ class ApplicationService
             [
                 'status' => $application->status,
                 'withdrawn_at' => $application->withdrawn_at?->toIso8601String(),
-                // The applications table has no withdrawal-reason column and
-                // US-MATCH-02 did not ask for one, so the reason is preserved
-                // in the audit row rather than inventing a schema change.
                 'reason' => $reason,
             ],
             'project_application',
@@ -313,12 +229,6 @@ class ApplicationService
         return $application->fresh();
     }
 
-    /**
-     * Record the project owner's decision on an application.
-     *
-     * Authorization is explicit ownership of the project — NOT a role. Any
-     * authenticated user who owns the project may decide; nobody else may.
-     */
     public function decide(
         Application $application,
         User $actor,
@@ -353,8 +263,6 @@ class ApplicationService
             );
         }
 
-        // Awarding a seat must respect the seat limit even when new submissions
-        // are still being accepted (reject_submission_when_full = false).
         if ($status === Application::STATUS_ACCEPTED && $this->capacityPolicy->isFull($project)) {
             $check = $this->capacityPolicy->check($project);
 
@@ -403,15 +311,6 @@ class ApplicationService
         return $application->fresh();
     }
 
-    /**
-     * The learner's own applications, newest first, PAGINATED.
-     *
-     * Paginated because a learner accumulates a row per project they ever
-     * applied to (including withdrawn ones, which are kept as history), so the
-     * response must stay bounded. This is the same convention the existing list
-     * endpoints use — RecommendationController and NotificationService::list
-     * both paginate with a clamped per-page.
-     */
     public function forLearner(User $learner, ?string $status = null, int $perPage = 15)
     {
         return Application::query()
@@ -423,10 +322,6 @@ class ApplicationService
             ->paginate($perPage);
     }
 
-    /**
-     * Applications to a project, for its owner only. Paginated for the same
-     * reason: a popular project can have many applicants.
-     */
     public function forProject(Project $project, User $actor, int $perPage = 15)
     {
         if ((int) $project->owner_id !== (int) $actor->id) {
@@ -446,20 +341,6 @@ class ApplicationService
             ->paginate($perPage);
     }
 
-    /**
-     * One application, for the three people allowed to see it: the learner who
-     * submitted it, the owner of the project it targets, and a platform
-     * administrator.
-     *
-     * Deliberately NOT a fourth `role:` gate. The applicant is usually a
-     * learner and the reviewer is usually not, so the same route has to serve
-     * both; ownership is the only rule that covers it, and it is checked here
-     * rather than on the route.
-     *
-     * A caller who is none of the three gets 403 with a stable code — the
-     * application id came from somewhere, so pretending it does not exist
-     * would just be confusing.
-     */
     public function forViewer(Application $application, User $actor): Application
     {
         $isApplicant = (int) $application->applicant_id === (int) $actor->id;
@@ -479,14 +360,6 @@ class ApplicationService
         );
     }
 
-    // -----------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------
-
-    /**
-     * At most one ACTIVE application per learner per project. Uses the model's
-     * own ACTIVE_STATUSES so the rule cannot drift from the DB constraint.
-     */
     private function hasActiveApplication(Project $project, User $learner): bool
     {
         return Application::where('project_id', $project->id)
@@ -501,8 +374,6 @@ class ApplicationService
             return null;
         }
 
-        // Scoped through the project's own relation, so a role id belonging to
-        // a DIFFERENT project can never be applied with.
         $role = $project->projectRoles()->whereKey((int) $projectRoleId)->first();
 
         if ($role === null) {
@@ -526,11 +397,6 @@ class ApplicationService
         return $role;
     }
 
-    /**
-     * A recommendation may only be referenced when it belongs to this learner
-     * and actually points at this project. Otherwise the learner could attach
-     * an arbitrary (or someone else's) recommendation id.
-     */
     private function resolveRecommendation(Project $project, User $learner, mixed $recommendationId): ?Recommendation
     {
         if ($recommendationId === null) {
@@ -565,11 +431,6 @@ class ApplicationService
         return $recommendation;
     }
 
-    /**
-     * In-app notification to the project owner. Routed through
-     * NotificationService so the owner's preferences are honoured, and keyed on
-     * the application id so a retry cannot produce a duplicate.
-     */
     private function notifyOwner(Application $application, User $learner): void
     {
         $project = $application->project;
@@ -588,9 +449,6 @@ class ApplicationService
         );
     }
 
-    /**
-     * In-app notification to the applicant when the owner decides.
-     */
     private function notifyApplicant(Application $application, string $status): void
     {
         $project = $application->project;
@@ -601,8 +459,6 @@ class ApplicationService
             title: 'Your application was updated',
             body: 'Your application for '.($project?->title ?? 'a project').' is now '.$status.'.',
             link: '/applications/'.$application->id,
-            // Keyed on the new status, so each distinct decision notifies once
-            // while a repeated identical decision does not.
             eventKey: 'application.status:'.$application->id.':'.$status,
         );
     }
@@ -618,10 +474,6 @@ class ApplicationService
         return $key === '' ? null : $key;
     }
 
-    /**
-     * Stable hash of the normalized request body, so reusing an idempotency key
-     * with a materially different payload can be detected.
-     */
     private function fingerprint(array $payload): string
     {
         $normalized = $this->normalizeForFingerprint([
@@ -633,20 +485,6 @@ class ApplicationService
         return hash('sha256', (string) json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
-    /**
-     * Recursively sort map keys so two payloads that differ only in the ORDER
-     * their keys were serialized produce the same fingerprint.
-     *
-     * Why this matters: a client that builds `application_data` from an
-     * unordered map (a JS object, a hash) can legitimately emit the same logical
-     * body with a different key order on a retry. Without normalization that
-     * would be reported as APPLICATION_IDEMPOTENCY_CONFLICT, turning a safe
-     * retry into a hard failure. Sorting only the top level is not enough —
-     * nested objects need it too.
-     *
-     * Lists keep their order, because order is meaningful for a list; only maps
-     * (string-keyed arrays) are sorted.
-     */
     private function normalizeForFingerprint(mixed $value): mixed
     {
         if (! is_array($value)) {
@@ -666,10 +504,6 @@ class ApplicationService
         return $value;
     }
 
-    /**
-     * Whether a QueryException is a unique-constraint violation, across the
-     * drivers this project runs on (SQLite in tests, MySQL in production).
-     */
     private function isUniqueViolation(QueryException $e): bool
     {
         $sqlState = $e->errorInfo[0] ?? null;

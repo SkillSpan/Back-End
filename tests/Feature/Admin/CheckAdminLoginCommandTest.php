@@ -7,11 +7,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * The panel answers a failed sign-in vaguely on purpose, and Auth::attempt()
- * cannot tell "no such account" from "wrong password" — so this command is the
- * only way to find out which check turned an operator away.
- */
 class CheckAdminLoginCommandTest extends TestCase
 {
     use RefreshDatabase;
@@ -65,11 +60,6 @@ class CheckAdminLoginCommandTest extends TestCase
             ->assertExitCode(1);
     }
 
-    /**
-     * The case behind "it works on the API but not in the panel": the API
-     * login never checks the admin role, so an organisation admin signs in
-     * there happily and is refused here.
-     */
     public function test_it_names_a_missing_admin_role(): void
     {
         $this->user('company_admin');

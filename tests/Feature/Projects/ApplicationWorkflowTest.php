@@ -23,17 +23,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-MATCH-02 — project application workflow.
- *
- * Covers the runtime layer end to end: submission, every validation failure,
- * capacity, deadline, eligibility, duplicate, idempotency, withdrawal, owner
- * decisions, listing, audit rows and notifications.
- *
- * Only the capacity/eligibility rules that ACTUALLY exist are asserted; where
- * the business rule is still a config default (which statuses consume a seat)
- * the test asserts the DEFAULT's behaviour and says so.
- */
 class ApplicationWorkflowTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,10 +34,6 @@ class ApplicationWorkflowTest extends TestCase
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(): Organization
     {
@@ -87,9 +72,6 @@ class ApplicationWorkflowTest extends TestCase
 
     private function createProject(array $attributes = []): Project
     {
-        // Reuse the default owner across calls: several tests create more than
-        // one project, and forceCreate would collide on the users.email unique
-        // index if the same owner were inserted twice.
         $owner = $attributes['owner_id']
             ?? User::where('email', 'owner@test.com')->value('id')
             ?? $this->createUser('owner@test.com', null)->id;
@@ -141,10 +123,6 @@ class ApplicationWorkflowTest extends TestCase
         return $this->postJson("/api/v1/projects/{$project->id}/applications", $payload);
     }
 
-    // -----------------------------------------------------------------
-    // Authorization
-    // -----------------------------------------------------------------
-
     public function test_unauthenticated_submission_is_rejected(): void
     {
         $project = $this->createProject();
@@ -183,10 +161,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertStatus(404)
             ->assertJsonPath('code', 'PROJECT_NOT_FOUND');
     }
-
-    // -----------------------------------------------------------------
-    // Happy path
-    // -----------------------------------------------------------------
 
     public function test_learner_can_submit_an_application(): void
     {
@@ -244,10 +218,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertJsonPath('data.application_data.hours', 12);
     }
 
-    // -----------------------------------------------------------------
-    // Availability
-    // -----------------------------------------------------------------
-
     public function test_cannot_apply_to_a_project_that_is_not_open(): void
     {
         $learner = $this->createUser('learner@test.com');
@@ -271,10 +241,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_NOT_AVAILABLE');
     }
-
-    // -----------------------------------------------------------------
-    // Project roles
-    // -----------------------------------------------------------------
 
     public function test_a_valid_project_role_is_recorded_on_the_application(): void
     {
@@ -320,10 +286,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_ROLE_INACTIVE');
     }
 
-    // -----------------------------------------------------------------
-    // Duplicate
-    // -----------------------------------------------------------------
-
     public function test_a_second_active_application_is_rejected(): void
     {
         $learner = $this->createUser('learner@test.com');
@@ -351,15 +313,10 @@ class ApplicationWorkflowTest extends TestCase
 
         $this->postJson("/api/v1/applications/{$applicationId}/withdraw")->assertStatus(200);
 
-        // The withdrawal released the unique slot, so a new application is allowed.
         $this->submit($project)->assertStatus(201);
 
         $this->assertSame(2, Application::where('applicant_id', $learner->id)->count());
     }
-
-    // -----------------------------------------------------------------
-    // Capacity
-    // -----------------------------------------------------------------
 
     public function test_a_full_project_rejects_a_new_application(): void
     {
@@ -377,8 +334,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_a_submitted_application_does_not_consume_a_seat(): void
     {
-        // Asserts the DEFAULT policy: only `accepted` occupies a seat. Changing
-        // config/project_application.php changes this behaviour with no code edit.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -389,7 +344,6 @@ class ApplicationWorkflowTest extends TestCase
         $pending->status = Application::STATUS_SUBMITTED;
         $pending->save();
 
-        // The other learner only applied, so a seat is still free.
         $this->submit($project)->assertStatus(201);
     }
 
@@ -407,8 +361,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_capacity_is_not_used_as_an_eligibility_mechanism(): void
     {
-        // A project with seats left must never be blocked because of capacity,
-        // regardless of the learner's skills — capacity is a seat count only.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -416,10 +368,6 @@ class ApplicationWorkflowTest extends TestCase
 
         $this->submit($project)->assertStatus(201);
     }
-
-    // -----------------------------------------------------------------
-    // Eligibility
-    // -----------------------------------------------------------------
 
     public function test_ineligible_learner_is_rejected_with_skill_failures(): void
     {
@@ -507,10 +455,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertJsonPath('code', 'APPLICATION_NOT_ELIGIBLE');
     }
 
-    // -----------------------------------------------------------------
-    // Validation
-    // -----------------------------------------------------------------
-
     public function test_application_data_must_be_structured_data(): void
     {
         $learner = $this->createUser('learner@test.com');
@@ -534,10 +478,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
-
-    // -----------------------------------------------------------------
-    // Idempotency
-    // -----------------------------------------------------------------
 
     public function test_replaying_an_idempotency_key_returns_the_original_application(): void
     {
@@ -575,9 +515,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_an_idempotency_replay_tolerates_reordered_application_data_keys(): void
     {
-        // Same logical body, but the nested keys serialized in a different order.
-        // A client that builds the object from an unordered map can legitimately
-        // produce this on a retry, so it must REPLAY, not report a conflict.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -599,8 +536,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_an_idempotency_replay_tolerates_reordered_nested_keys(): void
     {
-        // The same guarantee one level deeper: nested objects inside
-        // application_data must normalize too, not just the top level.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -621,7 +556,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_an_idempotency_replay_still_detects_a_genuinely_different_body(): void
     {
-        // Guards the fix: normalizing must not make DIFFERENT bodies look equal.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -642,9 +576,6 @@ class ApplicationWorkflowTest extends TestCase
 
     public function test_an_idempotent_replay_does_not_re_run_capacity_checks(): void
     {
-        // A retry must return the original result even if the project filled up
-        // in the meantime, otherwise a network retry would turn a success into
-        // a failure.
         $learner = $this->createUser('learner@test.com');
         Sanctum::actingAs($learner);
 
@@ -652,7 +583,6 @@ class ApplicationWorkflowTest extends TestCase
 
         $this->submit($project, ['idempotency_key' => 'key-3'])->assertStatus(201);
 
-        // Fill the project completely.
         $this->acceptAnotherLearner($project, 'other1@test.com');
         $this->acceptAnotherLearner($project, 'other2@test.com');
 
@@ -672,10 +602,6 @@ class ApplicationWorkflowTest extends TestCase
 
         $this->assertSame(2, Application::where('applicant_id', $learner->id)->count());
     }
-
-    // -----------------------------------------------------------------
-    // Recommendation linkage
-    // -----------------------------------------------------------------
 
     public function test_recommendation_versions_are_stored_on_the_application(): void
     {
@@ -743,10 +669,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertJsonPath('code', 'RECOMMENDATION_PROJECT_MISMATCH');
     }
 
-    // -----------------------------------------------------------------
-    // Audit + notification
-    // -----------------------------------------------------------------
-
     public function test_submission_writes_an_audit_row(): void
     {
         $learner = $this->createUser('learner@test.com');
@@ -803,10 +725,6 @@ class ApplicationWorkflowTest extends TestCase
 
         $this->assertSame(1, Notification::where('user_id', $owner->id)->count());
     }
-
-    // -----------------------------------------------------------------
-    // Withdrawal
-    // -----------------------------------------------------------------
 
     public function test_learner_can_withdraw_their_own_application(): void
     {
@@ -890,10 +808,6 @@ class ApplicationWorkflowTest extends TestCase
         $this->assertFalse($policy->isFull($project->fresh()));
     }
 
-    // -----------------------------------------------------------------
-    // Owner decisions
-    // -----------------------------------------------------------------
-
     public function test_the_project_owner_can_accept_an_application(): void
     {
         $owner = $this->createUser('owner@test.com', null);
@@ -950,7 +864,6 @@ class ApplicationWorkflowTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // rejected is terminal: nothing may move out of it.
         $this->patchJson("/api/v1/projects/{$project->id}/applications/{$application->id}", [
             'status' => Application::STATUS_ACCEPTED,
         ])
@@ -1023,10 +936,6 @@ class ApplicationWorkflowTest extends TestCase
             ->assertStatus(404)
             ->assertJsonPath('code', 'APPLICATION_PROJECT_MISMATCH');
     }
-
-    // -----------------------------------------------------------------
-    // Listing
-    // -----------------------------------------------------------------
 
     public function test_learner_sees_only_their_own_applications(): void
     {

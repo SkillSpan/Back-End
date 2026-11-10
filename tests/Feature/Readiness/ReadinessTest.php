@@ -39,9 +39,6 @@ class ReadinessTest extends TestCase
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
 
-        // US-INT-01 §10: readiness decisions now bind to an active
-        // algorithm configuration — no active config means an explicit
-        // error, so seed one for every legacy readiness scenario.
         AlgorithmConfiguration::create([
             'name' => 'intelligence',
             'version' => 1,
@@ -50,8 +47,6 @@ class ReadinessTest extends TestCase
             'activated_at' => now(),
         ]);
 
-        // US-INT-01: the service credential is mandatory on every
-        // Laravel -> FastAPI intelligence request.
         config(['services.data_science.service_token' => 'test-service-token']);
     }
 
@@ -95,25 +90,11 @@ class ReadinessTest extends TestCase
             '*' => Http::response($this->successResponse($profile, $careerRole, $roleSkills), 200),
         ]);
 
-        // The endpoint answers 201 Created because a readiness_results
-        // row is persisted as part of the calculation.
         $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $careerRole->id]);
 
         $response->assertStatus(201);
 
-        // Weighted composite from createScenario()'s fixture data. The
-        // skill_match component is FastAPI's own skill_match_score
-        // (skill-match-v1) — see ReadinessService::calculate(), which reads
-        // $result['skill_match_score']. The fixture derives that value from
-        // these same levels and weights, so the arithmetic below holds:
-        //   skill_match (79.38) * 0.65 = 51.60
-        //   practical_experience (50.0, 1 of 2 full-credit projects) * 0.20 = 10.0
-        //   assessment_reliability (90.0, avg confidence) * 0.10 = 9.0
-        //   profile_completeness (100.0, all required fields filled) * 0.05 = 5.0
-        //   total = 75.60
         $this->assertEquals(75.6, $response->json('data.score'));
-        // Regression guard: the key must actually be present. assertFalse()
-        // alone would pass on a missing key, because json() returns null.
         $this->assertArrayHasKey('is_provisional', $response->json('data'));
         $this->assertFalse($response->json('data.is_provisional'));
         $this->assertDatabaseHas('readiness_results', [
@@ -173,9 +154,6 @@ class ReadinessTest extends TestCase
     {
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
 
-        // Remove the practical-experience fixture only: no completed/accepted/
-        // evaluated project for this learner, so the component is excluded
-        // and weights are renormalized over the remaining components.
         Evaluation::query()->delete();
         Submission::query()->delete();
 
@@ -187,9 +165,6 @@ class ReadinessTest extends TestCase
         $response->assertStatus(201);
         $this->assertTrue($response->json('data.is_provisional'));
         $this->assertNull($response->json('data.practical_experience_component'));
-        // skill_match(79.38*.65) + assessment_reliability(90*.10) + profile_completeness(100*.05)
-        // renormalized over the remaining weight sum (.65+.10+.05=.80):
-        // (51.60 + 9 + 5) / 0.80 = 82.0
         $this->assertEquals(82.0, $response->json('data.score'));
     }
 
@@ -207,9 +182,6 @@ class ReadinessTest extends TestCase
         $response->assertStatus(201);
         $this->assertTrue($response->json('data.is_provisional'));
         $this->assertNull($response->json('data.assessment_reliability_component'));
-        // skill_match(79.38*.65) + practical_experience(50*.20) + profile_completeness(100*.05)
-        // renormalized over the remaining weight sum (.65+.20+.05=.90):
-        // (51.60 + 10 + 5) / 0.90 = 74.0
         $this->assertEquals(74.0, $response->json('data.score'));
     }
 
@@ -364,31 +336,11 @@ class ReadinessTest extends TestCase
         $this->assertEquals(82.0, $response->json('data.score'));
     }
 
-    /**
-     * Regression: the critical-skill cap is Laravel's decision, so Laravel
-     * must be the one to report it.
-     *
-     * Skill Match v1 returns no cap metadata at all — only per-skill
-     * `is_critical` and `match_ratio`. ReadinessService therefore applies the
-     * cap itself and records the outcome under
-     * `snapshot.critical_skill_rule`.
-     *
-     * ReadinessResultResource used to read those fields from
-     * `snapshot.fastapi_result` — the service response — where they can never
-     * exist. Every capped learner was told a cap had been applied while the
-     * cap value, the offending skills and their count came back as null / [] /
-     * 0. That hid the reason for the decision and made it impossible to
-     * dispute (§12.6 / REC-08).
-     */
     public function test_a_capped_result_reports_the_cap_and_the_offending_skills(): void
     {
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        // SQL is critical with required_level 4.0. Drop it to 1.9 so its
-        // match_ratio is 0.475 — below readiness.critical_skill.minimum_match
-        // (0.50) — while the composite still lands above the cap at ~71.21, so
-        // the cap genuinely binds rather than being incidental.
         $sqlRoleSkill = $roleSkills->first(fn ($roleSkill) => $roleSkill->skill->name === 'SQL');
 
         SkillEvaluation::forceCreate([
@@ -413,23 +365,14 @@ class ReadinessTest extends TestCase
         $this->assertTrue($data['critical_cap_applied']);
         $this->assertEquals(69.0, $data['score']);
 
-        // The three fields that were permanently null / [] / 0 before the fix.
         $this->assertEquals(69.0, $data['critical_skill_readiness_cap']);
         $this->assertEquals(['SQL'], $data['critical_skill_names']);
         $this->assertEquals(1, $data['critical_skill_gap_count']);
 
-        // The count is derived from the same array, so the two cannot drift.
         $this->assertCount($data['critical_skill_gap_count'], $data['critical_skill_names']);
 
-        // `skills_with_gap` used to read a key Skill Match never returns.
         $this->assertIsInt($data['skills_with_gap']);
 
-        /*
-         * Pin the reason the old implementation could not work, so the read
-         * cannot be reintroduced: the service response genuinely carries none
-         * of these keys, so sourcing them from `fastapi_result` could only
-         * ever produce null / [] / 0.
-         */
         $result = ReadinessResult::query()
             ->where('student_profile_id', $profile->id)
             ->latest('id')
@@ -441,7 +384,6 @@ class ReadinessTest extends TestCase
         $this->assertArrayNotHasKey('critical_skill_readiness_cap', $fastApiResult);
         $this->assertArrayNotHasKey('critical_skill_gap_count', $fastApiResult);
 
-        // ...whereas Laravel's own record of the decision does carry them.
         $this->assertEquals(
             ['SQL'],
             $result->snapshot['critical_skill_rule']['critical_skill_names'],
@@ -449,14 +391,6 @@ class ReadinessTest extends TestCase
         $this->assertEquals(69.0, $result->snapshot['critical_skill_rule']['cap']);
     }
 
-    /**
-     * ADR-001 §3.2 / §4 — the composite STRUCTURE version is recorded, and it
-     * is genuinely a third identifier: not the numeric configuration version,
-     * not FastAPI's Skill Match component algorithm.
-     *
-     * Without it a historical score cannot be replayed once the aggregation
-     * policy moves on, and the value cannot be back-filled later.
-     */
     public function test_the_composite_structure_version_is_recorded_and_distinct(): void
     {
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
@@ -474,7 +408,6 @@ class ReadinessTest extends TestCase
             ->latest('id')
             ->firstOrFail();
 
-        // The three orthogonal identifiers, none of them sharing a value.
         $this->assertSame('composite-readiness-v1', $result->composite_algorithm_version);
         $this->assertSame('config-v1', $result->configuration_version);
         $this->assertSame('skill-match-v1', $result->algorithm_version);
@@ -482,7 +415,6 @@ class ReadinessTest extends TestCase
         $this->assertNotSame($result->composite_algorithm_version, $result->configuration_version);
         $this->assertNotSame($result->composite_algorithm_version, $result->algorithm_version);
 
-        // Recorded on both audit trails, not just the result row.
         $this->assertSame(
             'composite-readiness-v1',
             $result->snapshot['composite_algorithm_version'],
@@ -494,17 +426,10 @@ class ReadinessTest extends TestCase
         );
     }
 
-    /**
-     * ADR-001 §5.1 — a score is reproducible only when the EFFECTIVE weights
-     * (after redistribution) and the excluded component set are recorded, not
-     * merely the nominal weights and the `is_provisional` boolean.
-     */
     public function test_a_provisional_result_records_effective_weights_and_the_excluded_set(): void
     {
         [$user, $profile, $careerRole, $roleSkills] = $this->createScenario();
 
-        // Drop the practical-experience fixture only, so the policy has to
-        // exclude that component and redistribute its 0.20 weight.
         Evaluation::query()->delete();
         Submission::query()->delete();
 
@@ -521,12 +446,9 @@ class ReadinessTest extends TestCase
 
         $snapshot = $result->snapshot;
 
-        // The nominal weights are unchanged...
         $this->assertEqualsWithDelta(0.65, $snapshot['formula']['weights']['skill_match'], 0.000001);
         $this->assertEqualsWithDelta(0.20, $snapshot['formula']['weights']['practical_experience'], 0.000001);
 
-        // ...while the effective weights are renormalized over the available
-        // components only: 0.65/0.80, 0.10/0.80, 0.05/0.80.
         $effective = $snapshot['formula']['effective_weights'];
         $this->assertEqualsWithDelta(0.8125, $effective['skill_match'], 0.000001);
         $this->assertEqualsWithDelta(0.125, $effective['assessment_reliability'], 0.000001);
@@ -534,15 +456,12 @@ class ReadinessTest extends TestCase
         $this->assertArrayNotHasKey('practical_experience', $effective);
         $this->assertEqualsWithDelta(1.0, array_sum($effective), 0.000001);
 
-        // The excluded set is recorded by name, not just as a boolean.
         $this->assertSame(
             ['practical_experience'],
             $snapshot['missing_component_policy']['excluded_components'],
         );
         $this->assertTrue($snapshot['missing_component_policy']['is_provisional']);
 
-        // Every component's own version is recorded, so the composite can be
-        // replayed from its parts.
         $this->assertSame('skill-match-v1', $snapshot['component_versions']['skill_match']['algorithm_version']);
         $this->assertSame('weights-v1', $snapshot['component_versions']['skill_match']['config_version']);
         $this->assertSame('practical-experience-v1', $snapshot['component_versions']['practical_experience']['algorithm_version']);
@@ -560,8 +479,6 @@ class ReadinessTest extends TestCase
             'status' => $status,
         ]);
 
-        // All Profile Completeness required_fields (see config/readiness.php)
-        // filled in, so that component defaults to 100.0 in the happy path.
         $profile = StudentProfile::forceCreate([
             'user_id' => $user->id,
             'primary_career_role_id' => $role->id,
@@ -610,13 +527,6 @@ class ReadinessTest extends TestCase
         return [$user, $profile, $role, $roleSkills];
     }
 
-    /**
-     * Seeds exactly one fully-eligible project (Project.status=completed,
-     * ProjectTeamMember.assignment_state=completed, Submission.status=accepted,
-     * Evaluation.status=finalized for THAT submission) so
-     * PracticalExperienceService finds eligible_count = 1, i.e. score = 50.0
-     * with the default full_credit_project_count = 2.
-     */
     private function seedEligiblePracticalExperience(User $user, StudentProfile $profile): void
     {
         $rubric = Rubric::create([
@@ -661,11 +571,6 @@ class ReadinessTest extends TestCase
         ]);
     }
 
-    /**
-     * Seeds one completed BaselineAssessment with normalized_skills confidence
-     * values on the 0-100 scale (matching BaselineAssessmentService's actual
-     * storage format), so AssessmentReliabilityService finds score = 90.0.
-     */
     private function seedCompletedBaselineAssessment($profile, $roleSkills): void
     {
         BaselineAssessment::forceCreate([
@@ -698,26 +603,6 @@ class ReadinessTest extends TestCase
         return $user;
     }
 
-    /**
-     * Build a FastAPI skill-match-v1 response that satisfies the validator
-     * in ReadinessService::validateDataScienceResult() exactly.
-     *
-     * The contract changed in d87040e (/skill-gap -> /skill-match v1): the
-     * response now carries the normalized-weight breakdown plus
-     * skill_match_score, and every skill_result is cross-checked against
-     * the payload Laravel actually sent. So this fixture mirrors the
-     * validator's own formulas rather than inventing its own numbers:
-     *
-     *  - current_level comes from the learner's LATEST evaluation per skill
-     *    (calculated_at desc, id desc) — the same source the payload uses.
-     *  - achieved_level = current_level capped at required_level.
-     *  - match_ratio   = achieved_level / required_level, clamped to 0..1.
-     *  - status        = met (ratio 1.0) / partial / not_required (req 0).
-     *  - skill_match_score = normalized weighted match on a 0..100 scale.
-     *    This is the value ReadinessService uses as its skill_match
-     *    component, so it must stay derived — a hardcoded number would
-     *    silently disagree with the levels and weights below.
-     */
     private function successResponse($profile, $careerRole, $roleSkills): array
     {
         $weightTotal = (float) $roleSkills->sum('importance_weight');
@@ -741,8 +626,6 @@ class ReadinessTest extends TestCase
             $requiredLevel = (float) $roleSkill->required_level;
             $importanceWeight = (float) $roleSkill->importance_weight;
 
-            // Over-qualification never counts beyond 100% of what the role
-            // asks for, so the achieved level is capped at the required one.
             $achievedLevel = $requiredLevel > 0
                 ? min($currentLevel, $requiredLevel)
                 : $currentLevel;

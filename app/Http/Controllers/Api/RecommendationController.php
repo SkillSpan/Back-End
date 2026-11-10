@@ -10,13 +10,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-/**
- * Task 11 — GET /api/v1/recommendations
- *
- * Returns the authenticated learner's stored project recommendations.
- * Inaccessible projects are retained as historical records, but sensitive
- * recommendation details are redacted.
- */
 class RecommendationController extends Controller
 {
     private const DEFAULT_PER_PAGE = 15;
@@ -27,13 +20,6 @@ class RecommendationController extends Controller
         private readonly ProjectAccessService $accessService = new ProjectAccessService,
     ) {}
 
-    /**
-     * GET /api/v1/recommendations
-     *
-     * Returns the learner's recommendations while enforcing project access.
-     * Historical records remain visible, but inaccessible project details
-     * and sensitive recommendation metadata are withheld.
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = (string) (
@@ -47,13 +33,6 @@ class RecommendationController extends Controller
             ->orderByDesc('id')
             ->paginate($this->perPage($request));
 
-        // Only projects the learner may STILL discover are attached. The
-        // recommendation row itself is always returned — historical records are
-        // never deleted — but RecommendationResource redacts every
-        // result-derived field once access is gone. A project that became
-        // restricted to another organization (or closed, or past its deadline)
-        // is absent from this query, so `project` stays null and the resource
-        // withholds the score, reasons, factors and version metadata.
         $candidateIds = collect($recommendations->items())
             ->pluck('candidate_id')
             ->unique()
@@ -62,14 +41,6 @@ class RecommendationController extends Controller
         $projects = $this->accessService->accessibleProjectsQuery(
             $this->accessService->activeOrganizationIds($request->user()),
             [
-                /*
-                 * `organizations` has no `title` column — the display name is
-                 * `name`, which ProjectResource reads and re-emits under the
-                 * unchanged JSON key `title`. Selecting `title` produced
-                 * invalid SQL on MySQL (`42S22 Unknown column`) and a null
-                 * organization name on SQLite, where an unresolvable
-                 * double-quoted identifier degrades to a string literal.
-                 */
                 'organization:id,name',
                 'requiredSkills.skill:id,name',
                 'eligibilityConstraints',
@@ -83,10 +54,6 @@ class RecommendationController extends Controller
             ->map(function (Recommendation $recommendation) use ($projects) {
                 $resource = new RecommendationResource($recommendation);
 
-                // A null project means the learner can no longer access it, and
-                // the resource then redacts the whole result. Redaction lives in
-                // exactly one place so the redacted and non-redacted shapes
-                // cannot drift apart.
                 $resource->project = $projects->get(
                     (int) $recommendation->candidate_id
                 );
@@ -109,12 +76,6 @@ class RecommendationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * Task 12 — GET /api/v1/projects/{project}/recommendation
-     *
-     * Returns the latest stored recommendation for an accessible project.
-     * Access is checked before retrieving the recommendation.
-     */
     public function showForProject(
         Request $request,
         int $project
@@ -125,7 +86,6 @@ class RecommendationController extends Controller
 
         $learner = $request->user();
 
-        // Nonexistent and inaccessible projects return the same response.
         if (! $this->accessService->canAccessId($project, $learner)) {
             return $this->errorResponse(
                 'PROJECT_NOT_FOUND',
@@ -196,9 +156,6 @@ class RecommendationController extends Controller
         );
     }
 
-    /**
-     * Clamp the requested page size to prevent unbounded result sets.
-     */
     private function perPage(Request $request): int
     {
         $requested = (int) $request->query(

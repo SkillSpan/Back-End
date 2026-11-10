@@ -18,27 +18,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The reported symptom, end to end: "readiness/latest and intelligence/latest
- * return 404 even after the assessment".
- *
- * Both endpoints are pure reads — `readiness_results` and a SUCCEEDED
- * `decision_snapshots` row — and nothing in the assessment flow wrote either
- * one directly. The chain was:
- *
- *   assessment submit → SkillDataChanged → RecalculateIntelligence (queued)
- *     → IntelligenceService::calculate($profile, null, …)
- *     → $careerRoleId ??= $profile->primary_career_role_id
- *     → null → CAREER_ROLE_REQUIRED → caught, logged, swallowed
- *
- * `primary_career_role_id` was only ever written by `PUT /profile`, so a
- * learner who assessed and never opened the profile form left the whole chain
- * a no-op — silently, which is why it looked like a broken endpoint.
- *
- * These tests pin the two halves: with a role the chain produces both rows, and
- * without one it stays a quiet no-op instead of failing the request that
- * triggered it.
- */
 class ReadinessAfterSkillChangeTest extends TestCase
 {
     use RefreshDatabase;
@@ -65,9 +44,6 @@ class ReadinessAfterSkillChangeTest extends TestCase
         ]);
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: array<int, CareerRoleSkill>}
-     */
     private function scenario(?int $primaryRoleId = null): array
     {
         $user = User::forceCreate([
@@ -106,9 +82,6 @@ class ReadinessAfterSkillChangeTest extends TestCase
                 'is_critical' => $critical,
             ]);
 
-            // The intelligence flow refuses to run when a required role skill
-            // has no evaluation (ASSESSMENT_INCOMPLETE) — deliberately, no
-            // fallback to the projection.
             SkillEvaluation::forceCreate([
                 'student_profile_id' => $profile->id,
                 'skill_id' => $skill->id,
@@ -177,7 +150,6 @@ class ReadinessAfterSkillChangeTest extends TestCase
         $profile->forceFill(['primary_career_role_id' => $role->id])->save();
         $this->fakeSkillGap($profile, $role, $roleSkills);
 
-        // The same event the assessment submit dispatches.
         SkillDataChanged::dispatch($profile->fresh(), 'baseline_assessment_submit');
 
         $this->assertGreaterThan(0, ReadinessResult::where('student_profile_id', $profile->id)->count());
@@ -190,7 +162,6 @@ class ReadinessAfterSkillChangeTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        // The two endpoints that used to answer 404.
         $this->getJson('/api/v1/readiness/latest')->assertOk();
         $this->getJson('/api/v1/intelligence/latest')->assertOk();
     }
@@ -200,9 +171,6 @@ class ReadinessAfterSkillChangeTest extends TestCase
         [$user, $profile, $role, $roleSkills] = $this->scenario();
         $this->fakeSkillGap($profile, $role, $roleSkills);
 
-        // No primary role and none passed: the listener aborts on
-        // CAREER_ROLE_REQUIRED. It must NOT propagate — the assessment that
-        // dispatched it has already committed.
         SkillDataChanged::dispatch($profile->fresh(), 'baseline_assessment_submit');
 
         $this->assertSame(0, ReadinessResult::where('student_profile_id', $profile->id)->count());

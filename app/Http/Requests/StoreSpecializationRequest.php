@@ -4,23 +4,13 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * Validates a specialization created from the admin panel.
- *
- * The name is unique because it is the key every seeder and reference
- * lookup resolves a specialization by.
- */
 class StoreSpecializationRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // The route carries the `admin` middleware.
         return true;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     public function rules(): array
     {
         return [
@@ -30,9 +20,6 @@ class StoreSpecializationRequest extends FormRequest
         ];
     }
 
-    /**
-     * @return array<string, string>
-     */
     public function messages(): array
     {
         return [

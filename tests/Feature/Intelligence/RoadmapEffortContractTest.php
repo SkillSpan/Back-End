@@ -19,18 +19,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Roadmap v1 effort/duration contract + request isolation.
- *
- * estimated_hours          = effort required to complete the action
- * estimated_duration_weeks = calendar duration in weeks (weekly availability)
- *
- * The two are distinct and are never substituted for one another; the
- * legacy `estimated_duration_hours` is not part of the contract. The
- * FastAPI Roadmap request is produced by IntelligenceClient::toRoadmapRequest()
- * and carries EXACTLY `learner` / `role` / `skills` — no internal-only
- * fields (skill_gap_result, evidence, versions, persistence metadata).
- */
 class RoadmapEffortContractTest extends TestCase
 {
     use RefreshDatabase;
@@ -55,8 +43,6 @@ class RoadmapEffortContractTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------ Test 1
-
     public function test_valid_effort_and_duration_weeks_pass_validation(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -69,8 +55,6 @@ class RoadmapEffortContractTest extends TestCase
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
     }
-
-    // ------------------------------------------------ Test 2
 
     public function test_legacy_estimated_duration_hours_without_weeks_is_rejected(): void
     {
@@ -118,8 +102,6 @@ class RoadmapEffortContractTest extends TestCase
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
     }
 
-    // ------------------------------------------------ Test 3
-
     public function test_effort_and_duration_weeks_are_persisted_verbatim(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -137,11 +119,8 @@ class RoadmapEffortContractTest extends TestCase
         $this->assertEqualsWithDelta(12.0, (float) $action->estimated_hours, 0.0001);
         $this->assertEqualsWithDelta(3.0, (float) $action->estimated_duration_weeks, 0.0001);
 
-        // The legacy hours column is not written by the Roadmap v1 flow.
         $this->assertNull($action->estimated_duration_hours);
     }
-
-    // ------------------------------------------------ Test 4
 
     public function test_resource_exposes_weeks_and_not_the_legacy_hours_field(): void
     {
@@ -165,25 +144,18 @@ class RoadmapEffortContractTest extends TestCase
         $this->assertArrayNotHasKey('estimated_duration_hours', $actionPayload);
     }
 
-    // ------------------------------------------------ Test 5
-
     public function test_to_roadmap_request_strips_internal_only_fields(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
 
         $payload = $this->buildInternalPayload($profile, $role, $roleSkills);
 
-        // The caller enriches the internal payload with the skill-gap result
-        // (as IntelligenceService does) and the builder already carries the
-        // per-skill evidence summary.
         $payload['skill_gap_result'] = ['skill_results' => [['skill_id' => 1]]];
 
         $request = app(IntelligenceClient::class)->toRoadmapRequest($payload);
 
-        // The RoadmapRequest carries EXACTLY learner / role / skills.
         $this->assertSame(['learner', 'role', 'skills'], array_keys($request));
 
-        // Internal-only / Laravel-owned fields never reach the wire.
         $this->assertArrayNotHasKey('skill_gap_result', $request);
         $this->assertArrayNotHasKey('algorithm_version', $request);
         $this->assertArrayNotHasKey('configuration_version', $request);
@@ -202,16 +174,12 @@ class RoadmapEffortContractTest extends TestCase
             array_keys($request['skills'][0]),
         );
 
-        // The per-skill internal evidence summary is not forwarded.
         $this->assertArrayNotHasKey('evidence', $request['skills'][0]);
 
-        // Values are preserved (no invented fields, no rescaling).
         $this->assertSame((int) $profile->id, $request['learner']['student_profile_id']);
         $this->assertSame((int) $role->id, $request['role']['id']);
         $this->assertEqualsWithDelta(12.0, (float) $request['learner']['weekly_availability_hours'], 0.0001);
     }
-
-    // ------------------------------------------------ Test 6
 
     public function test_roadmap_endpoint_receives_the_mapped_request_not_the_internal_payload(): void
     {
@@ -237,21 +205,16 @@ class RoadmapEffortContractTest extends TestCase
 
         $this->assertIsArray($sent, 'the roadmap endpoint must have been called');
 
-        // It is NOT the internal payload: the RoadmapRequest carries only
-        // learner / role / skills.
         $this->assertArrayNotHasKey('skill_gap_result', $sent);
         $this->assertArrayNotHasKey('evidence', $sent['skills'][0]);
         $this->assertArrayNotHasKey('algorithm_version', $sent);
         $this->assertArrayNotHasKey('configuration_version', $sent);
         $this->assertSame(['learner', 'role', 'skills'], array_keys($sent));
 
-        // The roadmap input the algorithm needs is present.
         $this->assertSame((int) $profile->id, $sent['learner']['student_profile_id']);
         $this->assertSame((int) $role->version, $sent['role']['version']);
         $this->assertCount(4, $sent['skills']);
     }
-
-    // ------------------------------------------------ Test 8
 
     public function test_confidence_is_forwarded_unchanged(): void
     {
@@ -275,12 +238,9 @@ class RoadmapEffortContractTest extends TestCase
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
-        // confidence stays on the 0..100 scale — never divided by 100.
         $this->assertEqualsWithDelta(85.0, (float) $sent['skills'][0]['confidence'], 0.0001);
         $this->assertNotEqualsWithDelta(0.85, (float) $sent['skills'][0]['confidence'], 0.0001);
     }
-
-    // ------------------------------------------------ helpers
 
     private function buildInternalPayload(StudentProfile $profile, CareerRole $role, Collection $roleSkills): array
     {
@@ -317,22 +277,16 @@ class RoadmapEffortContractTest extends TestCase
         });
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function action(string $id, string $type, string $title, int $targetSkillId, ?float $hours, ?int $weeks): array
     {
         $action = [
             'action_id' => $id,
             'action_type' => $type,
             'title' => $title,
-            // Roadmap v1 action contract — every field below is REQUIRED.
             'objective' => 'Objective for '.$title,
             'target_skill_id' => $targetSkillId,
-            // The CANONICAL name of that skill — it must agree with the id.
             'target_skill_name' => (string) Skill::query()->findOrFail($targetSkillId)->name,
             'priority_score' => 0.5,
-            // Roadmap v1: lists of strings, never a plain string.
             'completion_criteria' => ['Completion criteria for '.$title],
             'explanation' => ['Explanation for '.$title],
         ];
@@ -358,9 +312,6 @@ class RoadmapEffortContractTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
-            // Roadmap v1 totals + limitations — required by the contract.
-            // The learner HAS weekly availability here (12), so the calendar
-            // duration must be a positive integer.
             'estimated_total_hours' => 12.0,
             'estimated_duration_weeks' => 3,
             'limitations' => [],
@@ -420,9 +371,6 @@ class RoadmapEffortContractTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>}
-     */
     private function createScenario(int $confidence = 90): array
     {
         $user = User::forceCreate([

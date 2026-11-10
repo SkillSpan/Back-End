@@ -15,7 +15,6 @@ return new class extends Migration
                 $table->foreignId('sender_id')->constrained('users')->cascadeOnDelete();
                 $table->text('body');
                 $table->enum('message_type', ['text', 'system', 'chatbot'])->default('text');
-                // Arbitrary metadata: attachments refs, edited_at, etc.
                 $table->json('metadata')->nullable();
                 $table->timestamp('read_at')->nullable();
                 $table->foreignId('read_by')->nullable()->constrained('users')->nullOnDelete();

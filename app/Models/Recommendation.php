@@ -43,11 +43,6 @@ class Recommendation extends Model
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * The immutable matching input set this recommendation was calculated
-     * from (Task 11). Null for recommendation types that the project
-     * matching flow does not produce.
-     */
     public function projectMatchingSnapshot()
     {
         return $this->belongsTo(ProjectMatchingSnapshot::class);

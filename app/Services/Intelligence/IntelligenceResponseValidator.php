@@ -5,12 +5,6 @@ namespace App\Services\Intelligence;
 use App\Exceptions\IntelligenceException;
 use App\Models\RoadmapAction;
 
-/**
- * US-INT-01 §16 — never trust FastAPI JSON. Every response is checked
- * against the payload that produced it (identity echo), scale/range
- * rules, enum membership, and cross-field invariants. Any violation
- * throws before a single row is persisted — no fabricated results.
- */
 class IntelligenceResponseValidator
 {
     public function validateCommonIdentity(array $result, array $payload): void
@@ -51,11 +45,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Skill-gap contract: one complete result per payload skill, no
-     * unknown/duplicate skills, gap = max(required-current, 0) within
-     * tolerance, status derived from the gap.
-     */
     public function validateSkillGap(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);
@@ -206,14 +195,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Readiness contract: 0..100 scores, skill counts, and — when the service
-     * supplies them — the critical-cap metadata and its internal consistency.
-     *
-     * The cap metadata is validated but NOT required. Laravel owns the
-     * Composite and the Critical Cap, so the service must never be obliged to
-     * report them; see the note in the body.
-     */
     public function validateReadiness(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);
@@ -268,18 +249,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * Critical-cap metadata is OPTIONAL, and that is deliberate.
-         *
-         * Skill Match v1 returns per-skill `is_critical` and `match_ratio` and
-         * no cap metadata at all. Laravel is the owner of the Composite and of
-         * the Critical Cap, so the service must never be *required* to report
-         * the outcome of a decision Laravel makes. Requiring these fields
-         * pinned us to a contract the service does not implement.
-         *
-         * Each field is still validated whenever the service does send it, so
-         * tolerating absence costs no coverage.
-         */
         if (array_key_exists('critical_skill_cap_applied', $result)
             && ! is_bool($result['critical_skill_cap_applied'])
         ) {
@@ -324,7 +293,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        // Only meaningful when both are present; either may be omitted.
         if (
             $hasCriticalNames && $hasCriticalCount
             && $result['critical_skill_gap_count'] !== count($result['critical_skill_names'])
@@ -337,26 +305,12 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Roadmap contract: roadmap-level totals (effort + calendar duration),
-     * limitations, phases with actions, known target skills, priority in
-     * 0..1, positive effort, an integer-or-null calendar duration, and a
-     * valid next best action pointing at a returned action.
-     *
-     * Version ownership (Roadmap v1): FastAPI owns `algorithm_version` and
-     * `configuration_version` and MUST send them. `roadmap_version` and
-     * `status` are Laravel-owned (see IntelligencePersistenceService — the
-     * persisted version is derived from the learner's roadmap history, the
-     * status from Laravel's lifecycle), so FastAPI is NOT required to send
-     * them; when it does, they are still validated.
-     */
     public function validateRoadmap(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);
         $this->validateAlgorithmVersion($result);
         $this->validateConfigurationVersion($result);
 
-        // Laravel-owned, validated only when the service chooses to echo them.
         if (array_key_exists('roadmap_version', $result)) {
             if (! is_int($result['roadmap_version']) || $result['roadmap_version'] < 1) {
                 throw new IntelligenceException(
@@ -399,26 +353,12 @@ class IntelligenceResponseValidator
             $payload['skills'],
         );
 
-        // Canonical skill names from the validated payload — used to prove
-        // that an action's target_skill_id and target_skill_name agree.
         $skillNameById = [];
 
         foreach ($payload['skills'] as $skill) {
             $skillNameById[(int) $skill['skill_id']] = (string) $skill['skill_name'];
         }
 
-        /*
-         * Roadmap v1 totals + limitations contract.
-         *
-         * FastAPI owns the roadmap-level `estimated_total_hours` (effort)
-         * and `estimated_duration_weeks` (calendar duration). The calendar
-         * duration can only be produced by FastAPI, because it depends on
-         * the learner's weekly availability — so both values are REQUIRED
-         * on the response and are persisted VERBATIM. The total is never
-         * re-derived by summing the actions.
-         *
-         * `limitations` is part of the response and is never dropped.
-         */
         $weeklyAvailabilityHours = $payload['learner']['weekly_availability_hours'] ?? null;
 
         $this->validateRoadmapTotals($result, $weeklyAvailabilityHours);
@@ -441,14 +381,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Validate one roadmap phase: a CLOSED phase enum, a REQUIRED `order`
-     * that matches the phase exactly, and its actions.
-     *
-     * @param  list<int>  $knownSkillIds
-     * @param  list<string>  $actionIds
-     * @param  array<int, string>  $skillNameById
-     */
     private function validatePhase(array $phase, array $knownSkillIds, array &$actionIds, mixed $weeklyAvailabilityHours, array $skillNameById): void
     {
         foreach (['phase', 'order', 'actions'] as $key) {
@@ -462,11 +394,6 @@ class IntelligenceResponseValidator
             }
         }
 
-        /*
-         * `phase` is a CLOSED enum. An unknown value (e.g. "basics", or a
-         * typo) is a FastAPI contract violation and must fail loudly — never
-         * be coerced to a default such as "core_skills".
-         */
         if (! is_string($phase['phase']) || ! array_key_exists($phase['phase'], RoadmapAction::PHASE_ORDER)) {
             throw new IntelligenceException(
                 'The intelligence service response contains an unknown roadmap phase name.',
@@ -476,12 +403,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * Every phase carries its canonical order (foundations=1 …
-         * career_readiness=4). The order is REQUIRED, must be an integer,
-         * and must match its phase exactly — there is no auto-correction and
-         * no fallback. The mapping lives once, on RoadmapAction::PHASE_ORDER.
-         */
         if (! is_int($phase['order']) || $phase['order'] !== RoadmapAction::PHASE_ORDER[$phase['phase']]) {
             throw new IntelligenceException(
                 'The intelligence service response contains a roadmap phase order that does not match its phase.',
@@ -504,16 +425,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Validate ONE roadmap action against the FastAPI Roadmap action
-     * contract. Every field below is REQUIRED: a missing or malformed one
-     * is a contract violation and fails loudly before anything is
-     * persisted — never coerced to a default.
-     *
-     * @param  list<int>  $knownSkillIds
-     * @param  list<string>  $actionIds
-     * @param  array<int, string>  $skillNameById
-     */
     private function validateAction(
         array $action,
         string $phaseName,
@@ -558,12 +469,6 @@ class IntelligenceResponseValidator
 
         $actionIds[] = $actionId;
 
-        /*
-         * action_type is a CLOSED enum. An unknown value (e.g.
-         * "learning_resource", or a typo like "practcie") is a FastAPI
-         * contract violation and must fail loudly — never be coerced to a
-         * default such as "practice", which would silently hide the bug.
-         */
         if (! is_string($action['action_type'])
             || ! in_array($action['action_type'], RoadmapAction::TYPES, true)
         ) {
@@ -575,10 +480,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * Text fields: each must be a NON-EMPTY string. `objective` and
-         * `target_skill_name` carry the human-readable intent.
-         */
         foreach (['title', 'objective', 'target_skill_name'] as $field) {
             if (! is_string($action[$field]) || trim($action[$field]) === '') {
                 throw new IntelligenceException(
@@ -590,20 +491,9 @@ class IntelligenceResponseValidator
             }
         }
 
-        /*
-         * `completion_criteria` and `explanation` are LISTS of non-empty
-         * strings in the FastAPI Roadmap v1 contract — a plain string, an
-         * empty list, or an empty element is a contract violation.
-         */
         $this->assertNonEmptyStringList($action, 'completion_criteria', $phaseName);
         $this->assertNonEmptyStringList($action, 'explanation', $phaseName);
 
-        /*
-         * target_skill_id is REQUIRED and must be a strict integer that
-         * references a skill present in the payload. The id and the name
-         * are BOTH validated — validating only one of them would let a
-         * response that agrees on the id but contradicts the name through.
-         */
         if (! is_int($action['target_skill_id']) || $action['target_skill_id'] <= 0) {
             throw new IntelligenceException(
                 'The intelligence service response contains an invalid target skill id.',
@@ -613,7 +503,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        // $knownSkillIds is a list of ints — compare int to int.
         if (! in_array($action['target_skill_id'], $knownSkillIds, true)) {
             throw new IntelligenceException(
                 'The intelligence service response contains an unknown target skill.',
@@ -623,14 +512,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * target_skill_name must be the CANONICAL name of the referenced
-         * skill, taken from the payload that produced this response. The id
-         * and the name are both part of the contract, so a response that
-         * agrees on the id but names a different skill is rejected. The
-         * comparison is EXACT — no fuzzy matching, no `contains`, and no
-         * database lookup: the canonical name is already in the payload.
-         */
         $canonicalSkillName = $skillNameById[$action['target_skill_id']] ?? null;
 
         if ($canonicalSkillName === null || $action['target_skill_name'] !== $canonicalSkillName) {
@@ -642,14 +523,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * prerequisite_skill_ids contract:
-         *   - absent or null  → no prerequisites (accepted, explicit);
-         *   - a list of unique integers, each a known skill → accepted;
-         *   - anything else (a string, a scalar, a non-integer element, or
-         *     a duplicate) → rejected. The type is NEVER silently ignored
-         *     and duplicates are NEVER silently collapsed.
-         */
         if (array_key_exists('prerequisite_skill_ids', $action) && $action['prerequisite_skill_ids'] !== null) {
             if (! is_array($action['prerequisite_skill_ids'])) {
                 throw new IntelligenceException(
@@ -694,33 +567,10 @@ class IntelligenceResponseValidator
             }
         }
 
-        /*
-         * blocking_prerequisite_skill_ids contract.
-         *
-         * These are the skills CURRENTLY BLOCKING the action — a different
-         * quantity from `prerequisite_skill_ids` (its declared
-         * prerequisites), and therefore validated and stored separately.
-         *   - absent or null → nothing blocking (accepted, explicit);
-         *   - a list of unique integers, each a known skill → accepted;
-         *   - a string, an object, a float element, a duplicate or an
-         *     unknown skill → rejected. Never silently dropped.
-         */
         $this->validateBlockingPrerequisiteSkillIds($action, $knownSkillIds, $phaseName);
 
-        // priority_score is REQUIRED and stays on the 0..1 scale.
         $this->assertNumberInRange($action, 'priority_score', 0, 1);
 
-        /*
-         * Roadmap v1 effort/duration contract.
-         *
-         * `estimated_hours` is the EFFORT required to complete the action
-         * and is a strictly positive number. `estimated_duration_weeks` is
-         * the CALENDAR duration in weeks (derived by FastAPI from the
-         * learner's weekly availability) and is an integer OR null. The two
-         * are distinct quantities and are never substituted for one
-         * another; the legacy `estimated_duration_hours` is NOT part of the
-         * contract and is never accepted as a substitute.
-         */
         if (! is_numeric($action['estimated_hours']) || (float) $action['estimated_hours'] <= 0) {
             throw new IntelligenceException(
                 'The intelligence service response contains an invalid action effort estimate.',
@@ -737,16 +587,6 @@ class IntelligenceResponseValidator
         );
     }
 
-    /**
-     * Validate a REQUIRED action field that is a LIST of non-empty strings
-     * (FastAPI Roadmap v1: `completion_criteria`, `explanation`).
-     *
-     * A plain string, a non-list, an empty list, a non-string element, or a
-     * blank element is a contract violation — the value is never coerced,
-     * split or trimmed into shape.
-     *
-     * @param  array<string, mixed>  $data
-     */
     private function assertNonEmptyStringList(array $data, string $field, string $phaseName): void
     {
         $value = $data[$field];
@@ -772,17 +612,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * blocking_prerequisite_skill_ids contract.
-     *
-     * Absent or null means "nothing blocking the action". When present it
-     * must be a list of UNIQUE integer ids, each referencing a skill in the
-     * validated payload. Floats, numeric strings, duplicates and unknown
-     * skills are all rejected — the field is never dropped or coerced.
-     *
-     * @param  array<string, mixed>  $action
-     * @param  list<int>  $knownSkillIds
-     */
     private function validateBlockingPrerequisiteSkillIds(array $action, array $knownSkillIds, string $phaseName): void
     {
         if (! array_key_exists('blocking_prerequisite_skill_ids', $action)
@@ -852,9 +681,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * FastAPI owns the roadmap configuration version and must echo it.
-     */
     private function validateConfigurationVersion(array $result): void
     {
         if (
@@ -871,16 +697,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Roadmap-level totals contract.
-     *
-     * FastAPI owns `estimated_total_hours` (the roadmap's total effort) and
-     * `estimated_duration_weeks` (the calendar duration). Both are REQUIRED
-     * and are persisted VERBATIM — the total is NEVER re-derived by summing
-     * the persisted actions, because FastAPI is the source of truth for it.
-     *
-     * @param  array<string, mixed>  $result
-     */
     private function validateRoadmapTotals(array $result, mixed $weeklyAvailabilityHours): void
     {
         if (
@@ -912,21 +728,6 @@ class IntelligenceResponseValidator
         );
     }
 
-    /**
-     * Roadmap `limitations` contract.
-     *
-     * FastAPI reports machine-readable limitation codes (for example
-     * `market_demand_factor_unavailable_neutral_1_0`, or a note tied to the
-     * learner's weekly availability). They are part of the response and are
-     * NEVER dropped or ignored.
-     *
-     * An absent or null value means "no limitations reported". When the
-     * field IS present its type is enforced — a non-list, or a list
-     * containing anything other than non-empty strings, is a contract
-     * violation rather than something to silently discard.
-     *
-     * @param  array<string, mixed>  $result
-     */
     private function validateLimitations(array $result): void
     {
         if (! array_key_exists('limitations', $result) || $result['limitations'] === null) {
@@ -954,18 +755,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * ACTION calendar-duration contract.
-     *
-     * `estimated_duration_weeks` on an action is an INTEGER > 0 or null.
-     * Null is legitimate only when the learner has no weekly availability
-     * (null or 0); with availability, the duration must be positive. The
-     * value is NEVER coerced: a float (1.5) or a numeric string ("3") is a
-     * contract violation, not something to round or cast.
-     *
-     * This is deliberately SEPARATE from the roadmap-level rule: a roadmap
-     * may legitimately report a zero duration, an action never may.
-     */
     private function assertActionDurationWeeks(
         mixed $value,
         mixed $weeklyAvailabilityHours,
@@ -974,8 +763,6 @@ class IntelligenceResponseValidator
         $weeklyHours = is_numeric($weeklyAvailabilityHours) ? (float) $weeklyAvailabilityHours : 0.0;
 
         if ($value === null) {
-            // Null is only legitimate when there is no weekly availability
-            // to convert effort into calendar weeks.
             if ($weeklyHours > 0) {
                 throw new IntelligenceException(
                     'The intelligence service response omitted the action calendar duration for a learner with weekly availability.',
@@ -998,18 +785,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * ROADMAP calendar-duration contract.
-     *
-     * The roadmap-level `estimated_duration_weeks` is an INTEGER >= 0 or
-     * null — DIFFERENT from an action, where 0 is invalid.
-     *
-     * Cross-field rule (roadmap only): when the roadmap carries effort
-     * (`estimated_total_hours > 0`) AND the learner has weekly availability
-     * (`weekly_availability_hours > 0`), the duration must be present and
-     * strictly positive. A zero-effort roadmap may legitimately carry a
-     * zero duration.
-     */
     private function assertRoadmapDurationWeeks(
         mixed $value,
         mixed $weeklyAvailabilityHours,
@@ -1018,8 +793,6 @@ class IntelligenceResponseValidator
         $weeklyHours = is_numeric($weeklyAvailabilityHours) ? (float) $weeklyAvailabilityHours : 0.0;
         $totalHours = is_numeric($estimatedTotalHours) ? (float) $estimatedTotalHours : 0.0;
 
-        // The duration must exist when there is effort to spread over the
-        // learner's available weeks.
         $mustBePositive = $totalHours > 0 && $weeklyHours > 0;
 
         if ($value === null) {
@@ -1045,14 +818,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Project Matching contract: the response must carry the request_id
-     * echo and a recommendation block whose fields are validated against
-     * the verified FastAPI ProjectMatchingResponse schema.
-     *
-     * @param  string  $requestId  the request_id that was sent in the payload
-     * @param  array<string, mixed>|null  $expectedVersions  ['algorithm_version' => ..., 'configuration_version' => ..., 'project_id' => ..., 'project_version' => ...]
-     */
     public function validateProjectMatching(array $result, string $requestId, ?array $expectedVersions = null): void
     {
         if (! array_key_exists('request_id', $result) || ! is_string($result['request_id']) || trim($result['request_id']) === '') {
@@ -1072,17 +837,6 @@ class IntelligenceResponseValidator
             );
         }
 
-        /*
-         * algorithm_version and configuration_version are REQUIRED by the
-         * agreed Project Matching contract. The service must echo the exact
-         * versions Laravel sent — a missing, null or empty value is a
-         * contract violation, never something to paper over with a default.
-         *
-         * The expected values are supplied by the caller, taken from the
-         * payload the integration architecture already built
-         * (ProjectMatchingPayloadBuilder <- ProjectMatchingSnapshotService),
-         * so no version literal is hardcoded here.
-         */
         $this->validateRequiredVersion($result, 'algorithm_version', $expectedVersions);
         $this->validateRequiredVersion($result, 'configuration_version', $expectedVersions);
 
@@ -1102,21 +856,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Validate one REQUIRED version field on the Project Matching response.
-     *
-     * The field must be present, a string, and non-empty — a missing, null
-     * or blank value is rejected outright. When the caller supplied the
-     * value it sent (the normal case: the expected versions travel with the
-     * payload), the response must match it exactly; the service may never
-     * substitute its own default.
-     *
-     * The expected value comes from the integration architecture, so this
-     * method contains no version literal of its own.
-     *
-     * @param  array<string, mixed>  $result
-     * @param  array<string, mixed>|null  $expectedVersions
-     */
     private function validateRequiredVersion(array $result, string $field, ?array $expectedVersions): void
     {
         if (
@@ -1134,8 +873,6 @@ class IntelligenceResponseValidator
 
         $expected = $expectedVersions[$field] ?? null;
 
-        // No expectation supplied: presence is still enforced above, but
-        // there is nothing to compare the echoed value against.
         if (! is_string($expected) || trim($expected) === '') {
             return;
         }
@@ -1153,10 +890,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Verify that the recommendation's project_id and project_version match
-     * the project and version that were sent in the request payload.
-     */
     private function validateProjectCorrelation(array $recommendation, array $expectedVersions): void
     {
         if (array_key_exists('project_id', $expectedVersions)) {
@@ -1194,9 +927,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Validate the recommendation block (ProjectRecommendationResult).
-     */
     private function validateRecommendation(array $recommendation): void
     {
         foreach (['project_id', 'project_version', 'eligibility_state', 'matching_state', 'score', 'factor_scores', 'weighted_contributions'] as $key) {
@@ -1309,10 +1039,6 @@ class IntelligenceResponseValidator
             }
         }
 
-        // skill_results is OPTIONAL in ProjectRecommendationResult, but when
-        // it IS present it must be an array of objects. A null, string or
-        // object value is a contract violation — not a reason to skip the
-        // per-entry validation silently.
         if (array_key_exists('skill_results', $recommendation)) {
             if (! is_array($recommendation['skill_results'])) {
                 throw new IntelligenceException(
@@ -1338,9 +1064,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * Validate one ProjectMatchingSkillResult entry.
-     */
     private function validateProjectMatchingSkillResult(array $skillResult): void
     {
         foreach (['skill_id', 'current_level', 'minimum_level', 'gap', 'match_ratio', 'is_critical_entry', 'status'] as $key) {
@@ -1405,9 +1128,6 @@ class IntelligenceResponseValidator
         }
     }
 
-    /**
-     * @return float the validated numeric value
-     */
     private function assertNumberInRange(array $data, string $field, float $min, float $max): float
     {
         if (

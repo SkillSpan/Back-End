@@ -4,13 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-INT-01 — historical skill gap results.
- *
- * One row per (decision, skill): the validated FastAPI gap output.
- * Append-only — a new calculation creates a new decision with new gap
- * rows; old rows are never updated.
- */
 return new class extends Migration
 {
     public function up(): void

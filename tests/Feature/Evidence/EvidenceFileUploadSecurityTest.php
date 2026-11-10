@@ -14,18 +14,6 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Security coverage for the `evidence_file` upload on POST /api/v1/evidence.
- *
- * The endpoint previously accepted ANY file type (`file` + `max:10000` only),
- * so a learner could push .php/.phtml, executables, shell scripts or SVG into
- * the private evidence directory. These tests pin the allow-list
- * (pdf, jpg, jpeg, png, webp), the size cap and the authorization boundary so
- * a future edit cannot silently re-open the hole.
- *
- * The type check is content-based (`mimes` guesses the type from the file
- * bytes, not the client-supplied name), so a renamed script is covered too.
- */
 class EvidenceFileUploadSecurityTest extends TestCase
 {
     use RefreshDatabase;
@@ -36,8 +24,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
 
         Event::fake();
 
-        // Evidence files must land on the private `local` disk
-        // (storage/app/private), never on the public one.
         Storage::fake('local');
         Storage::fake('public');
 
@@ -71,18 +57,10 @@ class EvidenceFileUploadSecurityTest extends TestCase
         return Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid()]);
     }
 
-    /**
-     * Multipart upload with an explicit JSON Accept header, so validation and
-     * authorization failures come back as 422/401/403 rather than a redirect.
-     */
     private function uploadEvidence(array $payload)
     {
         return $this->post('/api/v1/evidence', $payload, ['Accept' => 'application/json']);
     }
-
-    // -----------------------------------------------------------------
-    // 1–2. Allowed types are accepted and stored privately.
-    // -----------------------------------------------------------------
 
     public function test_a_valid_pdf_upload_is_accepted_and_stored_privately(): void
     {
@@ -101,9 +79,7 @@ class EvidenceFileUploadSecurityTest extends TestCase
         $this->assertNotNull($evidence->reference);
         $this->assertStringStartsWith('evidence/', $evidence->reference);
 
-        // Stored on the private disk…
         Storage::disk('local')->assertExists($evidence->reference);
-        // …and never on the public one.
         Storage::disk('public')->assertMissing($evidence->reference);
     }
 
@@ -141,8 +117,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
         Sanctum::actingAs($this->learnerWithProfile());
         $skill = $this->skill();
 
-        // UploadedFile::fake()->image() writes a real PNG; build a WebP-looking
-        // upload explicitly so the MIME guesser sees image/webp.
         $file = UploadedFile::fake()->create('proof.webp', 200, 'image/webp');
 
         $this->uploadEvidence([
@@ -150,10 +124,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
             'evidence_file' => $file,
         ])->assertStatus(201);
     }
-
-    // -----------------------------------------------------------------
-    // 3. Disallowed types are rejected — including renamed scripts.
-    // -----------------------------------------------------------------
 
     public function test_a_php_upload_is_rejected(): void
     {
@@ -175,8 +145,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
         Sanctum::actingAs($this->learnerWithProfile());
         $skill = $this->skill();
 
-        // Right extension, wrong content: the type check must follow the
-        // bytes, not the client-supplied name.
         $file = UploadedFile::fake()->create('certificate.pdf', 10, 'application/x-php');
 
         $this->uploadEvidence([
@@ -190,7 +158,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
         Sanctum::actingAs($this->learnerWithProfile());
         $skill = $this->skill();
 
-        // SVG is an image but can carry inline script — not on the allow-list.
         $file = UploadedFile::fake()->create('payload.svg', 10, 'image/svg+xml');
 
         $this->uploadEvidence([
@@ -225,16 +192,11 @@ class EvidenceFileUploadSecurityTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('evidence_file');
     }
 
-    // -----------------------------------------------------------------
-    // 4. Oversized uploads are rejected.
-    // -----------------------------------------------------------------
-
     public function test_an_oversized_upload_is_rejected(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
         $skill = $this->skill();
 
-        // 10001 KB is one kilobyte over the documented 10000 KB cap.
         $file = UploadedFile::fake()->create('huge.pdf', 10001, 'application/pdf');
 
         $this->uploadEvidence([
@@ -255,10 +217,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
             'evidence_file' => $file,
         ])->assertStatus(201);
     }
-
-    // -----------------------------------------------------------------
-    // 5–6. Authorization boundary.
-    // -----------------------------------------------------------------
 
     public function test_an_unauthenticated_upload_is_rejected(): void
     {
@@ -317,10 +275,6 @@ class EvidenceFileUploadSecurityTest extends TestCase
 
         $this->assertDatabaseCount('skill_evidences', 0);
     }
-
-    // -----------------------------------------------------------------
-    // The URL path must keep working unchanged (no regression).
-    // -----------------------------------------------------------------
 
     public function test_the_evidence_url_path_is_unaffected(): void
     {

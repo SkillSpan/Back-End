@@ -10,15 +10,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Regression tests for the write-side IDOR on /api/v1/skills/matrix.
- *
- * SkillsMatrixTest covers the read path only. The write path (POST and PUT)
- * previously accepted any learner_id / any row id from any authenticated
- * user, so a learner could create or overwrite another learner's skill
- * levels and confidence scores. These tests pin the authorization rules
- * that now apply to those two endpoints.
- */
 class SkillsMatrixAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
@@ -105,7 +96,6 @@ class SkillsMatrixAuthorizationTest extends TestCase
             'confidence_score' => 100,
         ])->assertStatus(403);
 
-        // The critical assertion: nothing was written for the victim.
         $this->assertDatabaseMissing('learner_skills', [
             'learner_id' => $victim->id,
             'skill_id' => $skill->id,
@@ -134,7 +124,6 @@ class SkillsMatrixAuthorizationTest extends TestCase
             'confidence_score' => 100,
         ])->assertStatus(403);
 
-        // The victim's original values must survive untouched.
         $this->assertDatabaseHas('learner_skills', [
             'learner_id' => $victim->id,
             'skill_id' => $skill->id,
@@ -178,8 +167,6 @@ class SkillsMatrixAuthorizationTest extends TestCase
 
         Sanctum::actingAs($me);
 
-        // 404 rather than 403: the row is simply not visible to this caller,
-        // so the response does not confirm that the id exists.
         $this->putJson('/api/v1/skills/matrix/'.$victimRow->id, [
             'level' => 5.0,
         ])->assertStatus(404);

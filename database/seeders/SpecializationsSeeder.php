@@ -5,39 +5,12 @@ namespace Database\Seeders;
 use App\Models\Specialization;
 use Illuminate\Database\Seeder;
 
-/**
- * Specialization reference data.
- *
- * Two groups:
- *  1. The non-technical rows that already existed (kept so existing
- *     student profiles keep resolving — nothing is deleted).
- *  2. The technical taxonomy the assessment flow is built around, each with
- *     a short description for the admin page.
- *
- * Plus the special "Self-Learning / Free Track" specialization, flagged with
- * `is_free_track` so the career-role selection can treat it as "every role is
- * available" without a pivot row per role.
- *
- * Idempotent: rows are matched by their unique `name`. `is_active` and
- * `is_free_track` are never reset on update, so an administrator's
- * deactivation survives a re-seed.
- */
 class SpecializationsSeeder extends Seeder
 {
-    /**
-     * The free-track specialization's name.
-     *
-     * The behaviour is driven by the `is_free_track` flag, never by this
-     * string — renaming the row from the admin page keeps the free track
-     * working. The English name follows the project's convention (every
-     * other specialization is English).
-     */
     public const FREE_TRACK_NAME = 'Self-Learning / Free Track';
 
     public function run(): void
     {
-        // Pre-existing non-technical rows. Created if missing, otherwise
-        // left exactly as they are.
         foreach ([
             'Electrical Engineering',
             'Mechanical Engineering',
@@ -69,9 +42,6 @@ class SpecializationsSeeder extends Seeder
         );
     }
 
-    /**
-     * @return array<string, string> name => description
-     */
     private function technicalSpecializations(): array
     {
         return [

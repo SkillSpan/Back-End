@@ -9,25 +9,10 @@ use App\Models\DecisionSnapshot;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Support\SafeLog;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * US-INT-01 §22 — the intelligence orchestration flow:
- *
- *  1. validate role (approved) + required skills
- *  2. gather validated learner skill state (single queries, no N+1)
- *  3. resolve algorithm/configuration versions
- *  4. build payload + persist the PENDING decision snapshot (pre-call)
- *  5. FastAPI skill-gap → validate (per-skill gaps AND the readiness block)
- *  6. FastAPI roadmap    → transform via toRoadmapRequest() → validate (when enabled)
- *  7. persist the COMPLETE decision atomically
- *
- * Laravel stays authoritative: no result is trusted before validation,
- * and nothing is persisted unless every enabled call succeeded.
- */
 class IntelligenceService
 {
     public function __construct(
@@ -38,11 +23,6 @@ class IntelligenceService
         private readonly IntelligencePersistenceService $persistenceService,
     ) {}
 
-    /**
-     * Full intelligence calculation for a learner + career role.
-     *
-     * @return array{snapshot: mixed, readiness: mixed, skill_gaps: list<mixed>, roadmap: mixed}
-     */
     public function calculate(StudentProfile $studentProfile, ?int $careerRoleId, string $requestId): array
     {
         $careerRoleId ??= $studentProfile->primary_career_role_id;
@@ -92,7 +72,6 @@ class IntelligenceService
 
         $skillIds = $roleSkills->pluck('skill_id')->all();
 
-        // One query per concern (US-INT-01 §30 — no N+1).
         $evaluations = SkillEvaluation::query()
             ->where('student_profile_id', $studentProfile->id)
             ->whereIn('skill_id', $skillIds)
@@ -100,13 +79,6 @@ class IntelligenceService
             ->orderByDesc('id')
             ->get();
 
-        /*
-         * SRS validated learner skill state: EVERY required role skill
-         * must have a skill evaluation. There is deliberately NO
-         * fallback to learner_skills for missing evaluations — silently
-         * substituting a projected level would send an incomplete or
-         * unvalidated skill state to the intelligence service.
-         */
         $evaluatedSkillIds = $evaluations
             ->map(fn (SkillEvaluation $evaluation) => (int) $evaluation->skill_id)
             ->unique()
@@ -131,7 +103,6 @@ class IntelligenceService
 
         $evidenceSummary = $this->evidenceSummary($studentProfile, $skillIds);
 
-        // Resolve versions — configuration is NEVER fabricated.
         $configuration = $this->snapshotService->resolveConfiguration();
         $configurationVersion = 'config-v'.$configuration->version;
 
@@ -140,7 +111,6 @@ class IntelligenceService
             $skillNameById[(int) $roleSkill->skill_id] = (string) $roleSkill->skill?->name;
         }
 
-        // The payload builder validates every level before sending.
         $payload = $this->payloadBuilder->build(
             $studentProfile,
             $careerRole,
@@ -153,9 +123,6 @@ class IntelligenceService
 
         $decisionUuid = (string) Str::uuid();
 
-        // The snapshot is persisted BEFORE the FastAPI calls, capturing
-        // the validated input state (US-INT-01 §6). The flow is recorded
-        // explicitly so `GET /intelligence/latest` can select on it.
         $snapshot = $this->snapshotService->createPendingSnapshot(
             $payload,
             $decisionUuid,
@@ -167,41 +134,17 @@ class IntelligenceService
             $skillGap = $this->client->calculateSkillGap($payload, $requestId);
             $this->validator->validateSkillGap($skillGap, $payload);
 
-            /*
-             * The deployed skill-gap contract returns the readiness block
-             * (readiness_score, base_readiness_score, met_skills, …) in the
-             * SAME response as the per-skill gaps — the service has no
-             * standalone readiness endpoint. Both contracts are still
-             * validated independently, so a response satisfying one and not
-             * the other is rejected exactly as before; only the duplicate
-             * round-trip is gone.
-             */
             $readiness = $skillGap;
             $this->validator->validateReadiness($readiness, $payload);
 
             $roadmap = null;
 
             if (config('services.data_science.roadmap_enabled', false)) {
-                /*
-                 * Roadmap v1 is published at POST /api/v1/roadmap.
-                 *
-                 * The internal payload is NOT sent directly: IntelligenceClient
-                 * transforms it through toRoadmapRequest(), so FastAPI
-                 * receives the RoadmapRequest contract (`learner` / `role` /
-                 * `skills`) and internal fields such as `skill_gap_result`
-                 * never leave Laravel. The enriched local payload below is
-                 * only the INPUT to that transformation.
-                 *
-                 * Generation remains gated behind `roadmap_enabled`.
-                 */
                 $roadmapPayload = array_merge($payload, ['skill_gap_result' => $skillGap]);
                 $roadmap = $this->client->generateRoadmap($roadmapPayload, $requestId);
                 $this->validator->validateRoadmap($roadmap, $payload);
             }
 
-            // Algorithm version comes from the validated service response.
-            // The service owns its own algorithm version metadata and echoes
-            // it back, so this is never the value Laravel asked for.
             $algorithmVersion = (string) ($skillGap['algorithm_version']
                 ?? $payload['algorithm_version']);
 
@@ -230,8 +173,6 @@ class IntelligenceService
 
             return $result;
         } catch (IntelligenceException|ReadinessException $e) {
-            // The attempt is recorded as failed — historical rows stay
-            // untouched, and nothing fabricated is persisted.
             $this->snapshotService->markFailed($snapshot);
 
             Log::warning('Intelligence decision failed.', [
@@ -264,13 +205,6 @@ class IntelligenceService
         }
     }
 
-    /**
-     * Evidence summary per skill — counts by verification state, no
-     * evidence contents, no PII (only the latest reference per skill).
-     *
-     * @param  list<int>  $skillIds
-     * @return array<int, array<string, mixed>>
-     */
     private function evidenceSummary(StudentProfile $studentProfile, array $skillIds): array
     {
         $summary = [];
@@ -282,7 +216,6 @@ class IntelligenceService
             ->groupBy('skill_id');
 
         foreach ($evidences as $skillId => $items) {
-            /** @var Collection $items */
             $summary[(int) $skillId] = [
                 'total' => $items->count(),
                 'verified' => $items->where('verification_status', 'verified')->count(),

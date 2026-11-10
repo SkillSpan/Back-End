@@ -4,11 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-INT-01 — per-action intelligence metadata for roadmap_actions.
- * Prerequisites are stored relationally (skill FK) rather than as free
- * text; explanation carries the FastAPI-provided reasoning.
- */
 return new class extends Migration
 {
     public function up(): void

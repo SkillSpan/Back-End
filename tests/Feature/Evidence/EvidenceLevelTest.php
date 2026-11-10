@@ -13,29 +13,6 @@ use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Regression coverage for the level a piece of evidence demonstrates.
- *
- * Reported from the live server: five accepted evidences existed, the skills
- * matrix came back empty, and every one of those five rows carried
- * `value = 0` / `normalized_value = 0` with `evidence_type = null`.
- *
- * The two halves of that report have different causes:
- *
- *   1. `value` / `normalized_value` were hard-coded to 0 on submission and
- *      nothing could ever change them afterwards. `SkillEvaluationService`
- *      computes the level from `normalized_value`, so a verified proof still
- *      produced level 0.00 — the row existed in `learner_skills`, but every
- *      consumer that filters out zero-level skills saw an empty matrix.
- *
- *   2. `evidence_type = null` is the documented shape of legacy submissions
- *      that declared no type (see EvidenceController::store()). It is not a
- *      bug, and these tests pin it so it is not "fixed" by guessing a type.
- *
- * The tests drive the real endpoints, because the bug lived in the hand-off
- * between validation and `create()` — seeding the column directly would prove
- * only that the database accepts it.
- */
 class EvidenceLevelTest extends TestCase
 {
     use RefreshDatabase;
@@ -85,10 +62,6 @@ class EvidenceLevelTest extends TestCase
         return Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid()]);
     }
 
-    /**
-     * The core regression: a declared level must reach both columns the
-     * evaluation reads.
-     */
     public function test_a_declared_level_is_stored_as_the_normalized_value(): void
     {
         Sanctum::actingAs($this->learner());
@@ -106,9 +79,6 @@ class EvidenceLevelTest extends TestCase
         $this->assertSame(3.5, (float) $evidence->normalized_value);
     }
 
-    /**
-     * Old clients that send no level keep the previous behaviour exactly.
-     */
     public function test_omitting_the_level_still_stores_zero(): void
     {
         Sanctum::actingAs($this->learner());
@@ -125,9 +95,6 @@ class EvidenceLevelTest extends TestCase
         $this->assertSame(0.0, (float) $evidence->normalized_value);
     }
 
-    /**
-     * The level is a 0–5 scale, matching the projection it feeds.
-     */
     public function test_a_level_outside_the_zero_to_five_scale_is_rejected(): void
     {
         Sanctum::actingAs($this->learner());
@@ -140,10 +107,6 @@ class EvidenceLevelTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('level');
     }
 
-    /**
-     * The end-to-end proof that the reported symptom is gone: a verified
-     * proof with a level produces a non-zero row in the matrix.
-     */
     public function test_verified_evidence_with_a_level_produces_a_non_zero_skill_matrix(): void
     {
         $learner = $this->learner();
@@ -184,12 +147,6 @@ class EvidenceLevelTest extends TestCase
         $this->assertGreaterThan(0, (float) $row['level']);
     }
 
-    /**
-     * Legacy rows already in the database carry 0 and cannot be corrected by
-     * the learner, so the reviewer needs a way to set the level at decision
-     * time — and it must land before the recalculation, or the projection is
-     * one review behind.
-     */
     public function test_a_reviewer_can_correct_the_level_of_evidence_submitted_without_one(): void
     {
         $learner = $this->learner();
@@ -222,13 +179,6 @@ class EvidenceLevelTest extends TestCase
         );
     }
 
-    /**
-     * A submission that declares no evidence type is stored with a null type
-     * on purpose — a URL alone says nothing about whether it is a repository,
-     * a deployment or a design file, and guessing would put a wrong label in
-     * front of the reviewer. This pins that documented behaviour so the null
-     * in the live report is not mistaken for corruption.
-     */
     public function test_a_typeless_submission_is_stored_with_a_null_evidence_type(): void
     {
         Sanctum::actingAs($this->learner());

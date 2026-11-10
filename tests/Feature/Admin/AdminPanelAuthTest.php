@@ -13,15 +13,6 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Session sign-in for the browser-based admin review panel.
- *
- * The panel used to authenticate by pasting a Sanctum Bearer token into a
- * text box, which is why the page answered "ما قدرنا نجيب الطلبات:
- * Unauthenticated." whenever no valid token was present. These tests pin the
- * replacement: a real email + password login, a session the panel's
- * JavaScript can rely on, and the authorization boundary around both.
- */
 class AdminPanelAuthTest extends TestCase
 {
     use RefreshDatabase;
@@ -63,13 +54,6 @@ class AdminPanelAuthTest extends TestCase
         return $user;
     }
 
-    /**
-     * A mentor account: no role at all, just a mentor ProfessionalProfile.
-     *
-     * Deliberately role-less — mentor identity is a profile attribute, not a
-     * role slug, and the sign-in must key off the same thing the rest of the
-     * app does.
-     */
     private function mentor(): User
     {
         $user = User::forceCreate([
@@ -100,12 +84,6 @@ class AdminPanelAuthTest extends TestCase
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | The panel is protected
-    |--------------------------------------------------------------------------
-    */
-
     public function test_guests_are_sent_to_the_login_page(): void
     {
         $this->get('/admin/organizations')->assertRedirect(route('login'));
@@ -135,11 +113,6 @@ class AdminPanelAuthTest extends TestCase
             ->assertStatus(403);
     }
 
-    /**
-     * Suspension has to end an already-open session, not merely block the
-     * next login: the panel is session-based now, so a session minted before
-     * the suspension would otherwise keep working until it expired.
-     */
     public function test_a_suspended_admin_loses_an_existing_session(): void
     {
         $admin = $this->admin();
@@ -154,10 +127,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    /**
-     * API clients must keep receiving the machine-readable 403 rather than a
-     * redirect — the web-aware branch must not leak into the API.
-     */
     public function test_the_api_still_gets_a_json_403_when_suspended(): void
     {
         $admin = $this->admin();
@@ -169,12 +138,6 @@ class AdminPanelAuthTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'ACCOUNT_DISABLED');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Signing in
-    |--------------------------------------------------------------------------
-    */
 
     public function test_an_admin_can_sign_in_with_email_and_password(): void
     {
@@ -200,11 +163,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    /**
-     * Knowing a valid password is not enough — the panel is admin-only, so a
-     * learner signing in with their own correct credentials must be refused
-     * rather than handed a session.
-     */
     public function test_a_learner_with_valid_credentials_is_refused(): void
     {
         $this->learner();
@@ -217,21 +175,10 @@ class AdminPanelAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    /**
-     * A mentor is admitted, because the support inbox lives in this panel.
-     *
-     * When the assistant cannot answer, the learner is routed to the mentor
-     * already connected to them — not to an administrator. Refusing the mentor
-     * at sign-in would notify them and then lock them out of the page the
-     * notification links to.
-     */
     public function test_a_mentor_with_valid_credentials_can_sign_in(): void
     {
         $this->mentor();
 
-        // Not `admin.organizations`: that page sits behind the `admin`
-        // middleware, so landing a mentor there answers 403 immediately after a
-        // successful sign-in and reads as "my credentials are wrong".
         $this->post('/admin/login', [
             'email' => 'mentor@example.com',
             'password' => 'password123',
@@ -242,9 +189,6 @@ class AdminPanelAuthTest extends TestCase
 
     public function test_a_mentors_landing_page_actually_opens(): void
     {
-        // The point of the redirect above: whatever it names has to be a page
-        // the account can open. Asserting the redirect target alone is exactly
-        // how the mentor sign-in came to send people to a 403.
         $this->mentor();
 
         $landing = $this->post('/admin/login', [
@@ -255,13 +199,6 @@ class AdminPanelAuthTest extends TestCase
         $this->get($landing)->assertOk();
     }
 
-    /**
-     * Admitting a mentor grants nothing beyond the inbox and their own profile.
-     *
-     * The `admin` middleware still guards every other page, so a mentor session
-     * opens the support inbox and is refused the review screens. This is the
-     * assertion that keeps the relaxed sign-in from becoming a privilege leak.
-     */
     public function test_a_mentor_session_reaches_the_inbox_but_not_the_admin_pages(): void
     {
         $this->mentor();
@@ -291,12 +228,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    /**
-     * Regression: the API login normalises the address (strtolower + trim)
-     * before looking the account up, while Auth::attempt() uses whatever the
-     * browser sent. The two must not disagree on identical input, or the same
-     * credentials "work on the API but not in the panel".
-     */
     public function test_a_pasted_email_with_surrounding_whitespace_is_accepted(): void
     {
         $admin = $this->admin();
@@ -309,12 +240,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertAuthenticatedAs($admin);
     }
 
-    /**
-     * Case matters here because the comparison is not case-insensitive on
-     * every driver: MySQL's utf8mb4_unicode_ci matches regardless, but SQLite
-     * (and therefore this test suite) does not. Normalising keeps the panel
-     * behaving the same on both.
-     */
     public function test_a_capitalised_email_is_accepted(): void
     {
         $admin = $this->admin();
@@ -327,12 +252,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertAuthenticatedAs($admin);
     }
 
-    /**
-     * "Works on the API but not in the panel" is usually this: an organisation
-     * admin signs in fine through /api/v1/auth/login/organization, then the
-     * panel refuses them. The message has to name the role they actually hold
-     * so it does not read like a wrong password.
-     */
     public function test_an_organisation_admin_is_told_which_role_they_hold(): void
     {
         $user = User::forceCreate([
@@ -382,7 +301,6 @@ class AdminPanelAuthTest extends TestCase
             ]);
         }
 
-        // Even the correct password is refused once the lockout is in place.
         $this->post('/admin/login', [
             'email' => 'admin@test.com',
             'password' => 'password123',
@@ -404,12 +322,6 @@ class AdminPanelAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | The panel's data endpoints
-    |--------------------------------------------------------------------------
-    */
-
     public function test_the_list_endpoint_requires_a_session(): void
     {
         $this->getJson('/admin/api/organizations')->assertStatus(401);
@@ -422,10 +334,6 @@ class AdminPanelAuthTest extends TestCase
             ->assertStatus(403);
     }
 
-    /**
-     * This is the request the panel makes on load — the one that used to fail
-     * with "ما قدرنا نجيب الطلبات: Unauthenticated.".
-     */
     public function test_an_admin_session_can_list_organizations(): void
     {
         $this->actingAs($this->admin());
@@ -437,7 +345,6 @@ class AdminPanelAuthTest extends TestCase
 
         $this->assertSame(2, count($response->json('data.data')));
 
-        // The status tabs the panel renders rely on this filter.
         $filtered = $this->getJson('/admin/api/organizations?status=pending')->assertOk();
         $ids = collect($filtered->json('data.data'))->pluck('id');
         $this->assertTrue($ids->contains($pending->id));
@@ -450,8 +357,6 @@ class AdminPanelAuthTest extends TestCase
         $org = $this->organization();
         $org->forceFill(['description' => 'A software company building developer tools.'])->save();
 
-        // This is the exact payload the panel's expanded card renders, so the
-        // description has to survive the session-authenticated path too.
         $this->getJson("/admin/api/organizations/{$org->id}")
             ->assertOk()
             ->assertJsonPath('data.name', 'Test Company')
@@ -459,10 +364,6 @@ class AdminPanelAuthTest extends TestCase
             ->assertJsonPath('data.description', 'A software company building developer tools.');
     }
 
-    /**
-     * The browser follows the proof link with a session cookie, not a token,
-     * so it has to point at the web route — the API route would 401 it.
-     */
     public function test_the_proof_link_points_at_the_session_route(): void
     {
         $this->actingAs($this->admin());
@@ -486,10 +387,6 @@ class AdminPanelAuthTest extends TestCase
             );
     }
 
-    /**
-     * The inherited review workflow has to keep working over the session —
-     * the panel's approve/reject buttons depend on it.
-     */
     public function test_an_admin_can_approve_through_the_web_endpoint(): void
     {
         Storage::fake('local');

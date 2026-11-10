@@ -5,13 +5,6 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * US-MATCH-02 — presentation for one project application.
- *
- * Only fields the workflow actually stores are surfaced. `active_key` and
- * `request_fingerprint` are deliberately NOT exposed: they are internal
- * bookkeeping (a uniqueness trick and a body hash), not part of the contract.
- */
 class ApplicationResource extends JsonResource
 {
     public function toArray(Request $request): array

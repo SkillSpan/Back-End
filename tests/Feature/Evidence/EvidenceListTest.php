@@ -10,21 +10,9 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
-/**
- * The evidence list endpoint: GET /api/v1/evidence.
- *
- * It used to hardcode `->where('verification_status', 'verified')`, so a
- * learner only ever saw approved evidence. That hid the two states a learner
- * most needs to act on — a reviewer's `revision` request and a `rejected`
- * decision — which made the revision workflow invisible to the person it
- * exists for. The list now returns every state, with an optional `status`
- * filter.
- *
- * These tests pin the new behaviour, the ownership boundary, the response
- * envelope, and the fact that no existing field was dropped.
- */
 class EvidenceListTest extends TestCase
 {
     use RefreshDatabase;
@@ -53,12 +41,6 @@ class EvidenceListTest extends TestCase
         return $user;
     }
 
-    /**
-     * A learner with a profile and one evidence row per requested status.
-     *
-     * @param  array<int, string>  $statuses
-     * @return array{0: User, 1: array<string, SkillEvidence>}
-     */
     private function learnerWithEvidence(array $statuses): array
     {
         $learner = $this->user('learner');
@@ -83,10 +65,6 @@ class EvidenceListTest extends TestCase
         return [$learner, $records];
     }
 
-    // -----------------------------------------------------------------
-    // 1. Every status is returned by default.
-    // -----------------------------------------------------------------
-
     public function test_the_list_returns_evidence_in_every_status(): void
     {
         [$learner, $records] = $this->learnerWithEvidence([
@@ -105,7 +83,6 @@ class EvidenceListTest extends TestCase
             $statuses,
         );
 
-        // And every row is one of the learner's own records.
         $returnedIds = array_column($response->json('data'), 'id');
         sort($returnedIds);
         $expectedIds = array_map(fn (SkillEvidence $e) => $e->id, array_values($records));
@@ -114,12 +91,7 @@ class EvidenceListTest extends TestCase
         $this->assertSame($expectedIds, $returnedIds);
     }
 
-    /**
-     * One test per status, so a future filter regression names the exact
-     * state it broke.
-     *
-     * @dataProvider statusProvider
-     */
+    #[DataProvider('statusProvider')]
     public function test_a_learner_can_list_their_evidence_in_each_status(string $status): void
     {
         [$learner, $records] = $this->learnerWithEvidence([$status]);
@@ -143,29 +115,19 @@ class EvidenceListTest extends TestCase
         ];
     }
 
-    /**
-     * The whole point of the follow-up: a reviewer's clarification request
-     * must be visible to the learner in the list, and must survive a reload.
-     */
     public function test_revision_evidence_survives_reload_and_appears_in_the_list(): void
     {
         [$learner, $records] = $this->learnerWithEvidence(['revision']);
 
         Sanctum::actingAs($learner);
 
-        // A completely fresh request.
         $this->getJson('/api/v1/evidence')
             ->assertOk()
             ->assertJsonPath('data.0.verification_status', 'revision')
             ->assertJsonPath('data.0.id', $records['revision']->id);
 
-        // The row is still `revision` in the database.
         $this->assertSame('revision', $records['revision']->fresh()->verification_status);
     }
-
-    // -----------------------------------------------------------------
-    // 2. The optional `status` filter.
-    // -----------------------------------------------------------------
 
     public function test_the_status_filter_returns_only_that_status(): void
     {
@@ -193,10 +155,6 @@ class EvidenceListTest extends TestCase
         $this->assertSame('verified', $response->json('data.0.verification_status'));
     }
 
-    /**
-     * Every documented state is a valid filter value — driven off the model
-     * constants so a new state cannot be added without this staying honest.
-     */
     public function test_every_documented_status_is_accepted_as_a_filter(): void
     {
         [$learner] = $this->learnerWithEvidence(['pending']);
@@ -230,10 +188,6 @@ class EvidenceListTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
-    // -----------------------------------------------------------------
-    // 3. Ownership.
-    // -----------------------------------------------------------------
-
     public function test_a_learner_cannot_see_another_learners_evidence(): void
     {
         [$owner, $records] = $this->learnerWithEvidence(['pending', 'revision']);
@@ -245,7 +199,6 @@ class EvidenceListTest extends TestCase
 
         $this->getJson('/api/v1/evidence')->assertOk()->assertJsonCount(0, 'data');
 
-        // Even a filter that matches the owner's rows returns nothing.
         $filtered = $this->getJson('/api/v1/evidence?status=revision')
             ->assertOk()
             ->json('data');
@@ -273,10 +226,6 @@ class EvidenceListTest extends TestCase
         $this->assertNotContains($ownerRecords['pending']->id, $ids);
     }
 
-    // -----------------------------------------------------------------
-    // 4. Contract preservation.
-    // -----------------------------------------------------------------
-
     public function test_the_response_envelope_is_unchanged(): void
     {
         [$learner] = $this->learnerWithEvidence(['pending']);
@@ -288,8 +237,6 @@ class EvidenceListTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('message', 'Evidence retrieved successfully.');
 
-        // The payload is a plain array under `data` — not a paginator, and
-        // not wrapped in a `meta` key.
         $this->assertIsArray($response->json('data'));
         $this->assertArrayNotHasKey('meta', $response->json());
     }
@@ -313,10 +260,6 @@ class EvidenceListTest extends TestCase
 
         $this->assertSame($records['verified']->id, $item['id']);
     }
-
-    // -----------------------------------------------------------------
-    // 5. Authorization (unchanged).
-    // -----------------------------------------------------------------
 
     public function test_an_unauthenticated_request_is_rejected(): void
     {

@@ -51,11 +51,6 @@ class PracticalExperienceService
                     ->where('submissions.contributor_id', $studentId)
                     ->where('submissions.status', 'accepted');
             })
-            // FIX: was joining evaluations on project_id only, so ANY
-            // finalized/moderated evaluation on the project (e.g. a
-            // teammate's) made this student's own project count as
-            // eligible. Now scoped to an evaluation of this student's
-            // own accepted submission specifically.
             ->join('evaluations', function ($query) {
                 $query->on('evaluations.submission_id', '=', 'submissions.id')
                     ->whereIn('evaluations.status', ['finalized', 'moderated']);

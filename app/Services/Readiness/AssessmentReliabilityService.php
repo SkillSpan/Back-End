@@ -32,11 +32,6 @@ class AssessmentReliabilityService
                     continue;
                 }
                 $confidence = $skill['confidence'];
-                // FIX: normalized_skills[].confidence is already stored on the
-                // 0-100 scale (see BaselineAssessmentService::normalizedSkills(),
-                // which multiplies the raw 0-1 FastAPI confidence by 100 before
-                // persisting). The old `<= 1` bound rejected virtually every
-                // real value and made this component return null on every call.
                 if (is_numeric($confidence) && (float) $confidence >= 0 && (float) $confidence <= 100) {
                     $confidenceValues[] = (float) $confidence;
                 }
@@ -46,7 +41,6 @@ class AssessmentReliabilityService
                 continue;
             }
 
-            // FIX: values are already 0-100, so no extra "100 *" scaling here.
             $score = array_sum($confidenceValues) / count($confidenceValues);
             Log::info('Assessment Reliability v1 calculated.', [
                 'student_profile_id' => $studentProfile->id,

@@ -16,8 +16,6 @@ class ReadinessDemoSeeder extends Seeder
 {
     public function run(): void
     {
-        // This seeder creates demo accounts with a well-known weak password
-        // and pollutes the database — never run it against production.
         if (app()->environment('production')) {
             return;
         }
@@ -27,13 +25,6 @@ class ReadinessDemoSeeder extends Seeder
             ['name' => 'Learner', 'description' => 'Student or Graduate']
         );
 
-        /*
-         * `users.password` is NOT NULL, so the create-array must carry it:
-         * firstOrCreate() INSERTS before the forceFill() below ever runs, so
-         * a missing password aborted the whole seeder on a fresh database
-         * with "NOT NULL constraint failed: users.password". The forceFill()
-         * is still kept — it re-asserts these values on an existing user.
-         */
         $user = User::firstOrCreate(
             ['email' => 'readiness.demo@skillspan.local'],
             [
@@ -52,8 +43,6 @@ class ReadinessDemoSeeder extends Seeder
 
         $user->roles()->syncWithoutDetaching([$learnerRole->id]);
 
-        // `career_roles.title` is NOT NULL — same firstOrCreate() trap as
-        // above: the INSERT happens before the forceFill() below.
         $role = CareerRole::firstOrCreate(
             ['slug' => 'data-analyst-demo', 'version' => 1],
             [
@@ -107,8 +96,6 @@ class ReadinessDemoSeeder extends Seeder
                 ]
             );
 
-            // `level`, `confidence` and `calculated_at` are NOT NULL — the
-            // create-array must carry them for the same reason as above.
             $evaluation = SkillEvaluation::firstOrCreate(
                 [
                     'student_profile_id' => $profile->id,

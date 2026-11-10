@@ -12,23 +12,6 @@ use Illuminate\Support\Facades\Queue;
 use ReflectionClass;
 use Tests\TestCase;
 
-/**
- * US-INT-01 §24 — the queued intelligence recalculation must actually run.
- *
- * Two independent things have to hold for that:
- *
- *  1. The listener must be deferred until after the surrounding transaction
- *     commits. Laravel reads the flag from the `ShouldQueueAfterCommit`
- *     INTERFACE (or an `afterCommit` PROPERTY). This class previously declared
- *     a plain `afterCommit(): bool` method, which the dispatcher ignores —
- *     `property_exists()` is false for a method — so the guarantee was silently
- *     absent.
- *
- *  2. A queue connection must exist that can execute the job. This deployment's
- *     Docker image runs no `queue:work`, so a `database` connection would write
- *     the job to the `jobs` table and never process it — a silent failure. The
- *     shipped fallback must therefore be `sync`.
- */
 class QueueConfigurationTest extends TestCase
 {
     public function test_the_listener_is_queued(): void
@@ -75,10 +58,6 @@ class QueueConfigurationTest extends TestCase
         );
     }
 
-    /**
-     * Drift guard on the shipped fallback. Without a worker, `database` means
-     * "never runs", so the default must be `sync`.
-     */
     public function test_the_shipped_queue_fallback_is_sync_because_there_is_no_worker(): void
     {
         $source = file_get_contents(base_path('config/queue.php'));

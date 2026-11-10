@@ -16,19 +16,6 @@ use Illuminate\Support\Facades\Config;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Specialization -> Career Role -> Required Skills -> Baseline Questions.
- *
- * Covers the many-to-many link between specializations and career roles, the
- * `?specialization_id=` parameter on the career roles endpoint, and the
- * guarantee that learner-facing assessment payloads never leak grading keys.
- *
- * MVP NOTE: the pivot is a curation mapping, not an access list. A
- * specialization now only ORDERS the career-role list, so the tests below
- * assert that every active role is offered under every specialization, while
- * still asserting that draft/retired roles are never offered. The ordering
- * rules themselves live in MvpCareerRoleCatalogTest.
- */
 class CareerRoleSpecializationTest extends TestCase
 {
     use RefreshDatabase;
@@ -47,8 +34,6 @@ class CareerRoleSpecializationTest extends TestCase
         Config::set('services.data_science.baseline.version', 'v1.0');
         Config::set('services.baseline_assessment.deterministic_selection', true);
     }
-
-    // ------------------------------------------------ relationships
 
     public function test_a_specialization_can_have_multiple_career_roles(): void
     {
@@ -88,8 +73,6 @@ class CareerRoleSpecializationTest extends TestCase
         $specialization->careerRoles()->attach($role->id);
     }
 
-    // ------------------------------------------------ index filter
-
     public function test_index_without_specialization_filter_preserves_existing_behaviour(): void
     {
         $this->approvedRole('Frontend Developer');
@@ -127,9 +110,6 @@ class CareerRoleSpecializationTest extends TestCase
         $titles = array_column($response->json('data.data'), 'title');
         sort($titles);
 
-        // MVP policy: the specialization no longer filters the list. It only
-        // decides the ORDER, so a role curated under another track is still
-        // offered — that is what lets a learner cross tracks.
         $this->assertSame(['Backend Developer', 'Frontend Developer', 'Security Analyst'], $titles);
         $this->assertSame(3, $response->json('data.total'));
     }
@@ -183,8 +163,6 @@ class CareerRoleSpecializationTest extends TestCase
         $this->assertSame(['Backend Developer'], $titles);
     }
 
-    // ------------------------------------------------ validation
-
     public function test_non_integer_specialization_id_is_rejected(): void
     {
         Sanctum::actingAs($this->createUserWithRole($this->learnerRole));
@@ -216,8 +194,6 @@ class CareerRoleSpecializationTest extends TestCase
             ->assertJsonValidationErrors('specialization_id');
     }
 
-    // ------------------------------------------------ authorization
-
     public function test_unauthenticated_user_is_rejected(): void
     {
         $this->getJson('/api/v1/career-roles?specialization_id=1')->assertStatus(401);
@@ -229,14 +205,9 @@ class CareerRoleSpecializationTest extends TestCase
 
         Sanctum::actingAs($this->createUserWithRole($this->companyRole));
 
-        // The project form filters career roles by specialization, so a company
-        // account must be able to call this. It used to answer 403 LEARNER_ONLY,
-        // which left the "new project" form without a career role to pick.
         $this->getJson('/api/v1/career-roles?specialization_id='.$specialization->id)
             ->assertStatus(200);
     }
-
-    // ------------------------------------------------ baseline cross-check
 
     public function test_baseline_start_accepts_an_active_role_from_another_specialization(): void
     {
@@ -254,8 +225,6 @@ class CareerRoleSpecializationTest extends TestCase
         [$user] = $this->learnerWithProfile();
         Sanctum::actingAs($user);
 
-        // MVP policy: the specialization orders the list, it does not gate the
-        // choice. A Software Engineering learner may assess a security role.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $software->id,
             'career_role_id' => $security->id,
@@ -315,14 +284,11 @@ class CareerRoleSpecializationTest extends TestCase
             ->assertJsonValidationErrors('specialization_id');
     }
 
-    // ------------------------------------------------ question selection + security
-
     public function test_baseline_questions_are_selected_from_the_roles_required_skills(): void
     {
         $backend = $this->approvedRole('Backend Developer');
         $backendItem = $this->attachSkillWithQuestion($backend, 'REST APIs');
 
-        // A different role whose skill is NOT part of the backend role.
         $analyst = $this->approvedRole('Data Analyst');
         $analystItem = $this->attachSkillWithQuestion($analyst, 'Data Cleaning');
 
@@ -381,8 +347,6 @@ class CareerRoleSpecializationTest extends TestCase
         $this->assertStringNotContainsString('correct_answer', $this->getJson('/api/v1/baseline-assessments/'.$assessmentId)->getContent());
     }
 
-    // ------------------------------------------------ helpers
-
     private function specialization(string $name): Specialization
     {
         return Specialization::firstOrCreate(['name' => $name], ['is_active' => true]);
@@ -404,10 +368,6 @@ class CareerRoleSpecializationTest extends TestCase
         ]);
     }
 
-    /**
-     * Attach one required skill to a role and author a matching question,
-     * returning the question so the caller can assert on its item_id.
-     */
     private function attachSkillWithQuestion(CareerRole $role, string $skillName): BaselineAssessmentItem
     {
         $skill = Skill::create([
@@ -438,9 +398,6 @@ class CareerRoleSpecializationTest extends TestCase
         ]);
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile}
-     */
     private function learnerWithProfile(): array
     {
         $user = $this->createUserWithRole($this->learnerRole);

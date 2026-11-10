@@ -15,11 +15,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Conversation and messaging tests: conversation creation/access,
- * message submission/retrieval, chat authorization, communication
- * status, privacy behavior, and audit trail.
- */
 class ConversationTest extends TestCase
 {
     use RefreshDatabase;
@@ -32,8 +27,6 @@ class ConversationTest extends TestCase
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // ─── Helpers ───────────────────────────────────────────────
 
     private function mentor(): User
     {
@@ -110,8 +103,6 @@ class ConversationTest extends TestCase
         return [$mentor, $student, $conn, $conv];
     }
 
-    // ─── Conversation creation ──────────────────────────────────
-
     public function test_create_conversation_returns_201(): void
     {
         [$mentor, $student, $conn] = $this->activeConnection();
@@ -143,7 +134,6 @@ class ConversationTest extends TestCase
         $second = $this->postJson("/api/v1/connections/{$conn->id}/conversations", []);
         $second->assertStatus(201);
 
-        // Same conversation returned, not a duplicate.
         $this->assertSame($first->json('data.id'), $second->json('data.id'));
         $this->assertSame(1, Conversation::where('mentor_student_connection_id', $conn->id)->count());
     }
@@ -221,8 +211,6 @@ class ConversationTest extends TestCase
         $this->assertNotNull($response->json('data.retention_expires_at'));
     }
 
-    // ─── Chat authorization (unauthorized conversation access) ──
-
     public function test_show_conversation_by_non_participant_returns_403(): void
     {
         [, , , $conv] = $this->conversation();
@@ -256,8 +244,6 @@ class ConversationTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('data.id', $conv->id);
     }
-
-    // ─── Message sending ────────────────────────────────────────
 
     public function test_send_message_returns_201(): void
     {
@@ -329,9 +315,6 @@ class ConversationTest extends TestCase
 
         Sanctum::actingAs($mentor);
 
-        // The StoreMessageRequest form request has a max:5000 rule that
-        // catches the oversize body before the service-level
-        // MESSAGE_TOO_LONG check is reached.
         $this->postJson("/api/v1/conversations/{$conv->id}/messages", [
             'body' => str_repeat('x', 5001),
         ])
@@ -357,11 +340,6 @@ class ConversationTest extends TestCase
 
     public function test_a_participant_cannot_forge_a_system_message(): void
     {
-        // `system` marks a message as platform-authored. Nothing server-side
-        // ever writes one into `messages` (that type belongs to
-        // support_messages), so accepting it from the client had no legitimate
-        // caller — and let a participant put a fake platform notice in the
-        // other party's inbox.
         [$mentor, , , $conv] = $this->conversation();
 
         Sanctum::actingAs($mentor);
@@ -409,7 +387,6 @@ class ConversationTest extends TestCase
             'body' => 'Audit test message',
         ], ['X-Request-ID' => 'msg-audit-req']);
 
-        // Audit trail.
         $audit = AuditEvent::where('action', 'message.sent')
             ->where('entity_id', $response->json('data.id'))
             ->first();
@@ -418,7 +395,6 @@ class ConversationTest extends TestCase
         $this->assertSame($mentor->id, $audit->actor_id);
         $this->assertSame('msg-audit-req', $audit->request_id);
 
-        // Recipient (student) notified.
         $this->assertDatabaseHas('notifications', [
             'user_id' => $student->id,
             'category' => 'message',
@@ -440,8 +416,6 @@ class ConversationTest extends TestCase
         $this->assertNotNull($conv->last_message_at);
     }
 
-    // ─── Message retrieval ──────────────────────────────────────
-
     public function test_message_retrieval_returns_paginated_results(): void
     {
         [$mentor, , , $conv] = $this->conversation();
@@ -458,7 +432,6 @@ class ConversationTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('meta.total', 2);
 
-        // Latest first.
         $this->assertSame('Second message', $response->json('data.0.body'));
     }
 
@@ -474,13 +447,10 @@ class ConversationTest extends TestCase
             ->assertJsonPath('code', 'UNAUTHORIZED_CONVERSATION');
     }
 
-    // ─── Mark as read ───────────────────────────────────────────
-
     public function test_mark_as_read_updates_unread_messages(): void
     {
         [$mentor, $student, , $conv] = $this->conversation();
 
-        // Mentor sends two messages; student has 2 unread.
         Message::forceCreate(['conversation_id' => $conv->id, 'sender_id' => $mentor->id, 'body' => 'Msg 1']);
         Message::forceCreate(['conversation_id' => $conv->id, 'sender_id' => $mentor->id, 'body' => 'Msg 2']);
 
@@ -509,8 +479,6 @@ class ConversationTest extends TestCase
     {
         [$mentor, $student, , $conv] = $this->conversation();
 
-        // Student sends 1, mentor sends 1. Student calls markAsRead —
-        // only the mentor's message should be marked.
         Message::forceCreate(['conversation_id' => $conv->id, 'sender_id' => $student->id, 'body' => 'Student msg']);
         Message::forceCreate(['conversation_id' => $conv->id, 'sender_id' => $mentor->id, 'body' => 'Mentor msg']);
 
@@ -533,8 +501,6 @@ class ConversationTest extends TestCase
             ->assertJsonPath('code', 'UNAUTHORIZED_CONVERSATION');
     }
 
-    // ─── Communication status ───────────────────────────────────
-
     public function test_communication_status_returns_unread_count(): void
     {
         [$mentor, , , $conv] = $this->conversation();
@@ -544,7 +510,6 @@ class ConversationTest extends TestCase
 
         Sanctum::actingAs($mentor);
 
-        // Mentor sent them, so mentor has 0 unread (own messages excluded).
         $response = $this->getJson("/api/v1/conversations/{$conv->id}/status")
             ->assertStatus(200);
 
@@ -580,8 +545,6 @@ class ConversationTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'UNAUTHORIZED_CONVERSATION');
     }
-
-    // ─── Conversations listing ──────────────────────────────────
 
     public function test_conversations_index_returns_user_conversations(): void
     {
@@ -627,21 +590,16 @@ class ConversationTest extends TestCase
         $this->assertSame($conv->id, $response->json('data.0.id'));
     }
 
-    // ─── Privacy behavior ───────────────────────────────────────
-
     public function test_private_student_messages_not_accessible_after_disconnect(): void
     {
         [$mentor, $student, $conn, $conv] = $this->conversation();
 
-        // Disconnect the connection.
         $conn->forceFill(['status' => 'disconnected', 'disconnected_at' => now()])->save();
 
-        // Archive the conversation.
         $conv->forceFill(['status' => 'archived'])->save();
 
         Sanctum::actingAs($mentor);
 
-        // Cannot send new messages to an archived conversation.
         $this->postJson("/api/v1/conversations/{$conv->id}/messages", [
             'body' => 'After disconnect',
         ])
@@ -661,8 +619,6 @@ class ConversationTest extends TestCase
         $this->assertNotNull($expiresAt);
         $this->assertTrue(now()->addDays(364)->lt(Carbon::parse($expiresAt)));
     }
-
-    // ─── API security ──────────────────────────────────────────
 
     public function test_x_request_id_propagated_in_conversation_responses(): void
     {

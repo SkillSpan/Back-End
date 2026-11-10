@@ -19,25 +19,10 @@ use Illuminate\Support\Facades\Config;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Question-bank coverage for the baseline assessment.
- *
- * A career role can only be assessed when EVERY skill it requires has at
- * least one active question, otherwise BaselineQuestionSelectionService
- * raises INSUFFICIENT_QUESTION_COVERAGE. These tests pin the skills that were
- * identified as thin to a >= 5 question floor, the shape of every multiple
- * choice question, the question-to-skill linkage, and that the previously
- * failing career roles now start an assessment successfully.
- */
 class QuestionBankCoverageTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * The skills that were reported as having too few questions.
-     *
-     * @var array<int, string>
-     */
     private const THIN_SKILLS = [
         'sql-databases',
         'authentication-authorization',
@@ -133,8 +118,6 @@ class QuestionBankCoverageTest extends TestCase
 
     public function test_the_new_questions_cover_the_expected_topics(): void
     {
-        // A light content check that the SQL and auth pools actually probe the
-        // concepts they are supposed to, not just that they are non-empty.
         $sql = $this->questionTextsFor('sql-databases');
 
         foreach (['SELECT', 'WHERE', 'JOIN', 'foreign key', 'index'] as $topic) {
@@ -179,8 +162,6 @@ class QuestionBankCoverageTest extends TestCase
     {
         $thinSkillIds = Skill::whereIn('slug', self::THIN_SKILLS)->pluck('id')->all();
 
-        // Every role that requires one of the thin skills — these are the ones
-        // that used to fail with INSUFFICIENT_QUESTION_COVERAGE.
         $roles = CareerRole::where('status', 'approved')
             ->whereHas('roleSkills', fn ($query) => $query->whereIn('skill_id', $thinSkillIds))
             ->get();
@@ -220,8 +201,6 @@ class QuestionBankCoverageTest extends TestCase
         $this->assertSame(CareerRole::where('status', 'approved')->count(), $total);
     }
 
-    // ------------------------------------------------ helpers
-
     private function questionsFor(int $skillId)
     {
         return BaselineAssessmentItem::where('assessment_version', $this->version)
@@ -230,12 +209,6 @@ class QuestionBankCoverageTest extends TestCase
             ->get();
     }
 
-    /**
-     * Question text plus its options, so a concept that appears only as an
-     * option (e.g. the keyword SELECT) still counts as covered.
-     *
-     * @return array<int, string>
-     */
     private function questionTextsFor(string $skillSlug): array
     {
         $skill = Skill::where('slug', $skillSlug)->firstOrFail();
@@ -249,9 +222,6 @@ class QuestionBankCoverageTest extends TestCase
             ->all();
     }
 
-    /**
-     * @param  array<int, string>  $texts
-     */
     private function textContains(array $texts, string $needle): bool
     {
         foreach ($texts as $text) {

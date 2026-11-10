@@ -12,13 +12,6 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
-/**
- * "The approval email never arrives" has three very different causes — the
- * approval was refused before any mail was attempted, there was no active
- * admin account to send to, or the mail went out and the problem is
- * downstream. This command exists to tell them apart without guessing, so the
- * test is that it names the right one in each case.
- */
 class CheckReviewEmailCommandTest extends TestCase
 {
     use RefreshDatabase;
@@ -81,11 +74,6 @@ class CheckReviewEmailCommandTest extends TestCase
             ->assertExitCode(1);
     }
 
-    /**
-     * The refusal happens before any mail is attempted, and it is the only
-     * asymmetry between the two review actions — which is why it is the first
-     * thing this command checks.
-     */
     public function test_it_names_a_missing_proof_document_as_the_blocker(): void
     {
         $organization = $this->organization();
@@ -110,10 +98,6 @@ class CheckReviewEmailCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
-    /**
-     * A membership that is no longer active is the silent case: the workflow
-     * simply has nobody to email, and nothing in the response says so.
-     */
     public function test_it_reports_a_removed_membership_as_a_skipped_recipient(): void
     {
         $organization = $this->organization();
@@ -137,11 +121,6 @@ class CheckReviewEmailCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
-    /**
-     * Rendering both templates is the check the test suite cannot make while
-     * Notification::fake() is active — a template that throws would only ever
-     * surface in production.
-     */
     public function test_it_renders_both_templates(): void
     {
         $organization = $this->organization();

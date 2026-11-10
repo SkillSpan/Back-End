@@ -12,19 +12,6 @@ class ReadinessResultResource extends JsonResource
         $snapshot = is_array($this->snapshot) ? $this->snapshot : [];
         $fastApiResult = is_array($snapshot['fastapi_result'] ?? null) ? $snapshot['fastapi_result'] : [];
 
-        /*
-         * The critical-skill cap is Laravel's decision, not the service's.
-         *
-         * Skill Match v1 returns per-skill `is_critical` and `match_ratio` and
-         * no cap metadata at all, so ReadinessService applies the cap itself
-         * and records the outcome under `critical_skill_rule`.
-         *
-         * These fields used to be read from `fastapi_result` -- the service
-         * response -- where they can never exist. Every capped learner was
-         * therefore told a cap had been applied while the cap value and the
-         * offending skills came back as null/0/[]. That made the decision
-         * impossible to explain and impossible to dispute (§12.6 / REC-08).
-         */
         $criticalRule = is_array($snapshot['critical_skill_rule'] ?? null)
             ? $snapshot['critical_skill_rule']
             : [];
@@ -47,7 +34,6 @@ class ReadinessResultResource extends JsonResource
             'critical_cap_applied' => (bool) $this->critical_cap_applied,
             'is_provisional' => (bool) $this->is_provisional,
             'critical_skill_readiness_cap' => isset($criticalRule['cap']) ? (float) $criticalRule['cap'] : null,
-            // Counted from the same array, so it can never disagree with the names.
             'critical_skill_gap_count' => count($criticalSkillNames),
             'critical_skill_names' => $criticalSkillNames,
             'band' => $this->band,
@@ -56,12 +42,6 @@ class ReadinessResultResource extends JsonResource
             'calculated_at' => optional($this->calculated_at)->toIso8601String(),
             'total_skills' => $fastApiResult['total_skills'] ?? null,
             'met_skills' => $fastApiResult['met_skills'] ?? null,
-            /*
-             * Skill Match v1 partitions skills into met / partial /
-             * not-required, so a skill "with a gap" is a partial one. The
-             * response carries no `skills_with_gap` key, so reading it here
-             * returned null for every learner.
-             */
             'skills_with_gap' => $fastApiResult['partial_skills'] ?? null,
             'skill_results' => $fastApiResult['skill_results'] ?? [],
         ];

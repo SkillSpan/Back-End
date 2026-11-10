@@ -12,17 +12,6 @@ use Illuminate\Support\Facades\DB;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
-/**
- * POST /api/v1/auth/login/google — input contract, token-verification
- * failure handling, and the existing/new account flows.
- *
- * verifyGoogleIdToken() is the network boundary (Google's public JWKS).
- * Flow tests partial-mock the service and stub exactly that method with
- * realistic verified payloads; the malformed-token test uses the REAL
- * method because a token without JWT segments fails before any network
- * call — the same failure path an unknown-kid or expired token takes.
- * A real Google-issued ID token is exercised manually via Postman.
- */
 class GoogleLoginTest extends TestCase
 {
     use RefreshDatabase;
@@ -33,9 +22,6 @@ class GoogleLoginTest extends TestCase
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
 
-    /**
-     * A payload shaped like a verified Google ID token (iss/aud/sub/email).
-     */
     private function verifiedPayload(array $overrides = []): array
     {
         return array_merge([
@@ -59,14 +45,6 @@ class GoogleLoginTest extends TestCase
 
     private function createActiveUser(string $email): User
     {
-        // forceCreate(), not create(): 'status' and 'email_verified_at'
-        // are intentionally NOT in User::$fillable (mass-assignment
-        // protection), so a plain create() would silently drop them and
-        // the user would be persisted as 'pending' / unverified — which
-        // made AuthService::loginWithGoogle() correctly reject it with
-        // "You must activate your SkillSpan account first." The rest of
-        // the app already sidesteps this the same way (see
-        // AuthService::createUser()).
         return User::forceCreate([
             'name' => 'Existing Learner',
             'email' => $email,
@@ -87,10 +65,6 @@ class GoogleLoginTest extends TestCase
     {
         config(['services.google.client_id' => 'test-client-id']);
 
-        // Real service, real Google_Client: 'garbage-token' has no JWT
-        // segments, so the JWT library throws before any network call.
-        // Without the try/catch in verifyGoogleIdToken() this surfaced
-        // as a 500 with a stack trace.
         $this->postJson('/api/v1/auth/login/google', ['credential' => 'garbage-token'])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['credential']);
@@ -116,7 +90,6 @@ class GoogleLoginTest extends TestCase
             'sub' => 'google-sub-123',
         ]));
 
-        // No terms/privacy flags: an existing account must not re-consent.
         $this->postJson('/api/v1/auth/login/google', ['credential' => 'valid-id-token'])
             ->assertStatus(200)
             ->assertJsonPath('data.is_new_user', false)
@@ -205,13 +178,6 @@ class GoogleLoginTest extends TestCase
         $this->assertDatabaseCount('users', 0);
     }
 
-    /**
-     * Regression test: the organization-approval rejection is raised from
-     * INSIDE the transaction (assertOrganizationIsApproved() is called after
-     * DB::beginTransaction()), and the ValidationException catch branch used
-     * to rethrow without rolling back. On a reused connection the
-     * transaction was left open for a later, unrelated request.
-     */
     public function test_pending_organization_google_login_leaves_no_open_transaction(): void
     {
         $user = $this->createActiveUser('orgadmin@gmail.com');
@@ -232,20 +198,14 @@ class GoogleLoginTest extends TestCase
 
         $this->mockVerifiedToken($this->verifiedPayload(['email' => 'orgadmin@gmail.com']));
 
-        // RefreshDatabase wraps the test itself in a transaction, so the
-        // baseline is 1, not 0. What matters is that the request does not
-        // leave an EXTRA transaction open on top of it.
         $levelBefore = DB::transactionLevel();
 
         $this->postJson('/api/v1/auth/login/google', ['credential' => 'valid-id-token'])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['credential']);
 
-        // The transaction opened inside loginWithGoogle() must be closed by
-        // the time the request ends.
         $this->assertSame($levelBefore, DB::transactionLevel());
 
-        // And nothing leaked: no token, no session row.
         $this->assertSame(0, $user->tokens()->count());
         $this->assertDatabaseCount('auth_sessions', 0);
     }

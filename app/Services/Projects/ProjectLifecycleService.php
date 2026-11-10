@@ -16,99 +16,24 @@ use App\Models\User;
 use App\Traits\AuditsActions;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Project Management Workflow for the Pilot.
- *
- *   draft → submitted → approved → open
- *              ↓  ↓
- *   changes_requested  rejected
- *
- * Orchestration only. Everything that already exists is delegated rather than
- * re-implemented:
- *
- *   - the lifecycle itself          → Project::TRANSITIONS / canTransitionTo()
- *   - the transition legality check → Project::canTransitionTo()
- *   - audit rows                    → AuditsActions trait → audit_events
- *   - learner-facing discoverability → ProjectAccessService (unchanged: only
- *                                     `open` projects are discoverable)
- *   - availability / eligibility / capacity → untouched, see the note below
- *
- * AUTHORIZATION
- * -------------
- * The `role` middleware takes a SINGLE slug, so a multi-role rule cannot be
- * expressed on the route. Following the precedent already set by
- * ApplicationService (whose owner-side endpoints are deliberately not
- * role-gated and authorize inside the service), every rule lives here:
- *
- *   - create            → platform admin, company_admin or university_admin
- *   - update/submit/open→ platform admin OR the project's own owner
- *   - approve/request changes/reject → any platform admin, owner included
- *     (review separation was removed by product decision — see assertMayReview)
- *
- * The approval routes additionally carry the `admin` middleware, so the
- * service check is the second line of defence, not the only one.
- *
- * OWNERSHIP
- * ---------
- * COMPANY-SPONSORED = COMPANY OWNED. The project must name a real, approved
- * company, and its owner must be an active administrator of that same company.
- * A platform administrator creating one on behalf of a company must name both
- * the company and its representative, and is refused if they try to become the
- * owner themselves.
- *
- * SIMULATION = SkillSpan-internal. It requires no company ownership and is
- * never auto-linked to the creator's organization; the owner is its creator.
- *
- * WHAT THIS SERVICE DELIBERATELY DOES NOT DO
- * ------------------------------------------
- *   - It never moves a project to `active`. Approving yields `approved`;
- *     opening yields `open`; execution states are out of Pilot scope.
- *   - It never writes `closed` — that legacy value is undecided.
- *   - It never changes a project's type outside the editable window, so the
- *     type cannot change once the project is open and receiving applications.
- *   - It never assigns ownership from the payload on trust: every owner_id is
- *     validated against the target organization.
- */
 class ProjectLifecycleService
 {
     use AuditsActions;
 
-    /** Role slugs that may create projects on behalf of an organization. */
     private const MANAGEMENT_ROLES = ['company_admin', 'university_admin'];
 
-    /** The Pilot's company-owned project type. */
     private const TYPE_COMPANY_SPONSORED = 'company_sponsored';
 
-    /** A SkillSpan-internal project. Needs no company ownership. */
     private const TYPE_SIMULATION = 'simulation';
 
-    /**
-     * Project columns a caller may set. Everything else — status, owner_id,
-     * organization_id, version, approval fields — is derived here, so a
-     * payload can never mass-assign its way into the lifecycle.
-     *
-     * @var array<int, string>
-     */
     private const WRITABLE_ATTRIBUTES = [
         'type', 'domain', 'title', 'description', 'objectives', 'learning_outcomes',
         'difficulty', 'work_mode', 'career_role_id', 'schedule', 'capacity', 'min_team_size',
         'start_date', 'end_date', 'application_deadline', 'confidentiality',
     ];
 
-    /**
-     * Career role titles resolved during one request, so a create/update never
-     * issues the same lookup twice.
-     *
-     * @var array<int, string>
-     */
     private array $careerRoleTitles = [];
 
-    /**
-     * Create a project. It always starts as a DRAFT — a project is never
-     * created open, and never created already submitted.
-     *
-     * @param  array<string, mixed>  $data
-     */
     public function create(
         User $actor,
         array $data,
@@ -132,10 +57,6 @@ class ProjectLifecycleService
             $project->status = Project::STATUS_DRAFT;
             $project->version = 1;
 
-            // US-MATCH-DATA-03 — `role` is no longer an independent input; it
-            // is a projection of the career role title, kept so the frozen
-            // project-matching contract and the catalog role filter keep
-            // working.
             $this->applyCareerRoleProjection($project, $data['career_role_id'] ?? null);
 
             $project->save();
@@ -144,9 +65,6 @@ class ProjectLifecycleService
             $this->syncRoles($project, $data['roles'] ?? []);
             $this->syncEligibilityConstraints($project, $data['eligibility_constraints'] ?? []);
 
-            // Second line of defence: every required skill must belong to the
-            // selected career role. The FormRequest already rejects an unmapped
-            // skill with a 422; this guards any other caller of the service.
             $this->assertRequiredSkillsBelongToCareerRole($project);
 
             $this->assertDateOrdering($project);
@@ -175,11 +93,6 @@ class ProjectLifecycleService
         return $this->forResponse($project);
     }
 
-    /**
-     * Update a project the actor manages, within the revisable window.
-     *
-     * @param  array<string, mixed>  $data
-     */
     public function update(
         Project $project,
         User $actor,
@@ -191,16 +104,6 @@ class ProjectLifecycleService
         $this->assertMayManage($project, $actor);
         $this->assertEditable($project);
 
-        // A TYPE CHANGE re-runs the ownership rules for the new type. Without
-        // this, a simulation (which may legitimately have no organization and
-        // an administrator owner) could be switched to company_sponsored and
-        // become a "company project" that names no company at all. The reverse
-        // is equally important: company_sponsored can never decay into a
-        // simulation that still claims a company.
-        //
-        // `organization_id` and `owner_id` are honoured ONLY here; a normal
-        // edit ignores them, so ownership cannot be re-pointed behind a
-        // cosmetic update.
         $ownership = null;
 
         if (array_key_exists('type', $data) && (string) $data['type'] !== (string) $project->type) {
@@ -224,18 +127,12 @@ class ProjectLifecycleService
                 $project->owner_id = $ownership['owner_id'];
             }
 
-            // Re-derive the legacy `role` projection whenever the career role
-            // is supplied. `career_role_id` is the source of truth; `role` only
-            // mirrors its title.
             if (array_key_exists('career_role_id', $data) && $data['career_role_id'] !== null) {
                 $this->applyCareerRoleProjection($project, $data['career_role_id']);
             }
 
             $project->save();
 
-            // The child sets are replaced wholesale, but only when the caller
-            // actually supplied them — an omitted key means "leave as is",
-            // which is what makes a partial update safe.
             if (array_key_exists('required_skills', $data)) {
                 $this->syncRequiredSkills($project, $data['required_skills']);
             }
@@ -248,19 +145,11 @@ class ProjectLifecycleService
                 $this->syncEligibilityConstraints($project, $data['eligibility_constraints']);
             }
 
-            // A career-role change re-checks the skills that are actually
-            // attached, so a project can never end up with a required skill
-            // that is not part of its (possibly new) career role's mapping —
-            // even when the update changes only the role and not the skills.
             $this->assertRequiredSkillsBelongToCareerRole($project);
 
             $this->assertDateOrdering($project);
         });
 
-        // The version column already exists and applications already store the
-        // value they applied against, so it is bumped when — and only when —
-        // something in the matching snapshot actually changed. Descriptive
-        // edits must not churn it.
         $versionedAfter = $project->only(Project::VERSIONED_FIELDS);
         $material = $versionedBefore != $versionedAfter
             || array_key_exists('required_skills', $data);
@@ -289,31 +178,6 @@ class ProjectLifecycleService
         return $this->forResponse($project);
     }
 
-    /**
-     * Clone a project the actor manages into a NEW draft.
-     *
-     * A clone is the SAME project again, not a new one: the type, career role,
-     * required skills, roles and eligibility constraints are copied verbatim,
-     * and ownership stays with the source's owner and organization — an
-     * administrator cloning a company's project produces another project for
-     * THAT company, never one of their own.
-     *
-     * Three things are deliberately NOT copied:
-     *
-     *   - `status` — a clone always starts as `draft`, whatever the source is.
-     *     Cloning an `open` project must not silently publish a second one.
-     *   - `version` — back to 1, because the clone's matching snapshot is its
-     *     own.
-     *   - the review bookkeeping (`approved_by`, `approved_at`, …) — none of it
-     *     is true of a project that has never been reviewed.
-     *
-     * The dates ARE copied, which is why the caller may override them: a clone
-     * of a project that ran last term needs new dates, and making the client
-     * re-send the whole payload just to move three dates would defeat the point
-     * of the endpoint.
-     *
-     * @param  array<string, mixed>  $data
-     */
     public function clone(
         Project $source,
         User $actor,
@@ -322,8 +186,6 @@ class ProjectLifecycleService
         ?string $ipAddress = null,
         ?string $userAgent = null,
     ): Project {
-        // Reuses the management rule rather than inventing one: whoever may
-        // edit a project may copy it, and nobody else.
         $this->assertMayManage($source, $actor);
 
         $copy = DB::transaction(function () use ($source, $data): Project {
@@ -331,9 +193,6 @@ class ProjectLifecycleService
 
             $project->title = $this->clonedTitle($source, $data['title'] ?? null);
 
-            // Only the fields a re-run genuinely needs to move. Everything else
-            // comes from the source, so the client cannot use `clone` to rewrite
-            // a project it is not allowed to edit.
             foreach (['capacity', 'start_date', 'end_date', 'application_deadline'] as $field) {
                 if (array_key_exists($field, $data) && $data[$field] !== null) {
                     $project->{$field} = $data[$field];
@@ -370,8 +229,6 @@ class ProjectLifecycleService
                 ])
                 ->all());
 
-            // Same two guards a create runs, so a clone can never be born in a
-            // state the create endpoint would have refused.
             $this->assertRequiredSkillsBelongToCareerRole($project);
             $this->assertDateOrdering($project);
 
@@ -399,12 +256,6 @@ class ProjectLifecycleService
         return $this->forResponse($copy);
     }
 
-    /**
-     * The clone's title: the caller's, or the source's with a `(copy)` suffix.
-     *
-     * Truncated to the column's 255 characters AFTER the suffix is appended, so
-     * a long source title can never produce a title the database rejects.
-     */
     private function clonedTitle(Project $source, mixed $requested): string
     {
         $title = is_string($requested) ? trim($requested) : '';
@@ -416,13 +267,6 @@ class ProjectLifecycleService
         return mb_substr($title, 0, 255);
     }
 
-    /**
-     * Submit for review: draft | changes_requested → submitted.
-     *
-     * A project that is not complete is NOT submitted — the status is left
-     * untouched and every missing piece is reported at once, so the owner can
-     * fix them in one pass.
-     */
     public function submit(
         Project $project,
         User $actor,
@@ -437,10 +281,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_SUBMITTED, null, 'project.submitted', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Approve a submitted project. It becomes `approved`, NOT `active`, and it
-     * is NOT opened automatically — opening is a separate, explicit step.
-     */
     public function approve(
         Project $project,
         User $actor,
@@ -466,11 +306,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Send a submitted project back to its owner: submitted → changes_requested.
-     * The reason is mandatory here — the owner cannot act on "changes requested"
-     * without knowing what to change.
-     */
     public function requestChanges(
         Project $project,
         User $actor,
@@ -494,9 +329,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_CHANGES_REQUESTED, $reason, 'project.changes_requested', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Reject a submitted project: submitted → rejected.
-     */
     public function reject(
         Project $project,
         User $actor,
@@ -511,13 +343,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_REJECTED, $reason, 'project.rejected', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Open an approved project: approved → open.
-     *
-     * This is the step that makes a project discoverable and lets matching and
-     * applications operate — discoverability itself stays owned by
-     * ProjectAccessService, which only ever selects `open` projects.
-     */
     public function open(
         Project $project,
         User $actor,
@@ -528,25 +353,11 @@ class ProjectLifecycleService
         $this->assertMayManage($project, $actor);
         $this->assertTransition($project, Project::STATUS_OPEN);
 
-        // Opening is the last moment a bad date can be caught. `approve()`
-        // already runs this check, but a project approved days ago can expire
-        // while it waits in `approved` — and once it is `open`, editing is
-        // refused, so it would stay invisible to learners forever. See
-        // completenessGaps() for the date rules.
         $this->assertComplete($project, 'opened');
 
         return $this->transition($project, $actor, Project::STATUS_OPEN, null, 'project.opened', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Close applications and move into team selection: open → selection.
-     *
-     * This is the edge `Project::TRANSITIONS` has always declared and that
-     * nothing could reach until now. It is also what the team-assignment
-     * endpoint calls on its first assignment, so a project that is being
-     * staffed stops accepting applications in the same request that starts
-     * staffing it.
-     */
     public function beginSelection(
         Project $project,
         User $actor,
@@ -560,13 +371,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_SELECTION, null, 'project.selection_started', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Kick off the work: selection → active.
-     *
-     * A project with nobody on its team cannot start. Putting an empty project
-     * into `active` would mark it as live work that no one is doing, and the
-     * capacity policy would have nothing to count against `capacity`.
-     */
     public function start(
         Project $project,
         User $actor,
@@ -581,14 +385,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_ACTIVE, null, 'project.started', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Put a project back on the market without losing its team: selection → open.
-     *
-     * A company that moved to selection and could not fill its roles should be
-     * able to take applications again. The team is deliberately kept: the
-     * people already chosen stay chosen, and the project simply accepts more
-     * applications alongside them.
-     */
     public function reopen(
         Project $project,
         User $actor,
@@ -603,14 +399,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_OPEN, $reason, 'project.reopened', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Turn a rejected project into a fresh draft: rejected → draft.
-     *
-     * The same row, not a copy — `clone` is the endpoint for "copy this into a
-     * new project". This one says "the idea was not refused for good; let me
-     * rework it", so the applications and reviews of the rejected version stay
-     * attached to the version they were made against.
-     */
     public function revise(
         Project $project,
         User $actor,
@@ -622,8 +410,6 @@ class ProjectLifecycleService
         $this->assertMayManage($project, $actor);
         $this->assertTransition($project, Project::STATUS_DRAFT);
 
-        // Back to an editable draft means a new version of the same idea; the
-        // reviewer's decision applied to the previous one.
         return $this->transition(
             $project,
             $actor,
@@ -637,13 +423,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Close the project as done: active / under review → completed.
-     *
-     * Nothing could reach `completed` before, which made "archive a finished
-     * project" a button with no path behind it. Completing is the company's own
-     * statement that the work is over; it is not a review step.
-     */
     public function complete(
         Project $project,
         User $actor,
@@ -658,23 +437,6 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_COMPLETED, $reason, 'project.completed', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * Stop a live project the company owns: → cancelled.
-     *
-     * A SEPARATE METHOD FROM `cancel()` ON PURPOSE
-     * --------------------------------------------
-     * `cancel()` below is the administrator's moderation act and answers a
-     * different question: it may retire anything that is not already final,
-     * including a `draft` that never went out. This one is an owner closing a
-     * project that is already in front of people, so it is narrower on purpose —
-     * `open`, `selection`, `active`, `under_review` only. A draft is cancelled by
-     * not submitting it, and a finished project is archived rather than
-     * cancelled, because cancelling it would rewrite what happened.
-     *
-     * Folding the two into one method would have to relax the admin rule or
-     * widen the owner's; either way one caller would silently get the other's
-     * semantics.
-     */
     public function cancelByOwner(
         Project $project,
         User $actor,
@@ -699,15 +461,6 @@ class ProjectLifecycleService
             );
         }
 
-        // Open applications to a project that no longer exists are noise in
-        // every applicant's list, and the decision has already been made.
-        //
-        // ORDER MATTERS. The status change is the act that can fail (a
-        // concurrent request may have moved the project), so it is claimed
-        // FIRST and the applications are only withdrawn once it succeeded —
-        // otherwise a rejected cancel would still have closed every applicant's
-        // row. The count is read before the claim purely so the audit row can
-        // say how many were affected; the write itself happens after.
         $pending = Application::query()
             ->where('project_id', $project->id)
             ->whereIn('status', [Application::STATUS_SUBMITTED, Application::STATUS_SHORTLISTED, Application::STATUS_WAITLISTED]);
@@ -734,13 +487,6 @@ class ProjectLifecycleService
         });
     }
 
-    /**
-     * File a finished project away: completed / cancelled / rejected → archived.
-     *
-     * Archiving is the last move and changes nothing but visibility; it is
-     * allowed from the three states a company has actually finished with, so
-     * the "Archived" tab is reachable without an administrator.
-     */
     public function archive(
         Project $project,
         User $actor,
@@ -755,43 +501,17 @@ class ProjectLifecycleService
         return $this->transition($project, $actor, Project::STATUS_ARCHIVED, $reason, 'project.archived', [], $requestId, $ipAddress, $userAgent);
     }
 
-    /**
-     * The management rule, exposed so other project services can apply exactly
-     * this one instead of restating it.
-     *
-     * `ProjectTeamService` needs it: whoever may edit a project may staff it,
-     * and a second copy of "owner or platform admin" is a rule that will drift.
-     */
     public function assertMayManageProject(Project $project, User $actor): void
     {
         $this->assertMayManage($project, $actor);
     }
 
-    /**
-     * The same rule as a question rather than a throw.
-     *
-     * `assertMayManage()` is right when the answer is "refuse this request".
-     * It is wrong when the answer is "show or hide something" — an invitation
-     * the caller may not see must be a 403, not a crash, and a caller who is
-     * neither the invitee nor a manager needs the predicate to decide.
-     */
     public function mayManageProject(Project $project, User $actor): bool
     {
         return $this->isPlatformAdmin($actor)
             || (int) $project->owner_id === (int) $actor->id;
     }
 
-    /**
-     * Record a team change in the same audit trail as the lifecycle moves.
-     *
-     * Staffing is not a status transition, so it cannot reuse `transition()`,
-     * but it is exactly the kind of act that has to be attributable later:
-     * who put this person on the team, and when. Exposing one method keeps the
-     * audit shape in a single place instead of letting the team service write
-     * its own rows.
-     *
-     * @param  array<string, mixed>  $after
-     */
     public function auditTeamChange(
         ?Project $project,
         User $actor,
@@ -815,9 +535,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * At least one active team member must exist before a project can start.
-     */
     private function assertTeamAssigned(Project $project): void
     {
         $members = ProjectTeamMember::query()
@@ -837,29 +554,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Every lifecycle move the API can actually execute, as
-     * `from status => [to status => the service method that performs it]`.
-     *
-     * This is NOT a second copy of `Project::TRANSITIONS`. The model says which
-     * edges the workflow ALLOWS; this map says which of those edges an endpoint
-     * exists for. They are different questions, and today they have different
-     * answers: `open → selection` is allowed by the model but nothing calls it.
-     *
-     * Keeping the map here means the generic `POST /projects/{id}/transitions`
-     * endpoint can never do something the five explicit routes cannot, and
-     * `details.allowed_transitions` in a refusal is always the truth about what
-     * the caller may actually call next.
-     */
-    /**
-     * The states a company may cancel from.
-     *
-     * `draft` and `submitted` are cancelled by not sending them; a finished
-     * project is archived, not cancelled — cancelling it would rewrite what
-     * happened. Kept next to the transition map so the two cannot disagree.
-     *
-     * @var array<int, string>
-     */
     private const CANCELLABLE_STATUSES = [
         Project::STATUS_OPEN,
         Project::STATUS_SELECTION,
@@ -911,20 +605,6 @@ class ProjectLifecycleService
         ],
     ];
 
-    /**
-     * Move a project to a named status through the ONE service method that
-     * owns that edge.
-     *
-     * A dispatcher, not a sixth implementation: every branch calls the same
-     * method the dedicated route calls, so authorization, completeness, the
-     * audit action and the transition guard are identical no matter which URL
-     * the client used. A client that only knows this endpoint cannot reach a
-     * state the dedicated routes would have refused.
-     *
-     * `reason` is forwarded where the target needs one, and is IGNORED where it
-     * does not — a reason on `submit` is meaningless, and silently recording it
-     * as a decision would be worse than dropping it.
-     */
     public function transitionTo(
         Project $project,
         User $actor,
@@ -945,8 +625,6 @@ class ProjectLifecycleService
                     'project_id' => $project->id,
                     'status' => $project->status,
                     'requested_status' => $to,
-                    // The executable set, not the model's — this is what the
-                    // client can actually call.
                     'allowed_transitions' => array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []),
                 ],
             );
@@ -968,46 +646,11 @@ class ProjectLifecycleService
         };
     }
 
-    /**
-     * The statuses this project can move to right now, i.e. the keys of its
-     * row in EXECUTABLE_TRANSITIONS.
-     *
-     * @return array<int, string>
-     */
     public function executableTransitions(Project $project): array
     {
         return array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []);
     }
 
-    /**
-     * Retire a project: cancel it.
-     *
-     * This is the closet thing the lifecycle has to a delete, and it is
-     * deliberately a status move rather than a row delete. A project is
-     * referenced by applications, recommendations and a versioned matching
-     * snapshot; removing the row would orphan every one of them and destroy the
-     * record of decisions already taken on it. `cancelled` keeps the audit
-     * trail intact while taking the project out of play.
-     *
-     * WHY NOT assertTransition()
-     * --------------------------
-     * `Project::TRANSITIONS` gives no state an edge into `cancelled` — the
-     * Pilot never defined who may cancel or from where, so the table is
-     * intentionally silent. Routing through it would make cancellation
-     * impossible from every status. The rules are therefore stated here,
-     * explicitly, instead of being invented in the transition table:
-     *
-     *   - Only a platform administrator may cancel. A project that is live
-     *     (`open` and beyond) is already in front of learners, and a company
-     *     representative retiring their own live project is a product decision
-     *     this code is not allowed to make.
-     *   - Terminal states are refused. A project that is already `cancelled`,
-     *     `archived` or `rejected` has nothing left to cancel, and reporting
-     *     that is clearer than a silent no-op.
-     *   - The move is committed through the shared `transition()` helper, so it
-     *     keeps the same conditional UPDATE (a concurrent request cannot apply
-     *     it twice) and the same audit entry as every other lifecycle action.
-     */
     public function cancel(
         Project $project,
         User $actor,
@@ -1054,29 +697,6 @@ class ProjectLifecycleService
         );
     }
 
-    // -----------------------------------------------------------------
-    // Transitions
-    // -----------------------------------------------------------------
-
-    /**
-     * The single writer for every lifecycle move.
-     *
-     * The status change is a conditional UPDATE (`WHERE status = <from>`) so
-     * two concurrent requests — a double-click, or a retry after a timeout —
-     * cannot both apply a transition. The loser gets a 409 describing the real
-     * current state instead of silently re-running the side effects.
-     *
-     * @param  array<string, mixed>  $extra  extra COLUMNS written with the status
-     * @param  array<string, mixed>  $auditExtra  facts worth keeping in the audit
-     *                                            row that are NOT columns on
-     *                                            `projects` (e.g. how many
-     *                                            applications were withdrawn).
-     *                                            Kept separate from `$extra`
-     *                                            because that one goes straight
-     *                                            into an UPDATE: a non-column
-     *                                            key there is a SQL error, not a
-     *                                            harmless extra.
-     */
     private function transition(
         Project $project,
         User $actor,
@@ -1121,10 +741,6 @@ class ProjectLifecycleService
             array_merge(
                 [
                     'status' => $to,
-                    // The projects table has no decision-reason column and the
-                    // Pilot did not ask for one, so the reason is preserved in
-                    // the audit row rather than inventing a schema change —
-                    // the same choice ApplicationService::withdraw() made.
                     'reason' => $reason,
                 ],
                 $extra,
@@ -1138,10 +754,6 @@ class ProjectLifecycleService
 
         return $this->forResponse($project);
     }
-
-    // -----------------------------------------------------------------
-    // Authorization
-    // -----------------------------------------------------------------
 
     private function assertMayCreate(User $actor): void
     {
@@ -1162,11 +774,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Owner or platform administrator. Ownership is checked against the stored
-     * owner_id, so a project belonging to another organization's user can never
-     * be managed from here (no IDOR).
-     */
     private function assertMayManage(Project $project, User $actor): void
     {
         if ($this->isPlatformAdmin($actor)) {
@@ -1185,21 +792,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Moderation only: any platform administrator, including one who owns the
-     * project.
-     *
-     * Review SEPARATION used to be enforced here as well — an administrator who
-     * owned a project was refused with `PROJECT_REVIEW_SELF_FORBIDDEN`, on the
-     * grounds that an internal simulation must not be self-approved. That rule
-     * was removed by product decision: the administrator team is small, and
-     * blocking self-review meant an administrator-authored project could stall
-     * with no second administrator available to unblock it.
-     *
-     * `$project` is kept in the signature (as in assertMayManage) so the
-     * ownership test can be reinstated here in one place if the policy ever
-     * reverses. It is deliberately NOT part of the predicate today.
-     */
     private function assertMayReview(Project $project, User $actor): void
     {
         if (! $this->isPlatformAdmin($actor)) {
@@ -1215,10 +807,6 @@ class ProjectLifecycleService
     {
         return $actor->hasRole('admin');
     }
-
-    // -----------------------------------------------------------------
-    // Business rules
-    // -----------------------------------------------------------------
 
     private function assertEditable(Project $project): void
     {
@@ -1257,12 +845,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * Everything a project needs before a reviewer may look at it. Collected as
-     * a list rather than failing on the first gap, so the owner sees all of it.
-     *
-     * @return array<int, string>
-     */
     private function completenessGaps(Project $project): array
     {
         $gaps = [];
@@ -1311,19 +893,10 @@ class ProjectLifecycleService
             $gaps[] = 'application_deadline';
         }
 
-        // Applying must close before the work starts, otherwise the project
-        // could be opened while already past its own deadline.
         if ($project->application_deadline !== null && $project->start_date !== null && $project->application_deadline->gt($project->start_date)) {
             $gaps[] = 'application_deadline_after_start_date';
         }
 
-        // A date already in the past makes the project permanently invisible to
-        // learners — ProjectAccessService filters on `application_deadline` and
-        // `end_date`, so `status = open` is not enough on its own. Blocking it
-        // at submit/open time is the ONLY moment it can still be fixed: once
-        // the project is open, `assertEditable()` refuses every edit, and there
-        // is no route back to draft. Without this gap a project could be
-        // approved and opened with yesterday's deadline and then be stuck.
         if ($project->application_deadline !== null && $project->application_deadline->lt(today())) {
             $gaps[] = 'application_deadline_in_the_past';
         }
@@ -1354,14 +927,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * A date range must make sense on its own before anything else looks at it.
-     *
-     * Evaluated against the FINAL state (the stored row merged with the
-     * payload), because an update may supply only one of the two dates — a
-     * request-level `after_or_equal` cannot see the stored sibling and would
-     * compare against null.
-     */
     private function assertDateOrdering(Project $project): void
     {
         if ($project->start_date !== null && $project->end_date !== null && $project->end_date->lt($project->start_date)) {
@@ -1378,20 +943,6 @@ class ProjectLifecycleService
         }
     }
 
-    /**
-     * Who owns the project, and which organization it belongs to.
-     *
-     * COMPANY-SPONSORED = COMPANY OWNED. The project must name a real,
-     * approved company, and its owner must be a representative of that same
-     * company — never an arbitrary user, and never the reviewing administrator.
-     *
-     * SIMULATION = SkillSpan-internal. It needs no company ownership at all
-     * and is deliberately NOT auto-linked to the creator's organization: a
-     * simulation only carries an organization when the caller explicitly names
-     * one they administer.
-     *
-     * @return array{organization_id: int|null, owner_id: int}
-     */
     private function resolveOwnership(
         User $actor,
         string $type,
@@ -1403,13 +954,6 @@ class ProjectLifecycleService
             return $this->resolveCompanySponsoredOwnership($actor, $requestedOrganizationId, $requestedOwnerId);
         }
 
-        // Anything that is not a known type is REFUSED rather than treated as a
-        // simulation. Falling through to the simulation branch would hand an
-        // unrecognised (or mistyped) type the weakest ownership rules —
-        // no company, creator as owner — which is precisely the wrong default
-        // for the one function that decides ownership. The FormRequest already
-        // restricts the type, so this is the second line of defence for any
-        // future caller of the service.
         if ($type !== self::TYPE_SIMULATION) {
             throw new ProjectException(
                 'Unsupported project type.',
@@ -1422,15 +966,8 @@ class ProjectLifecycleService
         return $this->resolveSimulationOwnership($actor, $requestedOrganizationId, $currentOwnerId);
     }
 
-    /**
-     * @return array{organization_id: int, owner_id: int}
-     */
     private function resolveCompanySponsoredOwnership(User $actor, mixed $requestedOrganizationId, mixed $requestedOwnerId): array
     {
-        // An organization representative's project always belongs to THEIR
-        // organization and is owned by THEM. A supplied organization_id or
-        // owner_id is ignored, so nobody can publish into — or on behalf of —
-        // another organization.
         if (! $this->isPlatformAdmin($actor)) {
             $administered = $this->administeredOrganization($actor);
 
@@ -1447,12 +984,6 @@ class ProjectLifecycleService
             return ['organization_id' => (int) $organization->id, 'owner_id' => (int) $actor->id];
         }
 
-        // A platform administrator creating on behalf of a company must NAME
-        // both the company and the representative who will own the project.
-        // Neither is ever defaulted: silently falling back to the
-        // administrator would make them the owner of a company project, and
-        // falling back to "some member of the organization" would pick an
-        // owner the caller never chose.
         if ($requestedOrganizationId === null) {
             throw new ProjectException(
                 'A company_sponsored project must name the sponsoring organization.',
@@ -1482,9 +1013,6 @@ class ProjectLifecycleService
             );
         }
 
-        // Review separation: the administrator who moderates company projects
-        // must not own one, so a company project is never quietly routed back
-        // to the moderator.
         if ((int) $owner->id === (int) $actor->id) {
             throw new ProjectException(
                 'A company_sponsored project must be owned by a representative of the sponsoring company, not by the administrator creating it.',
@@ -1499,30 +1027,18 @@ class ProjectLifecycleService
         return ['organization_id' => (int) $organization->id, 'owner_id' => (int) $owner->id];
     }
 
-    /**
-     * @return array{organization_id: int|null, owner_id: int}
-     */
     private function resolveSimulationOwnership(User $actor, mixed $requestedOrganizationId, ?int $currentOwnerId): array
     {
-        // Never auto-linked to the creator's organization — that is what would
-        // turn a SkillSpan-internal simulation into a company project.
         $organizationId = $requestedOrganizationId === null
             ? null
             : $this->resolveAdministeredOrganizationId($actor, (int) $requestedOrganizationId);
 
         return [
             'organization_id' => $organizationId,
-            // An existing owner is preserved: an administrator editing someone
-            // else's simulation must not inherit it by changing its type.
             'owner_id' => $currentOwnerId ?? (int) $actor->id,
         ];
     }
 
-    /**
-     * The organization must exist, be a company, and have been approved. The
-     * approval requirement mirrors the existing organization rules, which
-     * already refuse a pending/rejected organization access to the platform.
-     */
     private function assertCompanySponsor(int|Organization $organization): Organization
     {
         $model = $organization instanceof Organization
@@ -1561,11 +1077,6 @@ class ProjectLifecycleService
         return $model;
     }
 
-    /**
-     * The owner must be an ACTIVE ADMINISTRATOR of the sponsoring organization
-     * — that membership is the existing, unambiguous signal for "company
-     * representative". No new relation is invented for it.
-     */
     private function assertRepresentsOrganization(User $owner, Organization $organization): void
     {
         $isRepresentative = $organization->members()
@@ -1589,9 +1100,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * The organization this actor actively administers, if any.
-     */
     private function administeredOrganization(User $actor): ?Organization
     {
         return $actor->organizations()
@@ -1600,10 +1108,6 @@ class ProjectLifecycleService
             ->first();
     }
 
-    /**
-     * An organization the actor is allowed to link a project to: one they
-     * administer, or — for a platform administrator — any existing one.
-     */
     private function resolveAdministeredOrganizationId(User $actor, int $organizationId): int
     {
         if ($this->isPlatformAdmin($actor)) {
@@ -1633,23 +1137,11 @@ class ProjectLifecycleService
         return $organizationId;
     }
 
-    // -----------------------------------------------------------------
-    // Child collections
-    // -----------------------------------------------------------------
-
-    /**
-     * Replace the project's required skills.
-     *
-     * @param  array<int, array<string, mixed>>  $skills
-     */
     private function syncRequiredSkills(Project $project, array $skills): void
     {
         $project->requiredSkills()->delete();
 
         foreach ($skills as $skill) {
-            // The API field is `minimum_required_level`; the storage column is
-            // `minimum_level`. The FormRequest normalises both names, and the
-            // fallback keeps a direct service call working either way.
             $minimumLevel = $skill['minimum_required_level'] ?? $skill['minimum_level'] ?? 0;
 
             ProjectRequiredSkill::create([
@@ -1663,15 +1155,6 @@ class ProjectLifecycleService
         $project->unsetRelation('requiredSkills');
     }
 
-    /**
-     * US-MATCH-DATA-03 — mirror the career role title into the legacy `role`
-     * column.
-     *
-     * `career_role_id` is the single source of truth. `role` is retained only
-     * because the frozen project-matching contract and the catalog role filter
-     * still read it; deriving it here is what stops the two from ever
-     * disagreeing.
-     */
     private function applyCareerRoleProjection(Project $project, mixed $careerRoleId): void
     {
         if ($careerRoleId === null || ! is_numeric($careerRoleId)) {
@@ -1692,15 +1175,6 @@ class ProjectLifecycleService
         return $this->careerRoleTitles[$careerRoleId];
     }
 
-    /**
-     * Every required skill attached to the project must be part of its career
-     * role's approved mapping (`career_role_skills`). A skill that exists in
-     * the global `skills` table but is not mapped to the role is refused.
-     *
-     * Reads the FINAL state from the database, so it covers both "the caller
-     * submitted an unmapped skill" and "the career role changed while skills
-     * were left untouched".
-     */
     private function assertRequiredSkillsBelongToCareerRole(Project $project): void
     {
         $careerRoleId = $project->career_role_id;
@@ -1740,9 +1214,6 @@ class ProjectLifecycleService
         );
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $roles
-     */
     private function syncRoles(Project $project, array $roles): void
     {
         $project->projectRoles()->delete();
@@ -1759,9 +1230,6 @@ class ProjectLifecycleService
         $project->unsetRelation('projectRoles');
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $constraints
-     */
     private function syncEligibilityConstraints(Project $project, array $constraints): void
     {
         $project->eligibilityConstraints()->delete();
@@ -1777,22 +1245,11 @@ class ProjectLifecycleService
         $project->unsetRelation('eligibilityConstraints');
     }
 
-    /**
-     * Only the columns a caller may set — status, owner, organization and
-     * version are deliberately excluded.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
     private function writableAttributes(array $data): array
     {
         return array_intersect_key($data, array_flip(self::WRITABLE_ATTRIBUTES));
     }
 
-    /**
-     * The relations ProjectResource presents, so every management response has
-     * the same shape as the learner-facing details response.
-     */
     private function forResponse(Project $project): Project
     {
         return $project->fresh(['organization:id,name', 'requiredSkills.skill:id,name', 'projectRoles', 'eligibilityConstraints', 'careerRole:id,title,slug,version']);

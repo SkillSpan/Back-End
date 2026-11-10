@@ -13,20 +13,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * The support inbox — the administrator and mentor side.
- *
- * Two audiences share one page, separated by visibility rather than by two
- * different screens:
- *
- *   - an administrator sees EVERY request, because they are the safety net for
- *     the ones no mentor is connected to;
- *   - a mentor sees ONLY their own assignments.
- *
- * That split is the thing most worth testing, so most of these cases are about
- * who can read what. The page is session-authenticated, so `actingAs` is used
- * rather than a Sanctum token.
- */
 class AdminSupportPanelTest extends TestCase
 {
     use RefreshDatabase;
@@ -42,8 +28,6 @@ class AdminSupportPanelTest extends TestCase
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // ------------------------------------------------------------ page access
 
     public function test_a_guest_is_redirected_to_the_admin_login(): void
     {
@@ -61,9 +45,6 @@ class AdminSupportPanelTest extends TestCase
 
     public function test_the_page_renders_for_a_mentor(): void
     {
-        // A mentor is notified when a learner is routed to them, so the page
-        // their notification links to has to open for them — that is the whole
-        // reason this route is not behind the `admin` middleware.
         $this->actingAs($this->mentor())
             ->get('/admin/support')
             ->assertOk();
@@ -75,8 +56,6 @@ class AdminSupportPanelTest extends TestCase
             ->get('/admin/support')
             ->assertStatus(403);
     }
-
-    // ----------------------------------------------------------- API access
 
     public function test_an_unrelated_account_is_refused_by_the_api(): void
     {
@@ -90,8 +69,6 @@ class AdminSupportPanelTest extends TestCase
     {
         $this->getJson('/admin/api/support')->assertStatus(401);
     }
-
-    // ------------------------------------------------------------- visibility
 
     public function test_an_administrator_sees_every_request(): void
     {
@@ -140,8 +117,6 @@ class AdminSupportPanelTest extends TestCase
 
         $foreign = $this->supportRequest($this->learner(), assignedTo: $otherMentor);
 
-        // 404, not 403: the inbox must not confirm that someone else's request
-        // exists.
         $this->actingAs($mentor)
             ->getJson('/admin/api/support/'.$foreign->id)
             ->assertStatus(404)
@@ -158,8 +133,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertJsonPath('data.id', $foreign->id);
     }
 
-    // --------------------------------------------------------------- the page
-
     public function test_the_detail_carries_the_learner_and_the_thread(): void
     {
         $learner = $this->learner();
@@ -173,8 +146,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertJsonPath('data.user_email', $learner->email)
             ->assertJsonCount(1, 'data.messages');
     }
-
-    // -------------------------------------------------------------- messaging
 
     public function test_a_support_reply_reaches_the_learner_and_notifies_them(): void
     {
@@ -204,9 +175,6 @@ class AdminSupportPanelTest extends TestCase
 
     public function test_the_first_reply_claims_an_unclaimed_request(): void
     {
-        // An administrator, not a mentor: a mentor only ever sees requests
-        // already assigned to them, so the unclaimed ones are the
-        // administrator's queue by construction.
         $admin = $this->administrator();
         $request = $this->supportRequest($this->learner());
 
@@ -219,8 +187,6 @@ class AdminSupportPanelTest extends TestCase
 
         $request->refresh();
 
-        // Claiming on the first reply means a thread can never be answered by
-        // someone who is not recorded as its owner.
         $this->assertSame(SupportRequest::STATUS_ASSIGNED, $request->status);
         $this->assertSame($admin->id, $request->assigned_to);
         $this->assertNotNull($request->assigned_at);
@@ -228,8 +194,6 @@ class AdminSupportPanelTest extends TestCase
 
     public function test_a_mentor_cannot_reach_an_unclaimed_request(): void
     {
-        // An unclaimed request was never routed to this mentor, so it is not
-        // theirs to read or claim — only the administrator sees it.
         $request = $this->supportRequest($this->learner());
 
         $this->actingAs($this->mentor())
@@ -263,8 +227,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertStatus(422);
     }
 
-    // ---------------------------------------------------------------- actions
-
     public function test_an_administrator_can_claim_an_unclaimed_request(): void
     {
         $admin = $this->administrator();
@@ -282,8 +244,6 @@ class AdminSupportPanelTest extends TestCase
         $mentor = $this->mentor();
         $request = $this->supportRequest($this->learner(), assignedTo: $mentor);
 
-        // Stealing a thread mid-conversation would silently drop the current
-        // owner out of a conversation the learner believes they are in.
         $this->actingAs($this->administrator())
             ->postJson('/admin/api/support/'.$request->id.'/assign')
             ->assertOk()
@@ -314,15 +274,12 @@ class AdminSupportPanelTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------------------- read state
-
     public function test_unread_is_relative_to_the_viewer(): void
     {
         $learner = $this->learner();
         $mentor = $this->mentor();
         $request = $this->supportRequest($learner, assignedTo: $mentor);
 
-        // A learner message the mentor has not opened.
         SupportMessage::create([
             'support_request_id' => $request->id,
             'sender_id' => $learner->id,
@@ -347,8 +304,6 @@ class AdminSupportPanelTest extends TestCase
             ->postJson('/admin/api/support/'.$request->id.'/messages', ['body' => 'Answered.'])
             ->assertStatus(201);
 
-        // Marking your own message read would make the learner's "support has
-        // seen this" signal meaningless, so it must not count either way.
         $this->actingAs($mentor)
             ->getJson('/admin/api/support')
             ->assertOk()
@@ -378,8 +333,6 @@ class AdminSupportPanelTest extends TestCase
         $this->assertNotNull($message->read_at);
         $this->assertSame($mentor->id, $message->read_by);
     }
-
-    // -------------------------------------------------------------- filtering
 
     public function test_the_queue_can_be_filtered_by_status(): void
     {
@@ -425,8 +378,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertJsonPath('data.data.0.id', $open->id);
     }
 
-    // ------------------------------------------------------------- the stats
-
     public function test_the_stats_are_scoped_like_the_list(): void
     {
         $mentor = $this->mentor();
@@ -436,7 +387,6 @@ class AdminSupportPanelTest extends TestCase
         $this->supportRequest($this->learner(), assignedTo: $mentor);
         $this->supportRequest($this->learner(), assignedTo: $otherMentor);
 
-        // A card reading "3" while the list shows two is worse than no card.
         $this->actingAs($mentor)
             ->getJson('/admin/api/support')
             ->assertOk()
@@ -444,8 +394,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertJsonPath('stats.assigned', 2)
             ->assertJsonPath('stats.pending', 0);
     }
-
-    // --------------------------------------------------------------- deleting
 
     public function test_an_administrator_can_delete_a_message(): void
     {
@@ -461,7 +409,6 @@ class AdminSupportPanelTest extends TestCase
 
         $this->assertDatabaseMissing('support_messages', ['id' => $message->id]);
 
-        // Deleting a line is not deleting the conversation.
         $this->assertDatabaseHas('support_requests', ['id' => $request->id, 'deleted_at' => null]);
     }
 
@@ -470,13 +417,6 @@ class AdminSupportPanelTest extends TestCase
         $admin = $this->administrator();
         $request = $this->supportRequest($this->learner());
 
-        /*
-         * The fixture's handoff marker is created at `now()`, the same second as
-         * the message about to be deleted — which would make the assertion pass
-         * or fail for a reason that has nothing to do with the recompute. Push
-         * the marker well back so the surviving message is unambiguously the
-         * newest thing left in the thread.
-         */
         SupportMessage::query()
             ->where('support_request_id', $request->id)
             ->update(['created_at' => now()->subMinutes(30)]);
@@ -491,14 +431,6 @@ class AdminSupportPanelTest extends TestCase
             ->deleteJson("/admin/api/support/{$request->id}/messages/{$newest->id}")
             ->assertOk();
 
-        // The inbox sorts and labels rows by this column, so leaving the deleted
-        // message's time behind would keep the row showing a moment that is no
-        // longer in the thread.
-        //
-        // Compared at second precision on purpose: the column is a DATETIME, so
-        // the recomputed value comes back without the microseconds the fixture
-        // put on the row, and `equalTo` on two Carbon instances would fail on a
-        // difference the database cannot even store.
         $this->assertSame(
             $older->fresh()->created_at->toDateTimeString(),
             $request->fresh()->last_message_at->toDateTimeString(),
@@ -507,12 +439,6 @@ class AdminSupportPanelTest extends TestCase
 
     public function test_a_message_from_another_thread_cannot_be_deleted_through_this_one(): void
     {
-        /*
-         * The scope has to apply to the message as well as to its parent. A bare
-         * `SupportMessage::find()` would let anyone who can reach one thread
-         * delete a line out of somebody else's conversation by posting that
-         * other message's id.
-         */
         $admin = $this->administrator();
         $mine = $this->supportRequest($this->learner('First Learner'));
         $theirs = $this->supportRequest($this->learner('Second Learner'));
@@ -553,11 +479,6 @@ class AdminSupportPanelTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.id', $request->id);
 
-        /*
-         * Soft delete. The row is still there — a support conversation is the
-         * record of what a learner was told, and an operator clearing a queue
-         * must not be able to destroy it.
-         */
         $this->assertSoftDeleted('support_requests', ['id' => $request->id]);
     }
 
@@ -597,8 +518,6 @@ class AdminSupportPanelTest extends TestCase
         $this->assertDatabaseHas('support_requests', ['id' => $request->id, 'deleted_at' => null]);
     }
 
-    // ---------------------------------------------------------------- avatars
-
     public function test_a_colleagues_photo_is_served_to_a_panel_user(): void
     {
         $admin = $this->administrator();
@@ -613,7 +532,6 @@ class AdminSupportPanelTest extends TestCase
 
         $this->assertSame($bytes, $response->getContent());
         $this->assertSame('image/png', $response->headers->get('Content-Type'));
-        // Private: a colleague's face is not a public asset.
         $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
     }
 
@@ -631,8 +549,6 @@ class AdminSupportPanelTest extends TestCase
 
     public function test_a_colleague_without_a_photo_answers_404(): void
     {
-        // A miss, not a placeholder: the panel renders their initials instead,
-        // and the image's `onerror` is what falls back to them.
         $admin = $this->administrator();
         $colleague = $this->mentor();
 
@@ -640,8 +556,6 @@ class AdminSupportPanelTest extends TestCase
             ->get("/admin/support/avatar/{$colleague->id}")
             ->assertStatus(404);
     }
-
-    // --------------------------------------------------------------- helpers
 
     private function message(SupportRequest $request, string $body): SupportMessage
     {
@@ -655,8 +569,6 @@ class AdminSupportPanelTest extends TestCase
 
     private function photo(User $user, string $bytes): void
     {
-        // Written directly rather than through the upload endpoint: these tests
-        // are about who may read a photo, not about how one is stored.
         AdminProfile::forceCreate([
             'user_id' => $user->id,
             'avatar_data' => base64_encode($bytes),
@@ -677,7 +589,6 @@ class AdminSupportPanelTest extends TestCase
     {
         $user = $this->user('Support Mentor');
 
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug.
         ProfessionalProfile::create([
             'user_id' => $user->id,
             'type' => 'mentor',
@@ -727,9 +638,6 @@ class AdminSupportPanelTest extends TestCase
             'last_message_at' => now(),
         ]);
 
-        // The handoff marker the real flow always writes. Created here because
-        // these tests are about the inbox, not about the handoff itself — that
-        // path has its own coverage in Tests\Feature\Support\SupportHandoffTest.
         SupportMessage::create([
             'support_request_id' => $request->id,
             'sender_id' => $learner->id,
@@ -742,9 +650,6 @@ class AdminSupportPanelTest extends TestCase
 
     private function user(string $name): User
     {
-        // `example.com`, never `test.com`: test.com addresses are disposable
-        // under the `indisposable` rule, so assertions about them can pass for
-        // the wrong reason.
         return User::forceCreate([
             'name' => $name,
             'email' => uniqid().'@example.com',

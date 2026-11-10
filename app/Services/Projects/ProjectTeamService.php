@@ -12,43 +12,12 @@ use App\Models\TeamInvitation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Staffing a project: turning accepted applications into a team.
- *
- * WHY THIS IS NOT PART OF ProjectLifecycleService
- * ----------------------------------------------
- * The lifecycle service owns `status`. This one owns `project_teams` /
- * `project_team_members`. Mixing them would mean two reasons for one class to
- * change, and the lifecycle file is already the longest one in the project.
- * The one thing they must share — "who may manage this project" — is called
- * from the lifecycle service rather than copied, so the rule cannot drift.
- *
- * THE RULES
- * ---------
- *   - only accepted applications can be staffed; shortlisting someone does not
- *     put them on the team;
- *   - the application must belong to THIS project (a mismatched pair is a 422,
- *     not a silent no-op);
- *   - nobody is staffed twice;
- *   - the team cannot exceed the project's `capacity` — the same number the
- *     application flow already refuses to overfill;
- *   - staffing can only happen while the project is `open` or `selection`.
- *
- * The first assignment moves an `open` project to `selection` through the
- * lifecycle service, so a project being staffed stops accepting applications
- * in the same request. That transition is audited like every other one.
- */
 class ProjectTeamService
 {
     public function __construct(
         private readonly ProjectLifecycleService $lifecycle,
     ) {}
 
-    /**
-     * Assign accepted applicants to the project's team.
-     *
-     * @param  array<int, array{application_id: int, project_role?: string|null}>  $members
-     */
     public function assign(
         Project $project,
         User $actor,
@@ -74,9 +43,6 @@ class ProjectTeamService
         }
 
         $team = DB::transaction(function () use ($project, $members, $teamName): ProjectTeam {
-            // One team per project for the Pilot. `project_teams` allows more
-            // than one row, but nothing in the product does, and a second team
-            // would make "the team" ambiguous everywhere downstream.
             $team = ProjectTeam::firstOrCreate(
                 ['project_id' => $project->id],
                 ['name' => $teamName],
@@ -167,9 +133,6 @@ class ProjectTeamService
             return $team;
         });
 
-        // Staffing an OPEN project means applications are no longer being
-        // taken. Doing it here, through the lifecycle service, keeps the
-        // status change audited and the transition guard in one place.
         if ($project->fresh()->status === Project::STATUS_OPEN) {
             $this->lifecycle->beginSelection($project, $actor, $requestId, $ipAddress, $userAgent);
         }
@@ -177,17 +140,6 @@ class ProjectTeamService
         return $team->fresh(['members.user:id,name,email', 'project:id,title,status']);
     }
 
-    /**
-     * The title to store for one assignment.
-     *
-     * A caller may name the role (`project_role`) or point at it
-     * (`project_role_id`); an id is resolved against THIS project's roles, so a
-     * role belonging to another project cannot be smuggled in. Returns null
-     * when neither was sent, and the caller falls back to the role on the
-     * application.
-     *
-     * @param  array<string, mixed>  $entry
-     */
     private function roleTitle(Project $project, array $entry): ?string
     {
         if (isset($entry['project_role']) && $entry['project_role'] !== '') {
@@ -215,11 +167,6 @@ class ProjectTeamService
         return $role->title;
     }
 
-    /**
-     * Reading the team is wider than changing it: the people on the team may
-     * see it too, otherwise a participant cannot open the project they were
-     * staffed into. Nobody else.
-     */
     public function assertMayView(Project $project, User $actor): void
     {
         if ($this->lifecycle->mayManageProject($project, $actor)) {
@@ -244,10 +191,6 @@ class ProjectTeamService
         );
     }
 
-    /**
-     * The project's team, creating nothing. Used by the start endpoint and by
-     * the response of an assignment.
-     */
     public function teamFor(Project $project): ?ProjectTeam
     {
         return ProjectTeam::query()
@@ -256,29 +199,6 @@ class ProjectTeamService
             ->first();
     }
 
-    // -----------------------------------------------------------------
-    // The team screen
-    // -----------------------------------------------------------------
-
-    /**
-     * Everything the team screen reads, in one answer.
-     *
-     * WHY IT IS BUILT FROM ACCEPTED APPLICATIONS, NOT FROM THE TEAM ROWS
-     * -----------------------------------------------------------------
-     * A company works through applications and then staffs them. If this
-     * payload only listed team rows, a participant the company accepted but has
-     * not assigned yet would vanish from the screen — and that is precisely the
-     * person the screen exists to place. So the spine is "accepted
-     * applications", and the assignment is attached to each one when it exists.
-     *
-     * `roles` is the composition view: how many people each role still needs.
-     * `project_roles` carries no capacity of its own (capacity is
-     * `projects.capacity`), so the number that matters here is demand — how many
-     * accepted applications asked for that role — against how many are actually
-     * assigned.
-     *
-     * @return array<string, mixed>
-     */
     public function payload(Project $project): array
     {
         $applications = Application::query()
@@ -323,7 +243,6 @@ class ProjectTeamService
             ];
         })->values()->all();
 
-        // Demand per role, from the accepted applications, and what is staffed.
         $demand = $accepted->groupBy(fn (Application $a) => (string) ($a->projectRole?->title ?? ''))
             ->map(fn ($group) => $group->count());
 
@@ -332,9 +251,6 @@ class ProjectTeamService
 
         $roleTitles = $project->projectRoles()->orderBy('id')->pluck('title')->all();
 
-        // A role that accepted applicants asked for, or that someone is
-        // assigned to, is part of the composition even if it was later
-        // deactivated — otherwise the numbers would not add up on screen.
         $allTitles = array_values(array_unique(array_filter(array_merge(
             $roleTitles,
             $demand->keys()->all(),
@@ -393,14 +309,6 @@ class ProjectTeamService
         ];
     }
 
-    /**
-     * Take one participant off the team.
-     *
-     * The row is marked `removed` rather than deleted: the assignment is part of
-     * the project's history, and a submission that referenced it must not lose
-     * its author. Capacity is therefore freed by the state, not by the absence
-     * of a row.
-     */
     public function unassign(
         Project $project,
         User $actor,
@@ -448,8 +356,6 @@ class ProjectTeamService
         $member->left_at = now();
         $member->save();
 
-        // A pending invitation to someone who is no longer on the team would be
-        // a dead link in the learner's inbox.
         TeamInvitation::query()
             ->where('project_team_member_id', $member->id)
             ->where('status', TeamInvitation::STATUS_PENDING)
@@ -466,20 +372,6 @@ class ProjectTeamService
         return $team->fresh(['members.user:id,name,email']);
     }
 
-    // -----------------------------------------------------------------
-    // Invitations
-    // -----------------------------------------------------------------
-
-    /**
-     * Invite every assigned member who has not been invited yet (or whose
-     * invitation was declined, so a re-send is possible).
-     *
-     * Idempotent by design: pressing the button twice sends nothing the second
-     * time and answers `sent: 0` rather than creating duplicates. The company's
-     * intent is "these people should have an invitation", not "send N emails".
-     *
-     * @return array{sent: int, invitations: array<int, array<string, mixed>>}
-     */
     public function invite(
         Project $project,
         User $actor,
@@ -492,9 +384,6 @@ class ProjectTeamService
 
         $team = $this->teamFor($project);
 
-        // No team row and an empty team are the same answer to the caller:
-        // there is nobody to invite. Reporting "team not found" for a project
-        // that plainly exists would send the client looking for the wrong bug.
         $members = $team === null
             ? collect()
             : $team->members->where('assignment_state', 'active');
@@ -550,9 +439,6 @@ class ProjectTeamService
         ];
     }
 
-    /**
-     * One invitation, for the person invited or for whoever manages the project.
-     */
     public function invitationFor(TeamInvitation $invitation, User $actor): TeamInvitation
     {
         $isInvitee = (int) $invitation->user_id === (int) $actor->id;
@@ -573,11 +459,6 @@ class ProjectTeamService
         return $invitation->load(['project:id,title,status,start_date', 'project.organization:id,name']);
     }
 
-    /**
-     * The learner's answer. Only the invited person may answer, and only once:
-     * a second answer is a 422 rather than a silent overwrite, because the
-     * company has already seen the first one.
-     */
     public function respond(
         TeamInvitation $invitation,
         User $actor,

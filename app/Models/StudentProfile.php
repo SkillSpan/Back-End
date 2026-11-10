@@ -13,7 +13,6 @@ class StudentProfile extends Model
 
     protected $casts = ['interests' => 'array', 'graduation_status' => 'boolean', 'graduation_date' => 'date', 'expected_graduation' => 'integer', 'consent_given' => 'boolean', 'weekly_availability_hours' => 'float', 'avatar_updated_at' => 'datetime'];
 
-    /** The blob must never travel in a JSON payload or a log line. */
     protected $hidden = ['avatar_data'];
 
     public function user()
@@ -26,13 +25,6 @@ class StudentProfile extends Model
         return is_string($this->avatar_data) && $this->avatar_data !== '';
     }
 
-    /**
-     * Cache-busting token for the avatar URL.
-     *
-     * The image is served from a stable URL so the browser can cache it, which
-     * means the URL has to change when the bytes do. `null` when there is no
-     * avatar.
-     */
     public function avatarVersion(): ?string
     {
         if (! $this->hasAvatar()) {

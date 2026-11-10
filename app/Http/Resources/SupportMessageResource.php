@@ -5,17 +5,6 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * One message in a support thread.
- *
- * `sender_id` is exposed so the client can tell its own messages from the other
- * side's by comparing it with the authenticated user's id — the resource is
- * built without knowledge of who is reading it, and guessing would be wrong the
- * moment an administrator reads the same thread the learner sees.
- *
- * `message_type: system` marks the handoff notice. It is rendered like any other
- * bubble but must not be attributed to a person.
- */
 class SupportMessageResource extends JsonResource
 {
     public function toArray(Request $request): array

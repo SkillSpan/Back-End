@@ -4,13 +4,6 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * Validates a career role created from the admin specializations page.
- *
- * Skills are optional at validation time — the operator may create a role
- * first and attach skills later — but the panel warns when none are chosen,
- * because a role with no required skills cannot be assessed.
- */
 class StoreCareerRoleRequest extends FormRequest
 {
     public function authorize(): bool
@@ -18,9 +11,6 @@ class StoreCareerRoleRequest extends FormRequest
         return true;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     public function rules(): array
     {
         return [
@@ -30,9 +20,6 @@ class StoreCareerRoleRequest extends FormRequest
         ];
     }
 
-    /**
-     * @return array<string, string>
-     */
     public function messages(): array
     {
         return [

@@ -5,14 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * One candidate on one shortlist.
- *
- * The UNIQUE (talent_list_id, student_id) index is the real guard against a
- * duplicate; `note` is the free-text reason a recruiter added this person, kept
- * on the membership rather than on the student because it is only meaningful in
- * the context of that list.
- */
 class TalentListCandidate extends Model
 {
     use HasFactory;

@@ -23,10 +23,6 @@ class DataScienceClient
             10
         );
 
-        // US-INT-01 §3/§26: configurable, versioned path. Defaults to the
-        // Skill Match v1 contract confirmed by Data Science
-        // (POST /api/v1/skill-match, algorithm skill-match-v1) —
-        // replaces the earlier /skill-gap-shaped contract.
         $endpoint = $baseUrl.config(
             'services.data_science.skill_match_path',
             '/api/v1/skill-match'
@@ -59,8 +55,6 @@ class DataScienceClient
                 ->withHeaders([
                     'X-Request-ID' => $requestId,
                 ])
-                // US-INT-01 §4: dedicated service credential, mandatory
-                // on every call — never a learner Sanctum token.
                 ->withToken($serviceToken);
 
             $response = $request->post($endpoint, $payload);

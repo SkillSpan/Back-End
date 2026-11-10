@@ -4,19 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the administrator endpoints.
- *
- *  - App\Http\Controllers\Api\Admin\OrganizationController — organization registration review (index, show, downloadProofFile, approve, reject)
- *  - App\Http\Controllers\Api\Admin\ProjectController        — platform-administrator project read + moderation (index, show, store, update, cancel)
- *
- * Every route here is registered under the `auth:sanctum`, `account.active`
- * and `admin` middleware in routes/api.php, so each operation requires a
- * bearer token and an administrator account.
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class AdminEndpoints
 {
     #[OA\Get(

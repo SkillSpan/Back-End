@@ -15,31 +15,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Session-authenticated endpoints behind the admin "Questions" page.
- *
- * The panel runs on a normal web session (a cookie), not a bearer token, so
- * these endpoints live under `/admin/api/questions/*` next to the projects
- * and organizations panel endpoints rather than under `auth:sanctum`. The
- * route group carries `auth` + `account.active` + `admin`, exactly like the
- * rest of the admin panel — no middleware is weakened for this page.
- *
- * All reads and writes go through QuestionBankService, which works on the
- * EXISTING `baseline_assessment_items` table; this class only shapes the
- * HTTP request/response.
- */
 class AdminQuestionController extends Controller
 {
     public function __construct(
         private readonly QuestionBankService $service,
     ) {}
 
-    /**
-     * GET /admin/api/questions
-     *
-     * The questions for the current filters (specialization / career role /
-     * skill), scoped to the active assessment version and paginated.
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -73,11 +54,6 @@ class AdminQuestionController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /admin/api/questions/specializations
-     *
-     * First dropdown — every active specialization.
-     */
     public function specializations(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -90,14 +66,6 @@ class AdminQuestionController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /admin/api/questions/career-roles?specialization_id={id}
-     *
-     * Second dropdown. The chosen specialization sets the ORDER, not the
-     * filter: the roles mapped to it come first, every other active role
-     * follows, so an operator can author a question for any role a learner
-     * could be assessed on. See QuestionBankService::careerRoles().
-     */
     public function careerRoles(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -114,11 +82,6 @@ class AdminQuestionController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /admin/api/questions/skills?career_role_id={id}
-     *
-     * Third dropdown — only the skills required by the career role.
-     */
     public function skills(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -135,13 +98,6 @@ class AdminQuestionController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /admin/api/questions/skill-context?skill_id={id}
-     *
-     * Reverse lookup used by the edit form: given a question's skill, which
-     * specialization / career role does it sit under? Lets the edit form
-     * pre-select the chain even when the list was not filtered.
-     */
     public function skillContext(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -158,9 +114,6 @@ class AdminQuestionController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /admin/api/questions
-     */
     public function store(StoreQuestionRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -174,9 +127,6 @@ class AdminQuestionController extends Controller
         }
     }
 
-    /**
-     * PATCH /admin/api/questions/{question}
-     */
     public function update(UpdateQuestionRequest $request, BaselineAssessmentItem $question): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -190,12 +140,6 @@ class AdminQuestionController extends Controller
         }
     }
 
-    /**
-     * DELETE /admin/api/questions/{question}
-     *
-     * Refused with a 409 when the question is already part of an assessment
-     * (its frozen snapshot would otherwise be cascaded away).
-     */
     public function destroy(Request $request, BaselineAssessmentItem $question): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -216,10 +160,6 @@ class AdminQuestionController extends Controller
         }
     }
 
-    // -----------------------------------------------------------------
-    // Response helpers
-    // -----------------------------------------------------------------
-
     private function questionResponse(
         BaselineAssessmentItem $item,
         string $message,
@@ -236,16 +176,6 @@ class AdminQuestionController extends Controller
         ], $status, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * The admin representation of a question.
-     *
-     * `correct_answer` IS included: this is an administrator-only surface
-     * and the grading key is what they are managing. The learner-facing
-     * baseline API (BaselineAssessmentController) still omits it — the two
-     * surfaces do not share a serializer.
-     *
-     * @return array<string, mixed>
-     */
     private function transform(BaselineAssessmentItem $item): array
     {
         return [

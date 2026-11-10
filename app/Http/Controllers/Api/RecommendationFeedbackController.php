@@ -11,13 +11,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-/**
- * US-MATCH-02 — POST /api/v1/recommendations/{recommendation}/feedback
- *
- * Records a learner's feedback on their OWN stored recommendation. Reuses the
- * existing feedback_events table and FeedbackEvent model (see
- * RecommendationFeedbackService) instead of a parallel store.
- */
 class RecommendationFeedbackController extends Controller
 {
     public function __construct(
