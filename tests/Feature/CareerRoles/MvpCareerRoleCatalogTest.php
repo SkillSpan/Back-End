@@ -466,10 +466,44 @@ class MvpCareerRoleCatalogTest extends TestCase
         $item = $response->json('data.data.0');
 
         $this->assertArrayNotHasKey('is_active', $item);
+        /*
+         * `specializations` was added deliberately: the role's track lives in
+         * the `career_role_specialization` pivot, and without it in the payload
+         * the frontend had nothing to group by and filed every role under
+         * "other". It is an ADDITIVE key — every key that was here before is
+         * still here, in the same order — so no existing consumer breaks.
+         */
         $this->assertSame(
-            ['id', 'title', 'slug', 'version', 'status', 'effective_date', 'description', 'created_at', 'updated_at', 'skills_count'],
+            ['id', 'title', 'slug', 'version', 'status', 'effective_date', 'description', 'created_at', 'updated_at', 'skills_count', 'specializations'],
             array_keys($item),
         );
+    }
+
+    /**
+     * The other half of the same report: the roles came back with a null
+     * description and no specialization, so the picker had nothing to show
+     * under the title and grouped everything as "other".
+     *
+     * Both are data problems, not shape problems, so this walks every listed
+     * role instead of only checking the first one.
+     */
+    public function test_every_listed_role_carries_a_description_and_a_specialization(): void
+    {
+        $roles = $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data');
+
+        $this->assertNotEmpty($roles);
+
+        foreach ($roles as $role) {
+            $this->assertNotEmpty(
+                $role['description'],
+                "Career role [{$role['slug']}] must have a description.",
+            );
+
+            $this->assertNotEmpty(
+                $role['specializations'],
+                "Career role [{$role['slug']}] must belong to at least one specialization.",
+            );
+        }
     }
 
     // ------------------------------------------------ helpers

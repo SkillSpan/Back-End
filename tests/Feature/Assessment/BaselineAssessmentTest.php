@@ -141,6 +141,35 @@ class BaselineAssessmentTest extends TestCase
         ]);
     }
 
+    /**
+     * Starting an assessment is the moment the learner states a career goal,
+     * so the role must land on the profile. It used to be written nowhere:
+     * `primary_career_role_id` was only set by `PUT /profile`, so a learner who
+     * assessed and never opened the profile form kept a null goal — and every
+     * later recalculation that falls back to it (`intelligence`, `readiness`,
+     * the assistant context) failed with CAREER_ROLE_REQUIRED. That silent
+     * failure is what left `/readiness/latest` and `/intelligence/latest`
+     * answering 404 after a completed assessment.
+     */
+    public function test_start_records_the_primary_career_role(): void
+    {
+        [$user, $profile] = $this->createLearner();
+        Sanctum::actingAs($user);
+
+        $role = $this->careerRole('Data Analyst', 'approved', ['python', 'sql']);
+        $this->seedItems();
+
+        $this->assertNull($profile->fresh()->primary_career_role_id);
+
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
+            ->assertStatus(201);
+
+        $this->assertSame(
+            $role->id,
+            (int) $profile->fresh()->primary_career_role_id,
+        );
+    }
+
     public function test_start_ignores_client_supplied_version(): void
     {
         Config::set('services.data_science.baseline.version', 'v1.0');

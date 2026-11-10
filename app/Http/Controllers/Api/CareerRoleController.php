@@ -91,6 +91,17 @@ class CareerRoleController extends Controller
         $careerRoles = app(CareerRoleCatalogService::class)
             ->selectableQuery($specialization)
             ->withCount('roleSkills as skills_count')
+            /*
+             * The track a role belongs to lives in the `career_role_specialization`
+             * pivot, and the response used to be the bare model — so the
+             * payload carried no specialization at all and the frontend had
+             * nothing to group by, putting every role under "other".
+             *
+             * Eager-loaded rather than appended per row: the paginator's
+             * `count()` query is untouched by a relation load, so this stays
+             * one extra query for the whole page instead of one per role.
+             */
+            ->with('specializations')
             ->when(
                 $search !== '',
                 fn ($query) => $query->where(
@@ -148,7 +159,7 @@ class CareerRoleController extends Controller
     {
         $requestId = $this->requestId($request);
 
-        $careerRole = $this->findApprovedCareerRole($id, $requestId);
+        $careerRole = $this->findApprovedCareerRole($id, $requestId, with: ['specializations']);
 
         if ($careerRole instanceof JsonResponse) {
             return $careerRole;

@@ -56,6 +56,44 @@ class ProductionConfigTest extends TestCase
         $this->assertSame([], config('cors.allowed_origins_patterns'));
     }
 
+    /**
+     * The deployed frontend must be allowed to call the API out of the box.
+     *
+     * Reported from the live server: only `http://localhost:5173` was accepted,
+     * so the deployed site could not log in at all. `CORS_ALLOWED_ORIGINS` lives
+     * in `.env`, `.env` is git-ignored, and `git pull` never refreshes it — so
+     * the origin that must never break is guaranteed in code instead, where it
+     * travels with the deploy.
+     */
+    public function test_the_deployed_frontend_origin_is_allowed_without_any_env_entry(): void
+    {
+        $origins = config('cors.allowed_origins');
+
+        $this->assertContains('https://skillspan-iota.vercel.app', $origins);
+
+        // Local development must keep working too — the env var is merged in,
+        // not replaced by the production default.
+        $this->assertContains('http://localhost:5173', $origins);
+    }
+
+    /**
+     * And the browser-level proof: a preflight from that origin is answered
+     * with the origin echoed back, which is what the browser actually checks.
+     */
+    public function test_a_preflight_from_the_deployed_frontend_is_allowed(): void
+    {
+        $response = $this->call('OPTIONS', '/api/v1/talent/compare', [], [], [], [
+            'HTTP_ORIGIN' => 'https://skillspan-iota.vercel.app',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'GET',
+        ]);
+
+        $response->assertStatus(204);
+        $this->assertSame(
+            'https://skillspan-iota.vercel.app',
+            $response->headers->get('Access-Control-Allow-Origin'),
+        );
+    }
+
     public function test_the_env_example_ships_no_secret_values(): void
     {
         $secretKeys = [
