@@ -24,10 +24,13 @@ use Illuminate\Foundation\Http\FormRequest;
  * still validates as a value (it must be a real, active track), it simply no
  * longer vetoes the role.
  *
- * A DEACTIVATED ROLE CANNOT START A NEW ASSESSMENT. This is the one place the
- * activation flag blocks a write: every read path (an assessment that already
- * exists, its snapshot, readiness, roadmaps) keeps working, because those rows
- * reference the role by id and are never re-validated here.
+ * A "COMING SOON" ROLE CANNOT START A NEW ASSESSMENT. A role that is not
+ * available (`is_active = false`) is still listed and still readable, but it
+ * cannot be used: the request is rejected here, and again in
+ * BaselineAssessmentService::start() so a caller that bypasses HTTP cannot slip
+ * through. Every read path (an assessment that already exists, its snapshot,
+ * readiness, roadmaps) keeps working, because those rows reference the role by
+ * id and are never re-validated here.
  */
 class StartBaselineAssessmentRequest extends FormRequest
 {
@@ -56,11 +59,11 @@ class StartBaselineAssessmentRequest extends FormRequest
                         return;
                     }
 
-                    // Deactivated for the MVP: not offered, so not startable.
+                    // Coming Soon: listed and readable, but not usable yet.
                     // Its history stays readable — only NEW assessments are
                     // refused.
                     if (! $role->is_active) {
-                        $fail('The selected career role is not available.');
+                        $fail('The selected career role is not available yet.');
                     }
                 },
             ],

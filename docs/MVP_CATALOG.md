@@ -7,6 +7,15 @@ applier).
 
 Nothing in this work deleted a row, renamed a slug, or removed a relationship.
 
+> **CURRENT POLICY (supersedes §2's framing).** Exactly **four** career roles
+> are available: `frontend-developer`, `backend-developer`,
+> `full-stack-developer`, `mobile-developer`. Every other published role is
+> **Coming Soon**: still stored, still returned by the listing API (marked
+> `is_available = false`), still readable, but not selectable and unable to
+> start an assessment. The lists in §2 are therefore the *history* of how the
+> exclusion set was built; today the rule is simply "everything except the four
+> is Coming Soon". See §2.1 for the current contract.
+
 ---
 
 ## 1. Specializations
@@ -66,23 +75,40 @@ Total: 41 rows, 9 active, 32 inactive.
 ### Two independent flags
 
 `status` = review state of the definition (`draft` / `approved` / `retired`).
-`is_active` = whether the product offers the role right now (new column,
-`BOOLEAN DEFAULT TRUE`, so every pre-existing role stayed offered the moment the
-migration ran).
+`is_active` = whether the role is AVAILABLE right now (`BOOLEAN DEFAULT TRUE`, so
+every pre-existing role stayed available the moment the migration ran).
 
-A role is offered only when **both** hold. Deactivating never touches `status`.
+A role can be used only when **both** hold. Changing availability never touches
+`status`, and never deletes anything.
 
-### Numbers
+### 2.1 Current contract: four available, the rest Coming Soon
 
 | | Count |
 |---|---|
 | Career roles seeded by `CareerRoleSeeder` | 146 |
-| Deactivated for the MVP | 53 |
-| Still offered | 93 |
+| Available (`is_active = true`) | **4** |
+| Coming Soon (`is_active = false`) | 142 |
 
 (A development database that also ran `E2eRoadmapFixtureSeeder` has two extra
 test roles — `e2e-roadmap-primary`, `e2e-roadmap-allmet` — so it reports
-148 / 95. They are created only outside production.)
+4 / 144.)
+
+The four are declared in `config/mvp.php` → `available_career_role_slugs`.
+
+| Surface | Behaviour |
+|---|---|
+| `GET /api/v1/career-roles` | returns **every** approved role; each item carries `is_available` (true = available, false = Coming Soon). Available roles are listed first. |
+| `GET /api/v1/career-roles/{id}` | readable for both; `is_available` tells them apart. |
+| `POST /api/v1/baseline-assessments` | 422 `The selected career role is not available yet.` for a Coming Soon role (also enforced in `BaselineAssessmentService::start()`). |
+| `PUT /api/v1/profile` (`primary_career_role_id`) | a new choice must be available; the role the profile already holds is exempt, so publishing fewer roles never invalidates an existing profile. |
+| Admin question bank | lists Coming Soon roles too, so their questions can be authored before launch. |
+
+### Historical exclusion set (how the list below was built)
+
+The subsections that follow record the earlier, per-family exclusions. They are
+no longer the rule — with only four roles available, every one of them is Coming
+Soon by definition — but the analysis stays here as the record of why those
+families were judged out of scope.
 
 ### Deactivated (row, skills, questions and pivot links all preserved)
 
@@ -184,16 +210,18 @@ produce a role that can never start an assessment:
 
 ## 4. Ordering and availability
 
-Every active specialization returns **all** 93 active roles (95 in a dev
-database with the E2E fixtures). The specialization decides only the order:
+Every specialization lists **all** published roles (146; 148 in a dev database
+with the E2E fixtures) — available and Coming Soon alike. The order is:
 
-1. its priority slugs from `config/mvp.php`, in the configured order;
-2. every other active role, ordered by `version DESC, id DESC`.
+1. available roles before Coming Soon roles;
+2. inside each block, the specialization's priority slugs from `config/mvp.php`,
+   in the configured order;
+3. everything else, ordered by `version DESC, id DESC`.
 
-The rank is compiled into the SQL (`CASE career_roles.slug WHEN ? THEN n …`)
-before pagination, so:
+The rank is compiled into the SQL (`CASE` expressions on `is_active` and on
+`slug`) before pagination, so:
 
-* the priority roles are first on page 1, not just first within a page;
+* the available roles are first on page 1, not just first within a page;
 * every row gets exactly one rank — no duplicates by construction;
 * `version DESC, id DESC` makes the order total, so pages never drift.
 

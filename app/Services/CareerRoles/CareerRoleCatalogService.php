@@ -11,14 +11,19 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * ONE PLACE THAT ANSWERS TWO QUESTIONS
  * ------------------------------------
- *  1. WHICH roles may be offered?  -> every role that is approved AND active,
- *     regardless of specialization. The specialization no longer restricts the
- *     choice (MVP policy): a Computer Science learner may pick a Data Science
- *     role, a self-taught learner may pick anything.
+ *  1. WHICH roles are listed?  -> every APPROVED role, including the ones that
+ *     are not available yet. A role that is not available is returned as
+ *     "Coming Soon" (`is_available = false`) instead of being hidden, so a
+ *     learner can see what is on the way. Only draft/retired roles are
+ *     excluded — they are not published definitions at all.
  *
- *  2. IN WHAT ORDER?  -> the roles listed for that specialization in
- *     config/mvp.php come first, in the order they are listed; every other
- *     active role follows in a stable, neutral order.
+ *  2. IN WHAT ORDER?  -> available roles first, then the rest. Inside each
+ *     block the roles listed for the chosen specialization in config/mvp.php
+ *     come first, in the order they are listed; everything else follows in a
+ *     stable, neutral order.
+ *
+ * Availability itself is `career_roles.is_active` — the column the rest of the
+ * app already uses. No parallel availability system exists.
  *
  * WHY THE ORDERING IS A SQL CASE, NOT PHP SORTING
  * -----------------------------------------------
@@ -39,14 +44,22 @@ use Illuminate\Database\Eloquent\Builder;
 class CareerRoleCatalogService
 {
     /**
-     * The base query for a learner-facing list: approved + active only.
+     * The base query for the learner-facing list: every approved role, whether
+     * available or Coming Soon, ordered available-first.
      *
      * @param  Specialization|null  $specialization  When given, its priority
      *                                               list is applied to the order.
      */
-    public function selectableQuery(?Specialization $specialization = null): Builder
+    public function listedQuery(?Specialization $specialization = null): Builder
     {
-        $query = CareerRole::query()->selectable();
+        $query = CareerRole::query()->where('career_roles.status', 'approved');
+
+        /*
+         * Availability rank: 0 for a role a learner can use right now, 1 for a
+         * Coming Soon role. Without this a learner's first page would be
+         * filled with roles that cannot be started yet.
+         */
+        $query->orderByRaw('CASE WHEN career_roles.is_active = 1 THEN 0 ELSE 1 END ASC');
 
         return $this->applyPriorityOrdering($query, $this->prioritySlugs($specialization));
     }

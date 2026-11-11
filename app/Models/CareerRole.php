@@ -15,20 +15,21 @@ use Illuminate\Database\Eloquent\Model;
  * approved or retired. It answers "may this role be trusted as a source of
  * required skills?".
  *
- * `is_active` is the product state: "is this role offered to learners right
- * now?". It is what the MVP uses to keep out-of-scope roles out of every
- * picker without retiring or deleting them.
+ * `is_active` is the availability state: "can this role be USED right now?".
+ * It is what the MVP uses to publish four roles while the rest of the catalog
+ * stays visible as "Coming Soon" — a role that is not active is still returned
+ * by the listing API, just not selectable and not assessable.
  *
- * A role may be picked / listed only when BOTH hold — see
+ * A role may be chosen (and can start an assessment) only when BOTH hold — see
  * {@see CareerRole::scopeSelectable()}. Everything that reads a role the
  * learner already chose (assessment history, readiness, project snapshots)
- * must keep working for an inactive role, so those code paths deliberately
+ * must keep working for a Coming Soon role, so those code paths deliberately
  * do NOT use the `selectable` scope.
  *
- * `is_active` is hidden from serialisation on purpose: the existing
- * career-role JSON payload is part of the frontend contract, and an inactive
- * role is simply never listed. Keeping the column out of the payload leaves
- * that contract byte-for-byte unchanged.
+ * `is_active` is hidden from serialisation on purpose: the raw flag is not part
+ * of the career-role contract. The API exposes the same fact as the explicit,
+ * additive `is_available` field instead (see CareerRoleController), so the
+ * existing payload keeps its shape.
  */
 class CareerRole extends Model
 {
@@ -85,9 +86,9 @@ class CareerRole extends Model
      * Specializations this career role belongs to. Many-to-many — see
      * Specialization::careerRoles() for the inverse.
      *
-     * NOTE: this pivot is a curation/mapping view for the admin panel. Since
-     * the MVP it no longer restricts which roles a learner may choose — see
-     * Specialization::selectableCareerRolesQuery().
+     * NOTE: this pivot is a curation/mapping view for the admin panel. It no
+     * longer restricts which roles a learner may choose — the learner list is
+     * built by the CareerRoleCatalogService.
      */
     public function specializations()
     {

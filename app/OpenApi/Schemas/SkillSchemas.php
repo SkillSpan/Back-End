@@ -84,10 +84,10 @@ use OpenApi\Attributes as OA;
     schema: 'CareerRole',
     title: 'CareerRole',
     description: 'A career role definition. `status` is the review state of the definition (draft / approved / '
-        .'retired). Whether the role is OFFERED to learners is a separate, internal flag (`career_roles.is_active`, '
-        .'not serialised): a role appears in the list endpoints only when it is `approved` AND active, while a '
-        .'single-role read keeps working for an inactive role so existing selections stay readable. Activation is '
-        .'independent of approval — a role can be approved and still be outside the current product scope.',
+        .'retired) and is independent of availability. `is_available` is the MVP state: `true` for the roles the '
+        .'product publishes (they can be selected and can start an assessment), `false` for a role that is '
+        .'"Coming Soon" — listed and readable, but not usable yet. The underlying `career_roles.is_active` column '
+        .'is not serialised; `is_available` is its public form.',
     type: 'object',
     properties: [
         new OA\Property(property: 'id', type: 'integer', example: 3),
@@ -95,6 +95,12 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: 'version', type: 'integer', example: 1),
         new OA\Property(property: 'effective_date', type: 'string', format: 'date', nullable: true),
         new OA\Property(property: 'status', type: 'string', enum: ['draft', 'approved', 'retired'], example: 'approved'),
+        new OA\Property(
+            property: 'is_available',
+            type: 'boolean',
+            description: 'true = available now; false = Coming Soon (listed, readable, not selectable, cannot start an assessment).',
+            example: true,
+        ),
     ],
 )]
 #[OA\Schema(

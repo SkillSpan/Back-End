@@ -16,16 +16,20 @@ use Illuminate\Database\Seeder;
  * It only ever writes the two activation flags:
  *
  *   specializations.is_active   true for the MVP tracks, false for the rest
- *   career_roles.is_active      false for the roles the MVP excludes
+ *   career_roles.is_active      true for the four MVP roles, false for the rest
+ *
+ * A career role that is not available is not "removed": it stays in the
+ * catalog and the listing API returns it marked as Coming Soon. The flag is a
+ * "can it be used right now?" switch, not a visibility switch.
  *
  * It never deletes, renames or re-slugs anything. In particular:
  *
  *  - a specialization outside the MVP is DEACTIVATED, never removed, so every
  *    historical student profile that mentions it still resolves and can be
  *    reactivated later;
- *  - a career role outside the MVP keeps its row, its required skills, its
- *    questions, its project links and its specialization pivot links — only
- *    the "offered to learners" flag flips;
+ *  - a career role that is not available keeps its row, its required skills,
+ *    its questions, its project links and its specialization pivot links —
+ *    only the "usable now" flag flips;
  *  - no pivot row is ever detached. `syncWithoutDetaching` is used for the one
  *    mapping this seeder creates, so an administrator's curation is preserved;
  *  - `status` (draft / approved / retired) is never touched. Activation and
@@ -37,7 +41,7 @@ use Illuminate\Database\Seeder;
  *
  * POLICY VS LOCAL OVERRIDE: this seeder is the enforcement point of the MVP
  * scope, so it re-applies the policy on every run. An administrator who
- * reactivates a single role from the panel keeps that choice until the seeder
+ * activates a single role from the panel keeps that choice until the seeder
  * runs again; changing the policy permanently is a config edit, not a database
  * edit.
  */
@@ -50,7 +54,7 @@ class MvpCatalogSeeder extends Seeder
         $this->ensureMergedSpecializations();
         $this->activateMvpSpecializations();
         $this->deactivateOutOfScopeSpecializations();
-        $this->deactivateOutOfScopeCareerRoles();
+        $this->syncCareerRoleAvailability();
 
         $this->flushReferenceCache();
 
@@ -164,14 +168,26 @@ class MvpCatalogSeeder extends Seeder
     }
 
     /**
-     * Switch off the roles the MVP excludes. Their skills, questions and
-     * links are untouched.
+     * Make exactly the configured roles available; everything else becomes
+     * "Coming Soon".
+     *
+     * This is a two-way switch, not a one-way deactivation:
+     *  - the slugs in `mvp.available_career_role_slugs` are switched ON, so a
+     *    role that was disabled by an earlier policy is restored;
+     *  - every other role is switched OFF, which is what marks it Coming Soon
+     *    in the listing API.
+     *
+     * Only `is_active` is written. No row, skill, question, pivot link or
+     * assessment is touched, and re-running is a no-op (the UPDATEs are
+     * guarded by the current value).
      */
-    private function deactivateOutOfScopeCareerRoles(): void
+    private function syncCareerRoleAvailability(): void
     {
-        $slugs = config('mvp.inactive_career_role_slugs', []);
+        $slugs = config('mvp.available_career_role_slugs', []);
 
         if (! is_array($slugs) || $slugs === []) {
+            // Never fall through to "deactivate everything": an empty policy is
+            // a configuration mistake, not an instruction.
             return;
         }
 
@@ -185,6 +201,11 @@ class MvpCatalogSeeder extends Seeder
 
         CareerRole::query()
             ->whereIn('slug', $slugs)
+            ->where('is_active', false)
+            ->update(['is_active' => true]);
+
+        CareerRole::query()
+            ->whereNotIn('slug', $slugs)
             ->where('is_active', true)
             ->update(['is_active' => false]);
     }

@@ -71,7 +71,7 @@ class UpdateProfileRequest extends FormRequest
                         ->exists();
 
                     if (! $isSelectable) {
-                        $fail('The selected career role is not available.');
+                        $fail('The selected career role is not available yet.');
                     }
                 },
             ],

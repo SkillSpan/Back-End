@@ -17,27 +17,24 @@ use Database\Seeders\SkillSeeder;
 use Database\Seeders\SpecializationsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * The MVP career-role catalogue: activation, availability and ordering.
+ * The career-role catalogue: listing, availability flags and ordering.
  *
- * These tests pin the policy the MVP introduced:
+ * THE POLICY UNDER TEST
+ * ---------------------
+ * Four roles are available (config/mvp.php); every other approved role is
+ * listed as Coming Soon. Nothing is hidden or deleted — the listing returns the
+ * whole published catalog and marks each item with `is_available`.
  *
- *  - a role is offered only when it is `approved` AND `is_active`;
- *  - every active specialization offers EVERY active role (the pivot no longer
- *    filters anything);
- *  - the specialization's priority list only decides the ORDER, and it is
- *    applied before pagination so pages never skip or repeat a role;
- *  - the free track has no priority list and therefore a neutral order;
- *  - deactivating a role never removes its skills, questions or pivot links,
- *    and never blocks reading it.
+ * Order: available first, then Coming Soon. Inside each block the roles of the
+ * chosen specialization come first (config/mvp.php), then everything else in a
+ * neutral order. The specialization only ORDERS; it never filters.
  *
- * The full seeded catalogue is used on purpose: the assertions are about real
- * slugs from config/mvp.php, so a typo in that file fails here instead of
- * silently producing a neutral order in production.
+ * The availability-specific acceptance tests (assessment allowed/refused, data
+ * preservation) live in CareerRoleAvailabilityTest.
  */
 class MvpCareerRoleCatalogTest extends TestCase
 {
@@ -66,29 +63,27 @@ class MvpCareerRoleCatalogTest extends TestCase
         Sanctum::actingAs($this->learner());
     }
 
-    // ------------------------------------------------ activation
+    // ------------------------------------------------ listing
 
-    public function test_only_approved_and_active_roles_are_listed(): void
+    public function test_every_approved_role_is_listed_with_an_availability_flag(): void
     {
-        $active = CareerRole::where('status', 'approved')->where('is_active', true)->count();
+        $approved = CareerRole::where('status', 'approved')->count();
 
         $response = $this->getJson('/api/v1/career-roles?per_page=100')->assertOk();
 
-        $this->assertSame($active, $response->json('data.total'));
+        $this->assertSame($approved, $response->json('data.total'));
 
-        // A deactivated role is never in the list…
-        $excluded = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
-        $this->assertFalse((bool) $excluded->is_active);
+        foreach ($response->json('data.data') as $item) {
+            $this->assertArrayHasKey('is_available', $item);
+            $this->assertIsBool($item['is_available']);
+        }
 
-        $titles = $this->allTitles('/api/v1/career-roles?per_page=100');
-        $this->assertNotContains($excluded->title, $titles);
-
-        // …but the row, its skills and its questions still exist.
-        $this->assertGreaterThan(0, $excluded->roleSkills()->count());
-        $this->assertGreaterThan(0, $this->questionsForRole($excluded));
+        // Coming Soon roles are listed, not hidden.
+        $comingSoon = array_filter($this->allItems(), fn (array $item) => $item['is_available'] === false);
+        $this->assertNotEmpty($comingSoon);
     }
 
-    public function test_a_draft_role_is_never_listed_even_when_active(): void
+    public function test_a_draft_role_is_never_listed_even_when_available(): void
     {
         $draft = CareerRole::forceCreate([
             'title' => 'Draft Role',
@@ -104,115 +99,67 @@ class MvpCareerRoleCatalogTest extends TestCase
         $this->assertNotContains($draft->title, $titles);
     }
 
-    public function test_deactivating_a_role_keeps_its_skills_questions_and_pivot_links(): void
+    public function test_availability_changes_never_touch_skills_questions_or_links(): void
     {
-        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+        // A Coming Soon role keeps everything it had.
+        $role = CareerRole::where('slug', 'data-scientist')->firstOrFail();
 
-        $skillIds = $role->roleSkills()->pluck('skill_id')->all();
-        $pivotCount = DB::table('career_role_specialization')->where('career_role_id', $role->id)->count();
-        $questionCount = $this->questionsForRole($role);
-
-        $this->assertGreaterThan(0, count($skillIds));
-        $this->assertGreaterThan(0, $pivotCount);
-        $this->assertGreaterThan(0, $questionCount);
         $this->assertFalse((bool) $role->is_active);
-    }
-
-    // ------------------------------------------------ availability
-
-    public function test_every_active_specialization_offers_the_same_roles(): void
-    {
-        $selectable = CareerRole::where('status', 'approved')->where('is_active', true)->count();
-
-        foreach (config('mvp.specializations') as $name) {
-            $specialization = Specialization::where('name', $name)->firstOrFail();
-
-            $total = $this->getJson('/api/v1/career-roles?specialization_id='.$specialization->id)
-                ->assertOk()
-                ->json('data.total');
-
-            $this->assertSame(
-                $selectable,
-                $total,
-                "Specialization [{$name}] must offer every active role, not only its pivot roles.",
-            );
-        }
-    }
-
-    public function test_the_free_track_offers_the_same_roles_in_a_neutral_order(): void
-    {
-        $free = Specialization::where('is_free_track', true)->firstOrFail();
-
-        $freeTitles = $this->allTitles('/api/v1/career-roles?specialization_id='.$free->id.'&per_page=100');
-        $unfilteredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
-
-        $this->assertSame($unfilteredTitles, $freeTitles);
-    }
-
-    public function test_an_inactive_specialization_cannot_be_used_as_a_filter(): void
-    {
-        $legacy = Specialization::where('name', 'Cybersecurity')->firstOrFail();
-
-        $this->assertFalse((bool) $legacy->is_active);
-
-        $this->getJson('/api/v1/career-roles?specialization_id='.$legacy->id)
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('specialization_id');
+        $this->assertGreaterThan(0, $role->roleSkills()->count());
+        $this->assertGreaterThan(0, $this->questionsForRole($role));
+        $this->assertGreaterThan(0, $role->specializations()->count());
     }
 
     // ------------------------------------------------ ordering
 
-    public function test_priority_roles_are_listed_first_in_the_configured_order(): void
+    public function test_available_roles_are_listed_before_coming_soon_roles(): void
     {
-        $cs = Specialization::where('name', 'Computer Science')->firstOrFail();
+        $computerScience = Specialization::where('name', 'Computer Science')->firstOrFail();
 
-        $expected = [];
+        $items = $this->allItems('/api/v1/career-roles?specialization_id='.$computerScience->id.'&per_page=100');
 
-        foreach (config('mvp.career_role_priority.Computer Science') as $slug) {
-            $role = CareerRole::where('slug', $slug)->first();
+        $firstFour = array_slice($items, 0, 4);
 
-            if ($role !== null) {
-                $expected[] = $role->title;
-            }
+        foreach ($firstFour as $item) {
+            $this->assertTrue($item['is_available'], "[{$item['title']}] must be in the available block.");
         }
 
-        $this->assertNotEmpty($expected);
-
-        $titles = $this->allTitles('/api/v1/career-roles?specialization_id='.$cs->id.'&per_page=100');
-
-        $this->assertSame($expected, array_slice($titles, 0, count($expected)));
+        // Everything after the available block is Coming Soon.
+        foreach (array_slice($items, 4) as $item) {
+            $this->assertFalse($item['is_available'], "[{$item['title']}] must be Coming Soon.");
+        }
     }
 
-    public function test_a_priority_role_is_not_repeated_in_the_rest_of_the_list(): void
+    public function test_priority_order_applies_inside_the_available_block(): void
     {
-        $cs = Specialization::where('name', 'Computer Science')->firstOrFail();
+        $computerScience = Specialization::where('name', 'Computer Science')->firstOrFail();
 
-        $titles = $this->allTitles('/api/v1/career-roles?specialization_id='.$cs->id.'&per_page=100');
+        $titles = $this->allTitles('/api/v1/career-roles?specialization_id='.$computerScience->id.'&per_page=100');
 
+        // The four available roles, in this specialization's priority order
+        // (frontend, backend, full-stack, then mobile — software-engineer sits
+        // between them in the config but is Coming Soon).
         $this->assertSame(
-            count($titles),
-            count(array_unique($titles)),
-            'A role appeared twice in the ordered list.',
+            ['Frontend Developer', 'Backend Developer', 'Full Stack Developer', 'Mobile Developer'],
+            array_slice($titles, 0, 4),
         );
-
-        $priorityTitles = [];
-
-        foreach (config('mvp.career_role_priority.Computer Science') as $slug) {
-            $role = CareerRole::where('slug', $slug)->first();
-
-            if ($role !== null) {
-                $priorityTitles[] = $role->title;
-            }
-        }
-
-        $rest = array_slice($titles, count($priorityTitles));
-
-        foreach ($priorityTitles as $title) {
-            $this->assertNotContains($title, $rest, "Priority role [{$title}] leaked into the rest block.");
-        }
     }
 
-    public function test_two_specializations_return_the_same_roles_in_different_orders(): void
+    public function test_priority_order_applies_inside_the_coming_soon_block(): void
+    {
+        $computerScience = Specialization::where('name', 'Computer Science')->firstOrFail();
+
+        $titles = $this->allTitles('/api/v1/career-roles?specialization_id='.$computerScience->id.'&per_page=100');
+
+        // Computer Science's own Coming Soon roles lead the second block, in
+        // the configured order.
+        $this->assertSame(
+            ['Software Engineer', 'Data Analyst', 'Data Scientist', 'AI Engineer', 'Machine Learning Engineer'],
+            array_slice($titles, 4, 5),
+        );
+    }
+
+    public function test_two_specializations_return_the_same_set_in_different_orders(): void
     {
         $cs = Specialization::where('name', 'Computer Science')->firstOrFail();
         $ds = Specialization::where('name', 'Data Science')->firstOrFail();
@@ -225,8 +172,41 @@ class MvpCareerRoleCatalogTest extends TestCase
         sort($csSorted);
         sort($dsSorted);
 
-        $this->assertSame($csSorted, $dsSorted, 'Both specializations must offer the same set of roles.');
-        $this->assertNotSame($csTitles, $dsTitles, 'The priority order must differ between specializations.');
+        $this->assertSame($csSorted, $dsSorted, 'Both specializations must list the same roles.');
+        $this->assertNotSame($csTitles, $dsTitles, 'The priority order must depend on the specialization.');
+    }
+
+    public function test_the_free_track_applies_no_priority_list(): void
+    {
+        $free = Specialization::where('is_free_track', true)->firstOrFail();
+
+        $items = $this->allItems('/api/v1/career-roles?specialization_id='.$free->id.'&per_page=100');
+
+        // The availability rank still applies…
+        foreach (array_slice($items, 0, 4) as $item) {
+            $this->assertTrue($item['is_available']);
+        }
+
+        // …but no specialization priority does: the Coming Soon block starts
+        // with the neutral order (highest id first).
+        $neutralFirst = CareerRole::where('status', 'approved')
+            ->where('is_active', false)
+            ->orderByDesc('version')
+            ->orderByDesc('id')
+            ->value('title');
+
+        $this->assertSame($neutralFirst, $items[4]['title']);
+    }
+
+    public function test_an_inactive_specialization_cannot_be_used_as_a_filter(): void
+    {
+        $legacy = Specialization::where('name', 'Cybersecurity')->firstOrFail();
+
+        $this->assertFalse((bool) $legacy->is_active);
+
+        $this->getJson('/api/v1/career-roles?specialization_id='.$legacy->id)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('specialization_id');
     }
 
     public function test_pagination_never_skips_or_repeats_a_role(): void
@@ -253,40 +233,32 @@ class MvpCareerRoleCatalogTest extends TestCase
         $this->assertSame($total, count(array_unique($collected)), 'A role was returned on two pages.');
     }
 
-    public function test_search_still_works_with_the_priority_ordering(): void
+    public function test_search_matches_coming_soon_roles_too(): void
     {
-        $cs = Specialization::where('name', 'Computer Science')->firstOrFail();
+        $response = $this->getJson('/api/v1/career-roles?search=engineer&per_page=100')->assertOk();
 
-        $response = $this->getJson(
-            '/api/v1/career-roles?specialization_id='.$cs->id.'&search=engineer&per_page=100'
-        )->assertOk();
+        $items = collect($response->json('data.data'))->keyBy('title');
 
-        $titles = array_column($response->json('data.data'), 'title');
+        $this->assertTrue($items->has('Software Engineer'));
+        $this->assertFalse($items['Software Engineer']['is_available']);
 
-        $this->assertNotEmpty($titles);
-
-        foreach ($titles as $title) {
-            $this->assertStringContainsStringIgnoringCase('engineer', $title);
-        }
-
-        // The search must not bypass the activation filter: "QA Engineer"
-        // matches the term but is deactivated for the MVP.
-        $this->assertContains('Software Engineer', $titles);
-        $this->assertNotContains('QA Engineer', $titles);
+        // A Coming Soon role is searchable — it is listed, just not usable.
+        $this->assertTrue($items->has('QA Engineer'));
+        $this->assertFalse($items['QA Engineer']['is_available']);
     }
 
-    // ------------------------------------------------ assessment gate
+    // ------------------------------------------------ gates
 
-    public function test_a_deactivated_role_cannot_start_a_new_assessment(): void
+    public function test_a_coming_soon_role_cannot_start_a_new_assessment(): void
     {
-        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+        $role = CareerRole::where('slug', 'data-scientist')->firstOrFail();
 
         $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
             ->assertStatus(422)
             ->assertJsonValidationErrors('career_role_id');
     }
 
-    public function test_an_active_role_can_still_start_an_assessment(): void
+    public function test_an_available_role_can_still_start_an_assessment(): void
     {
         $role = CareerRole::where('slug', 'backend-developer')->firstOrFail();
 
@@ -295,147 +267,67 @@ class MvpCareerRoleCatalogTest extends TestCase
             ->assertJsonPath('data.career_role_id', $role->id);
     }
 
-    public function test_an_inactive_role_stays_readable_for_history(): void
+    public function test_a_coming_soon_role_stays_readable_for_history(): void
     {
-        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+        $role = CareerRole::where('slug', 'data-scientist')->firstOrFail();
 
         $this->getJson('/api/v1/career-roles/'.$role->id)
             ->assertOk()
             ->assertJsonPath('data.id', $role->id)
-            ->assertJsonPath('data.status', 'approved');
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.is_available', false);
 
         $this->getJson('/api/v1/career-roles/'.$role->id.'/skills')
             ->assertOk()
             ->assertJsonPath('data.career_role.id', $role->id);
     }
 
-    // ------------------------------------------------ profile gate
-
-    public function test_a_profile_may_keep_its_deactivated_role_but_may_not_pick_a_new_one(): void
+    public function test_a_profile_may_keep_its_coming_soon_role_but_may_not_pick_a_new_one(): void
     {
-        $deactivated = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
-        $alsoDeactivated = CareerRole::where('slug', 'it-support-specialist')->firstOrFail();
+        $held = CareerRole::where('slug', 'data-scientist')->firstOrFail();
+        $other = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
 
         $user = $this->learner();
-        $user->studentProfile->forceFill(['primary_career_role_id' => $deactivated->id])->save();
+        $user->studentProfile->forceFill(['primary_career_role_id' => $held->id])->save();
         Sanctum::actingAs($user);
 
-        // Re-sending the value the profile already holds is a no-op, not a
-        // new selection: a deactivation must not invalidate existing profiles.
-        $this->putJson('/api/v1/profile', ['primary_career_role_id' => $deactivated->id])
+        // Re-sending the value the profile already holds is a no-op, not a new
+        // selection: publishing fewer roles must not invalidate existing
+        // profiles.
+        $this->putJson('/api/v1/profile', ['primary_career_role_id' => $held->id])
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        // Choosing a DIFFERENT deactivated role is a new selection and is
+        // Choosing a DIFFERENT Coming Soon role is a new selection and is
         // refused.
-        $this->putJson('/api/v1/profile', ['primary_career_role_id' => $alsoDeactivated->id])
+        $this->putJson('/api/v1/profile', ['primary_career_role_id' => $other->id])
             ->assertStatus(422)
             ->assertJsonValidationErrors('primary_career_role_id');
     }
 
     // ------------------------------------------------ policy integrity
 
-    /**
-     * Every slug in the policy list must be a real role.
-     *
-     * A typo in config/mvp.php would silently deactivate nothing — the role it
-     * was meant to hide would keep appearing — so the config is checked against
-     * the catalog rather than trusted. The only exception is an explicitly
-     * documented "not in the catalog yet" role.
-     */
-    public function test_every_configured_inactive_slug_exists_in_the_catalog(): void
+    public function test_every_configured_available_slug_exists_in_the_catalog(): void
     {
-        $knownMissing = array_keys((array) config('mvp.missing_career_roles', []));
+        $slugs = config('mvp.available_career_role_slugs');
 
-        foreach (config('mvp.inactive_career_role_slugs') as $slug) {
-            if (in_array($slug, $knownMissing, true)) {
-                continue;
-            }
+        $this->assertCount(4, $slugs);
 
+        foreach ($slugs as $slug) {
             $this->assertTrue(
                 CareerRole::where('slug', $slug)->exists(),
                 "The policy lists [{$slug}], but no such career role exists.",
             );
         }
-    }
 
-    public function test_the_design_and_cybersecurity_families_are_offered_to_nobody(): void
-    {
-        $blocked = [
-            // UI/UX and design
-            'ui-designer', 'ux-designer', 'product-designer', 'ux-researcher',
-            'interaction-designer', 'design-system-designer',
-            'game-designer', 'technical-game-designer',
-            // Cybersecurity family
-            'security-analyst', 'soc-analyst', 'cybersecurity-engineer',
-            'security-engineer', 'incident-response-analyst',
-            'threat-intelligence-analyst', 'security-consultant',
-            'penetration-tester', 'ethical-hacker', 'red-team-operator',
-            'vulnerability-analyst', 'security-testing-engineer',
-            'digital-forensics-analyst', 'dfir-analyst', 'cybercrime-analyst',
-            'incident-response-specialist',
-            // Security roles that sit under the network / cloud tracks
-            'network-security-engineer', 'cloud-security-engineer',
-        ];
+        // Exactly these four are active — nothing else slipped through.
+        $expected = $slugs;
+        sort($expected);
 
-        $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
-
-        foreach ($blocked as $slug) {
-            $role = CareerRole::where('slug', $slug)->first();
-
-            $this->assertNotNull($role, "Career role [{$slug}] is missing from the catalog.");
-            $this->assertFalse((bool) $role->is_active, "[{$slug}] must not be offered in the MVP.");
-            $this->assertNotContains($role->title, $offeredTitles, "[{$slug}] still appears in the learner list.");
-
-            // Deactivation never removes the role's data.
-            $this->assertGreaterThan(0, $role->roleSkills()->count(), "[{$slug}] lost its skills.");
-        }
-    }
-
-    /**
-     * The security roles of the network and cloud tracks are out of MVP, while
-     * the plain engineering roles of the SAME tracks stay offered.
-     *
-     * `network-security-engineer` and `cloud-security-engineer` were initially
-     * kept because they are curated under Computer Networks / Cloud Computing.
-     * The product decision is that cybersecurity is out of the MVP, and a
-     * "security engineer" is a security role whatever its domain — so they are
-     * deactivated, and this test pins the boundary in both directions: the two
-     * security roles must NOT be offered, the four engineering roles named by
-     * the MVP priority lists must still be.
-     */
-    public function test_the_network_and_cloud_security_roles_are_out_but_their_engineering_roles_stay(): void
-    {
-        $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
-
-        // Out: security specialisms, whatever track curates them.
-        foreach (['network-security-engineer', 'cloud-security-engineer'] as $slug) {
-            $role = CareerRole::where('slug', $slug)->firstOrFail();
-
-            $this->assertFalse((bool) $role->is_active, "[{$slug}] must not be offered in the MVP.");
-            $this->assertNotContains($role->title, $offeredTitles, "[{$slug}] still appears in the learner list.");
-
-            // Deactivated, not deleted: skills, questions and pivot links stay.
-            $this->assertGreaterThan(0, $role->roleSkills()->count(), "[{$slug}] lost its skills.");
-            $this->assertGreaterThan(
-                0,
-                $this->questionsForRole($role),
-                "[{$slug}] lost its questions.",
-            );
-            $this->assertGreaterThan(
-                0,
-                $role->specializations()->count(),
-                "[{$slug}] lost its specialization links.",
-            );
-        }
-
-        // In: the engineering roles of the network and cloud tracks.
-        foreach (['network-engineer', 'cloud-engineer', 'devops-engineer', 'site-reliability-engineer'] as $slug) {
-            $role = CareerRole::where('slug', $slug)->firstOrFail();
-
-            $this->assertTrue((bool) $role->is_active, "[{$slug}] must stay offered.");
-            $this->assertContains($role->title, $offeredTitles, "[{$slug}] is missing from the learner list.");
-        }
+        $this->assertSame(
+            $expected,
+            CareerRole::where('is_active', true)->orderBy('slug')->pluck('slug')->all(),
+        );
     }
 
     // ------------------------------------------------ response contract
@@ -461,13 +353,17 @@ class MvpCareerRoleCatalogTest extends TestCase
             array_keys($response->json('data')),
         );
 
-        // Item shape: the activation flag is internal and must NOT leak into
-        // the payload the frontend already consumes.
+        // Item shape: the previous keys are all still there; `is_available` is
+        // the single additive field, and the raw `is_active` stays hidden.
         $item = $response->json('data.data.0');
 
         $this->assertArrayNotHasKey('is_active', $item);
         $this->assertSame(
-            ['id', 'title', 'slug', 'version', 'status', 'effective_date', 'description', 'created_at', 'updated_at', 'skills_count'],
+            [
+                'id', 'title', 'slug', 'version', 'status', 'effective_date',
+                'description', 'created_at', 'updated_at', 'skills_count',
+                'is_available',
+            ],
             array_keys($item),
         );
     }
@@ -475,11 +371,11 @@ class MvpCareerRoleCatalogTest extends TestCase
     // ------------------------------------------------ helpers
 
     /**
-     * @return list<string>
+     * @return list<array<string, mixed>>
      */
-    private function allTitles(string $url): array
+    private function allItems(string $url = '/api/v1/career-roles?per_page=100'): array
     {
-        $titles = [];
+        $items = [];
         $page = 1;
 
         do {
@@ -487,12 +383,20 @@ class MvpCareerRoleCatalogTest extends TestCase
                 ->assertOk()
                 ->json('data');
 
-            $titles = array_merge($titles, array_column($payload['data'] ?? [], 'title'));
+            $items = array_merge($items, $payload['data'] ?? []);
             $lastPage = (int) ($payload['last_page'] ?? 1);
             $page++;
         } while ($page <= $lastPage);
 
-        return $titles;
+        return $items;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function allTitles(string $url): array
+    {
+        return array_column($this->allItems($url), 'title');
     }
 
     private function questionsForRole(CareerRole $role): int

@@ -34,29 +34,34 @@ class CareerRoleController extends Controller
 
     /**
      * GET /api/v1/career-roles
-     * List every career role a learner may currently pick.
+     * List every published career role, marking which ones are available.
      *
-     * WHAT CHANGED IN THE MVP
-     * -----------------------
-     * The list is now driven by ACTIVATION, not by the specialization pivot:
-     * a role is returned when it is `approved` AND `is_active`. Every active
-     * specialization therefore returns the SAME set of roles — the
-     * specialization only decides the ORDER, with its closest roles first
-     * (config/mvp.php). A role that is not on a specialization's priority list
-     * is still returned, after the priority block.
+     * AVAILABLE VS COMING SOON
+     * ------------------------
+     * The MVP makes four roles usable (config/mvp.php -> available_career_role_slugs)
+     * and keeps the rest in the catalog as "Coming Soon". This endpoint
+     * therefore returns EVERY approved role — nothing is hidden — and each item
+     * carries `is_available`:
      *
-     * The "Self-Learning / Free Track" specialization has no priority list, so
-     * it returns the same set in a neutral order — which is also what the
-     * endpoint returns when `specialization_id` is omitted, so existing
-     * consumers keep their previous list and ordering.
+     *   true   the role can be selected and can start an assessment
+     *   false  Coming Soon: shown, but not selectable and not assessable
      *
-     * Ordering is applied in the query, before pagination, and is total
-     * (`priority rank`, then `version DESC`, then `id DESC`), so pages are
-     * stable and no role is skipped or duplicated.
+     * Availability is the existing `career_roles.is_active` column; no second
+     * availability system was introduced. Only draft/retired roles are
+     * excluded — they are not published definitions.
+     *
+     * ORDER
+     * -----
+     * Available roles come first, then Coming Soon. Inside each block the roles
+     * listed for the chosen specialization in config/mvp.php come first, in
+     * their configured order, and everything else follows in a stable neutral
+     * order (`version` descending, then `id` descending). The rank is applied
+     * before pagination and is total, so pages never skip or repeat a role.
+     *
+     * `specialization_id` still ORDERS only; it never filters.
      *
      * Optional `?per_page={n}` sets the page size (default 15, clamped to
-     * 1..100). Without it the original behaviour is unchanged, so existing
-     * consumers keep working.
+     * 1..100).
      */
     public function index(ListCareerRolesRequest $request): JsonResponse
     {
@@ -75,21 +80,23 @@ class CareerRoleController extends Controller
             : null;
 
         /*
-         * The catalogue service owns BOTH decisions — which roles are
-         * selectable (approved + active) and in what order — so the controller
-         * cannot drift from the policy the rest of the app uses.
+         * The catalogue service owns BOTH decisions — which roles are listed
+         * (every approved role) and in what order — so the controller cannot
+         * drift from the policy the rest of the app uses.
          *
          * `withCount` is applied after the base query is built because it only
          * adds a correlated sub-select; it never affects the ordering, and the
-         * paginator's count query drops the ORDER BY while keeping the
-         * selectable filters.
+         * paginator's count query drops the ORDER BY while keeping the filters.
          *
-         * Server-side search stays as it was: applied to the WHOLE selectable
-         * set before pagination, with LIKE wildcards escaped, so a role on a
-         * later page is reachable and a literal `%` does not match everything.
+         * Server-side search stays as it was: applied to the WHOLE set before
+         * pagination, with LIKE wildcards escaped, so a role on a later page is
+         * reachable and a literal `%` does not match everything.
+         *
+         * `through()` adds `is_available` to each item without touching the
+         * paginator envelope, so the response contract only gains one field.
          */
         $careerRoles = app(CareerRoleCatalogService::class)
-            ->selectableQuery($specialization)
+            ->listedQuery($specialization)
             ->withCount('roleSkills as skills_count')
             ->when(
                 $search !== '',
@@ -99,7 +106,10 @@ class CareerRoleController extends Controller
                         ->orWhere('description', 'like', '%'.$this->escapeLike($search).'%'),
                 ),
             )
-            ->paginate($this->perPage($request));
+            ->paginate($this->perPage($request))
+            ->through(fn (CareerRole $careerRole) => array_merge($careerRole->toArray(), [
+                'is_available' => $careerRole->isSelectable(),
+            ]));
 
         return response()->json([
             'success' => true,
@@ -164,6 +174,9 @@ class CareerRoleController extends Controller
                 'version' => $careerRole->version,
                 'effective_date' => $careerRole->effective_date,
                 'status' => $careerRole->status,
+                // false = Coming Soon. Additive field; the rest of the payload
+                // is unchanged.
+                'is_available' => $careerRole->isSelectable(),
             ],
         ], 200, ['X-Request-ID' => $requestId]);
     }

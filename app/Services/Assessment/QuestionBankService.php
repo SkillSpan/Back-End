@@ -98,8 +98,11 @@ class QuestionBankService
      * role is equally valid under it — so it gets the neutral order (title)
      * over the same complete set.
      *
-     * Deactivated and non-approved roles are excluded: they are not offered to
-     * learners, so a question authored against them would be unreachable.
+     * Coming Soon roles ARE listed here, unlike on the learner picker: an
+     * operator must be able to author the questions for a role before it is
+     * published, otherwise enabling it later would go live with an empty bank.
+     * Only draft/retired roles are excluded — a question filed against an
+     * unpublished definition could never be used.
      *
      * @return array<int, array{id:int,title:string,status:string}>
      */
@@ -111,7 +114,7 @@ class QuestionBankService
             return [];
         }
 
-        $query = CareerRole::query()->selectable();
+        $query = CareerRole::query()->where('career_roles.status', 'approved');
 
         /*
          * Rank the mapped roles ahead of the rest in SQL rather than sorting in

@@ -196,20 +196,19 @@ class EvidenceCareerRoleEndpoints
         path: '/v1/career-roles',
         operationId: 'careerRolesIndex',
         tags: ['Career Roles'],
-        summary: 'List career roles available to learners',
-        description: 'Returns every career role a learner may currently choose: `status = approved` AND '
-            .'`is_active = true`. The two flags are independent — `status` is the review state of the role '
-            .'definition (draft / approved / retired), while `is_active` is whether the product offers the role '
-            .'right now. A role can be approved and still not offered (e.g. an out-of-MVP role), and an inactive '
-            .'role is never returned here even though it stays fully readable through '
-            .'`GET /v1/career-roles/{id}` and `GET /v1/career-roles/{id}/skills`. '
-            .'Since the MVP, a specialization no longer RESTRICTS the list: every active specialization returns '
-            .'the same set of roles, and `specialization_id` only changes the ORDER — the roles configured as '
-            .'closest to that specialization come first, in their configured order, and every other active role '
-            .'follows in a stable neutral order (`version` descending, then `id` descending). '
-            .'The "Self-Learning / Free Track" has no priority list and therefore returns the same set in the '
-            .'neutral order; omitting `specialization_id` produces exactly that neutral order too, so existing '
-            .'consumers keep their previous list. '
+        summary: 'List career roles (available and Coming Soon)',
+        description: 'Returns EVERY published career role (`status = approved`), each marked with '
+            .'`is_available`: `true` for the four roles the MVP publishes, `false` for a role that is '
+            .'"Coming Soon". Coming Soon roles are listed, not hidden — they keep their id, skills, questions '
+            .'and specialization links, and stay readable through `GET /v1/career-roles/{id}`, but they cannot '
+            .'be selected and cannot start an assessment (that is enforced server-side). '
+            .'`status` is the review state of the definition (draft / approved / retired) and is independent of '
+            .'availability; draft and retired roles are never returned. '
+            .'Ordering: available roles first, then Coming Soon. Inside each block, `specialization_id` orders '
+            .'the list — the roles configured as closest to that specialization come first, in their configured '
+            .'order, and the rest follow in a stable neutral order (`version` descending, then `id` descending). '
+            .'The specialization only ORDERS; it never filters. The "Self-Learning / Free Track" has no '
+            .'priority list, and omitting `specialization_id` produces the same neutral order. '
             .'Ordering is applied before pagination and is total, so a role can never appear on two pages or be '
             .'skipped. Each item carries a `skills_count`. The response echoes (or generates) a `request_id`, '
             .'also returned in the `X-Request-ID` header.',
@@ -220,9 +219,10 @@ class EvidenceCareerRoleEndpoints
                 in: 'query',
                 required: false,
                 description: 'Optional. Must be a positive integer referencing an existing AND ACTIVE '
-                    .'specialization. When present, the roles closest to that specialization are listed first; '
-                    .'the rest of the active roles follow. It never hides a role. An inactive specialization is '
-                    .'rejected with a 422 validation error. When omitted, the neutral order is returned.',
+                    .'specialization. When present, the roles closest to that specialization are listed first '
+                    .'(within the available block, then within the Coming Soon block); the rest follow. It never '
+                    .'hides a role. An inactive specialization is rejected with a 422 validation error. When '
+                    .'omitted, the neutral order is returned.',
                 schema: new OA\Schema(type: 'integer', minimum: 1, example: 2),
             ),
             new OA\Parameter(
@@ -280,9 +280,10 @@ class EvidenceCareerRoleEndpoints
         description: 'Returns a single approved career role. Only approved roles are visible through this API; '
             .'an unknown id returns `CAREER_ROLE_NOT_FOUND`, while an existing but non-approved role returns '
             .'`CAREER_ROLE_NOT_APPROVED`. '
-            .'A role that is approved but currently INACTIVE (`is_active = false`, i.e. not offered to learners) '
-            .'is still returned: deactivating a role only removes it from the pickers, it must never lock a '
-            .'learner or a project out of a role they already reference. The response echoes a `request_id`.',
+            .'A role that is approved but currently Coming Soon (`is_available = false`) is still returned, with '
+            .'`is_available: false`: the flag decides whether the role can be USED, never whether it can be read, '
+            .'so it must never lock a learner or a project out of a role they already reference. The response '
+            .'echoes a `request_id`.',
         security: [['bearerAuth' => []]],
         parameters: [
             new OA\Parameter(name: 'id', in: 'path', required: true, description: 'Career role id.', schema: new OA\Schema(type: 'integer'), example: 3),

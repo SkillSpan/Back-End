@@ -84,9 +84,10 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $titles = $this->careerRoleTitles($dataScience);
 
-        // The whole selectable catalog, not just the mapped roles.
+        // The whole published catalog, not just the mapped roles — including
+        // Coming Soon roles, whose questions must be authorable before launch.
         $this->assertSame(
-            CareerRole::where('status', 'approved')->where('is_active', true)->count(),
+            CareerRole::where('status', 'approved')->count(),
             count($titles),
         );
 
@@ -149,32 +150,36 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
          * database for the unranked order keeps the assertion true on both.
          */
         $unranked = CareerRole::query()
-            ->selectable()
+            ->where('career_roles.status', 'approved')
             ->orderBy('career_roles.title')
             ->pluck('title')
             ->all();
 
         $this->assertSame($unranked, $titles, 'The free track must not apply a priority rank.');
         $this->assertCount(
-            CareerRole::where('status', 'approved')->where('is_active', true)->count(),
+            CareerRole::where('status', 'approved')->count(),
             $titles,
         );
     }
 
     // ------------------------------------------------ exclusions
 
-    public function test_deactivated_and_unapproved_roles_never_appear(): void
+    public function test_coming_soon_roles_stay_authorable_but_draft_roles_do_not(): void
     {
         $dataScience = Specialization::where('name', 'Data Science')->firstOrFail();
 
         $titles = $this->careerRoleTitles($dataScience);
 
-        // Deactivated for the MVP (QA is out of scope).
-        $this->assertNotContains('QA Engineer', $titles);
-        // Deactivated with the design family.
-        $this->assertNotContains('UI Designer', $titles);
+        /*
+         * Coming Soon roles must stay in this dropdown: an operator has to be
+         * able to author their questions BEFORE the role is published,
+         * otherwise enabling it later would go live with an empty bank.
+         */
+        $this->assertContains('QA Engineer', $titles);
+        $this->assertContains('UI Designer', $titles);
 
-        // A draft role, even when mapped to the chosen specialization.
+        // A draft role is not a published definition, even when mapped to the
+        // chosen specialization.
         $draft = CareerRole::forceCreate([
             'title' => 'Draft Data Role',
             'slug' => 'draft-data-role',

@@ -113,7 +113,7 @@ class AdminCareerRoleActivationTest extends TestCase
 
     // ------------------------------------------------ deactivate
 
-    public function test_deactivating_a_role_removes_it_from_the_learner_list_without_deleting_anything(): void
+    public function test_deactivating_a_role_marks_it_coming_soon_without_deleting_anything(): void
     {
         $role = $this->careerRole('Backend Developer');
         $this->attachSkillWithQuestion($role, 'REST APIs');
@@ -139,15 +139,16 @@ class AdminCareerRoleActivationTest extends TestCase
         $this->assertSame($questionCount, $this->questionsForRole($role));
         $this->assertSame(1, $specialization->fresh()->careerRoles()->count());
 
-        // …and the role is gone from the learner-facing list.
+        // …and the role is still listed for learners, now marked Coming Soon
+        // (availability is a state, not a visibility switch).
         Sanctum::actingAs($this->learnerWithProfile());
 
-        $titles = array_column(
-            $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data'),
-            'title',
-        );
+        $items = collect(
+            $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data')
+        )->keyBy('title');
 
-        $this->assertNotContains('Backend Developer', $titles);
+        $this->assertTrue($items->has('Backend Developer'));
+        $this->assertFalse($items['Backend Developer']['is_available']);
     }
 
     public function test_deactivating_an_already_inactive_role_is_idempotent(): void
@@ -216,7 +217,7 @@ class AdminCareerRoleActivationTest extends TestCase
 
     // ------------------------------------------------ interaction with creation
 
-    public function test_a_role_created_from_the_panel_is_inactive_and_hidden_from_learners(): void
+    public function test_a_role_created_from_the_panel_is_inactive_and_comes_soon(): void
     {
         $this->actingAs($this->admin());
         $skill = Skill::create(['name' => 'Solidity', 'slug' => 'solidity', 'status' => 'active']);
@@ -233,12 +234,14 @@ class AdminCareerRoleActivationTest extends TestCase
 
         Sanctum::actingAs($this->learnerWithProfile());
 
-        $titles = array_column(
-            $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data'),
-            'title',
-        );
+        // Listed, but marked Coming Soon — a new role is never usable before an
+        // administrator publishes it.
+        $items = collect(
+            $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data')
+        )->keyBy('title');
 
-        $this->assertNotContains('Smart Contract Developer', $titles);
+        $this->assertTrue($items->has('Smart Contract Developer'));
+        $this->assertFalse($items['Smart Contract Developer']['is_available']);
 
         // …and an administrator can publish it explicitly.
         $this->actingAs($this->admin())
@@ -247,6 +250,14 @@ class AdminCareerRoleActivationTest extends TestCase
             ->assertJsonPath('data.is_active', true);
 
         $this->assertTrue((bool) $role->fresh()->is_active);
+
+        Sanctum::actingAs($this->learnerWithProfile());
+
+        $items = collect(
+            $this->getJson('/api/v1/career-roles?per_page=100')->assertOk()->json('data.data')
+        )->keyBy('title');
+
+        $this->assertTrue($items['Smart Contract Developer']['is_available']);
     }
 
     // ------------------------------------------------ helpers

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Services\CareerRoles\CareerRoleCatalogService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -33,8 +32,9 @@ class Specialization extends Model
      * Career roles linked to this specialization in the curation pivot.
      *
      * This is the ADMIN mapping ("which roles does this track cover?"), not
-     * the learner's option list — use {@see selectableCareerRolesQuery()} for
-     * anything a learner sees.
+     * the learner's option list — that one is built by the
+     * CareerRoleCatalogService, which lists every approved role and only uses
+     * this mapping for ordering.
      */
     public function careerRoles()
     {
@@ -62,27 +62,12 @@ class Specialization extends Model
     }
 
     /**
-     * The career roles offered under this specialization.
-     *
-     * Under the MVP policy this is the same set for every active
-     * specialization — every approved + active role — and the specialization
-     * only changes the ORDER (its priority roles first). The free track has no
-     * priority list, so it gets the same set in a neutral order.
-     *
-     * The result is already ordered, so callers must not add another
-     * `orderBy` before paginating unless they intend to override the priority.
-     */
-    public function selectableCareerRolesQuery(): Builder
-    {
-        return app(CareerRoleCatalogService::class)->selectableQuery($this);
-    }
-
-    /**
      * Whether the given career role may be chosen under this specialization.
      *
      * The specialization no longer restricts the choice: any role that is
-     * approved and active is valid, whatever the learner's track. An inactive
-     * or unapproved role is never valid — that is the only remaining rule.
+     * available (approved and active) is valid, whatever the learner's track.
+     * An unavailable — Coming Soon — or unapproved role is never valid; that is
+     * the only remaining rule.
      */
     public function allowsCareerRole(int $careerRoleId): bool
     {
