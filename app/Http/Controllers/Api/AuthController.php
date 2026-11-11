@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Requests\Auth\CheckEmailRequest;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\GoogleLoginRequest;
@@ -11,6 +12,7 @@ use App\Http\Requests\Auth\RegisterOrganizationRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResendOtpRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\UpdateAccountRequest;
 use App\Http\Requests\Auth\VerifyPasswordResetRequest;
 use App\Http\Requests\Auth\VerifyRequest;
 use App\Models\AuthSession;
@@ -23,6 +25,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -417,5 +420,81 @@ class AuthController extends Controller
                 'redirect_url' => '/login',
             ],
         ]);
+    }
+
+    public function updateMe(UpdateAccountRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validated();
+
+        foreach (['name', 'phone', 'locale'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $user->{$field} = $data[$field];
+            }
+        }
+
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Account details updated successfully.',
+            'data' => [
+                'user' => $this->accountPayload($user->fresh()),
+            ],
+        ]);
+    }
+
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! Hash::check((string) $request->input('current_password'), (string) $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => 'The current password is incorrect.',
+            ]);
+        }
+
+        $user->password = (string) $request->input('password');
+        $user->save();
+
+        $current = $user->currentAccessToken();
+        $currentId = $current instanceof PersonalAccessToken ? $current->getKey() : null;
+        $currentHash = $current instanceof PersonalAccessToken ? $current->token : null;
+
+        $others = $user->tokens();
+
+        if ($currentId !== null) {
+            $others->whereKeyNot($currentId);
+        }
+
+        $revoked = $others->count();
+        $others->delete();
+
+        $sessions = AuthSession::where('user_id', $user->id)->whereNull('revoked_at');
+
+        if ($currentHash !== null) {
+            $sessions->where('token_hash', '!=', $currentHash);
+        }
+
+        $sessions->update(['revoked_at' => now()]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password changed successfully. Other devices have been signed out.',
+            'data' => [
+                'revoked_sessions' => $revoked,
+            ],
+        ]);
+    }
+
+    private function accountPayload(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'locale' => $user->locale,
+        ];
     }
 }

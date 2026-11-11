@@ -13,10 +13,16 @@ class Organization extends Model
 
     protected $casts = [
         'verified_at' => 'datetime',
+        'deactivated_at' => 'datetime',
         'profile_updated_at' => 'datetime',
         'reverification_required_at' => 'datetime',
         'profile_completeness' => 'integer',
     ];
+
+    public function isDeactivated(): bool
+    {
+        return $this->deactivated_at !== null;
+    }
 
     public function members()
     {

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\CareerRoleController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\Company\CompanyDashboardController;
 use App\Http\Controllers\Api\Company\CompanyProjectController;
+use App\Http\Controllers\Api\Company\OrganizationAccountController;
 use App\Http\Controllers\Api\Company\OrganizationProfileController;
 use App\Http\Controllers\Api\Company\TalentEngagementController;
 use App\Http\Controllers\Api\ConversationController;
@@ -57,6 +58,10 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('auth')->group(function () {
+        Route::patch('/me', [AuthController::class, 'updateMe'])->name('auth.me.update');
+        Route::post('/change-password', [AuthController::class, 'changePassword'])
+            ->middleware('throttle:10,1')
+            ->name('auth.password.change');
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/logout-all', [AuthController::class, 'logoutAll']);
     });
@@ -77,6 +82,12 @@ Route::prefix('v1')->group(function () {
                 ->name('company.profile.show');
             Route::patch('/me', [OrganizationProfileController::class, 'update'])
                 ->name('company.profile.update');
+        });
+
+    Route::middleware(['auth:sanctum', 'account.active', 'organization.approved', 'role:company_admin'])
+        ->group(function () {
+            Route::post('/organizations/{organization}/deactivate', [OrganizationAccountController::class, 'deactivate'])
+                ->name('company.organization.deactivate');
         });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {

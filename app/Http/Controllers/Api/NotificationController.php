@@ -8,10 +8,18 @@ use App\Http\Resources\NotificationResource;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class NotificationController extends Controller
 {
+    private const TOGGLE_CATEGORIES = [
+        'new_applicant' => 'application',
+        'project_status' => 'project_status',
+        'messages' => 'message',
+    ];
+
     public function __construct(private readonly NotificationService $notifications) {}
 
     public function index(Request $request): JsonResponse
@@ -98,6 +106,7 @@ class NotificationController extends Controller
 
         $preferences = $this->notifications->getPreferences($request->user()->id)
             ->map(fn ($p) => [
+                'key' => $this->toggleKey($p->category),
                 'category' => $p->category,
                 'channel' => $p->channel,
                 'enabled' => $p->enabled,
@@ -111,26 +120,92 @@ class NotificationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    public function updatePreference(UpdateNotificationPreferenceRequest $request): JsonResponse
+    public function updatePreference(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
 
+        if ($this->isTogglePayload($request)) {
+            return $this->updateToggles($request, $requestId);
+        }
+
+        $data = Validator::make($request->all(), (new UpdateNotificationPreferenceRequest)->rules())->validate();
+
         $preference = $this->notifications->setPreference(
             userId: $request->user()->id,
-            category: $request->input('category'),
-            channel: $request->input('channel'),
-            enabled: $request->boolean('enabled'),
+            category: $data['category'],
+            channel: $data['channel'],
+            enabled: (bool) $data['enabled'],
         );
 
         return response()->json([
             'success' => true,
             'message' => 'Notification preference updated successfully.',
             'data' => [
+                'key' => $this->toggleKey($preference->category),
                 'category' => $preference->category,
                 'channel' => $preference->channel,
                 'enabled' => $preference->enabled,
             ],
         ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    private function isTogglePayload(Request $request): bool
+    {
+        return $request->has('preferences')
+            || $request->hasAny(array_keys(self::TOGGLE_CATEGORIES));
+    }
+
+    private function updateToggles(Request $request, string $requestId): JsonResponse
+    {
+        $payload = $request->input('preferences');
+
+        if (! is_array($payload)) {
+            $payload = $request->only(array_keys(self::TOGGLE_CATEGORIES));
+        }
+
+        $toggles = Validator::make(['preferences' => $payload], [
+            'preferences' => ['required', 'array', 'min:1'],
+            'preferences.*' => ['boolean'],
+        ])->validate()['preferences'];
+
+        $updated = [];
+
+        foreach ($toggles as $key => $enabled) {
+            $category = self::TOGGLE_CATEGORIES[$key] ?? null;
+
+            if ($category === null) {
+                continue;
+            }
+
+            $this->notifications->setPreference(
+                userId: $request->user()->id,
+                category: $category,
+                channel: 'in_app',
+                enabled: (bool) $enabled,
+            );
+
+            $updated[$key] = (bool) $enabled;
+        }
+
+        if ($updated === []) {
+            throw ValidationException::withMessages([
+                'preferences' => 'None of the provided keys is a known notification preference. Supported keys: '
+                    .implode(', ', array_keys(self::TOGGLE_CATEGORIES)).'.',
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Notification preferences updated successfully.',
+            'data' => ['preferences' => $updated],
+        ], 200, ['X-Request-ID' => $requestId]);
+    }
+
+    private function toggleKey(string $category): string
+    {
+        $key = array_search($category, self::TOGGLE_CATEGORIES, true);
+
+        return $key === false ? $category : $key;
     }
 
     private function requestId(Request $request): string

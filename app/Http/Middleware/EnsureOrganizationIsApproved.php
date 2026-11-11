@@ -15,6 +15,19 @@ class EnsureOrganizationIsApproved
     {
         $user = $request->user();
 
+        $deactivated = $user?->organizations()
+            ->wherePivot('status', 'active')
+            ->whereNotNull('deactivated_at')
+            ->first();
+
+        if ($deactivated) {
+            return response()->json([
+                'success' => false,
+                'code' => 'ORGANIZATION_DEACTIVATED',
+                'message' => 'This organization account has been deactivated. Contact support to restore it.',
+            ], 403);
+        }
+
         $blocking = $user?->organizations()
             ->wherePivot('status', 'active')
             ->whereIn('verification_status', ['pending', 'rejected'])
