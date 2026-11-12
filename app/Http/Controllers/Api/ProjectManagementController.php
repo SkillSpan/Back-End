@@ -11,6 +11,7 @@ use App\Http\Requests\TransitionProjectRequest;
 use App\Http\Requests\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
+use App\Services\NotificationService;
 use App\Services\Projects\ProjectLifecycleService;
 use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ class ProjectManagementController extends Controller
 {
     public function __construct(
         private readonly ProjectLifecycleService $lifecycleService,
+        private readonly NotificationService $notifications,
     ) {}
 
     public function store(StoreProjectRequest $request): JsonResponse
@@ -105,6 +107,13 @@ class ProjectManagementController extends Controller
                 $request->userAgent(),
             );
 
+            $this->notifyOwner(
+                $approved,
+                'approved',
+                'Your project was approved',
+                $approved->title.' is now live for learners.',
+            );
+
             return $this->projectResponse($approved, 'Project approved successfully.', 200, $requestId);
         } catch (ProjectException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
@@ -132,6 +141,13 @@ class ProjectManagementController extends Controller
                 $request->userAgent(),
             );
 
+            $this->notifyOwner(
+                $changed,
+                'changes_requested',
+                'Changes requested on your project',
+                (string) ($request->validated()['reason'] ?? ''),
+            );
+
             return $this->projectResponse($changed, 'Changes requested on the project.', 200, $requestId);
         } catch (ProjectException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
@@ -157,6 +173,13 @@ class ProjectManagementController extends Controller
                 $requestId,
                 $request->ip(),
                 $request->userAgent(),
+            );
+
+            $this->notifyOwner(
+                $rejected,
+                'rejected',
+                'Your project was rejected',
+                (string) ($request->validated()['reason'] ?? ''),
             );
 
             return $this->projectResponse($rejected, 'Project rejected.', 200, $requestId);
@@ -292,6 +315,22 @@ class ProjectManagementController extends Controller
             ->response()
             ->setStatusCode($status)
             ->header('X-Request-ID', $requestId);
+    }
+
+    private function notifyOwner(Project $project, string $status, string $title, ?string $body): void
+    {
+        if ($project->owner_id === null) {
+            return;
+        }
+
+        $this->notifications->dispatch(
+            userId: (int) $project->owner_id,
+            category: 'project_status',
+            title: $title,
+            body: $body === '' ? null : $body,
+            link: '/projects/'.$project->id,
+            eventKey: 'project.status:'.$project->id.':'.$status,
+        );
     }
 
     private function projectNotFound(int $projectId, string $requestId): JsonResponse

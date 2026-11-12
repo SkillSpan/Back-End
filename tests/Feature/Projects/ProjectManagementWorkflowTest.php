@@ -5,6 +5,8 @@ namespace Tests\Feature\Projects;
 use App\Exceptions\ProjectException;
 use App\Models\AuditEvent;
 use App\Models\CareerRole;
+use App\Models\Notification;
+use App\Models\NotificationPreference;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\Role;
@@ -1076,5 +1078,62 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->expectExceptionMessage('Unsupported project type.');
 
         (new ProjectLifecycleService)->create($actor, $this->payload(['type' => 'volunteering']));
+    }
+
+    public function test_approving_a_project_notifies_its_owner(): void
+    {
+        $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
+        $project = $this->completeProject(Project::STATUS_SUBMITTED, $owner);
+
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson("/api/v1/projects/{$project->id}/approve")->assertOk();
+
+        $notification = Notification::where('user_id', $owner->id)
+            ->where('category', 'project_status')
+            ->first();
+
+        $this->assertNotNull($notification);
+        $this->assertSame('Your project was approved', $notification->title);
+        $this->assertSame('/projects/'.$project->id, $notification->link);
+        $this->assertNull($notification->read_at);
+    }
+
+    public function test_rejecting_a_project_notifies_its_owner_with_the_reason(): void
+    {
+        $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
+        $project = $this->completeProject(Project::STATUS_SUBMITTED, $owner);
+
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson("/api/v1/projects/{$project->id}/reject", ['reason' => 'Out of scope.'])
+            ->assertOk();
+
+        $notification = Notification::where('user_id', $owner->id)
+            ->where('category', 'project_status')
+            ->first();
+
+        $this->assertNotNull($notification);
+        $this->assertSame('Your project was rejected', $notification->title);
+        $this->assertSame('Out of scope.', $notification->body);
+    }
+
+    public function test_a_disabled_project_status_preference_suppresses_the_notification(): void
+    {
+        $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
+        $project = $this->completeProject(Project::STATUS_SUBMITTED, $owner);
+
+        NotificationPreference::forceCreate([
+            'user_id' => $owner->id,
+            'category' => 'project_status',
+            'channel' => 'in_app',
+            'enabled' => false,
+        ]);
+
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson("/api/v1/projects/{$project->id}/approve")->assertOk();
+
+        $this->assertSame(0, Notification::where('user_id', $owner->id)->count());
     }
 }
