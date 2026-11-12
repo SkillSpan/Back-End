@@ -588,6 +588,23 @@ class ProjectManagementWorkflowTest extends TestCase
         $this->assertSame(Project::STATUS_REJECTED, $project->fresh()->status);
     }
 
+    public function test_a_second_decision_on_an_approved_project_says_it_was_already_approved(): void
+    {
+        $project = $this->completeProject(Project::STATUS_APPROVED);
+        Sanctum::actingAs($this->user('admin@test.com', 'admin'));
+
+        $this->postJson("/api/v1/projects/{$project->id}/reject", ['reason' => 'Too late.'])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION')
+            ->assertJsonPath('message', 'This project has already been approved.');
+
+        $this->postJson("/api/v1/projects/{$project->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This project has already been approved.');
+
+        $this->assertSame(Project::STATUS_APPROVED, $project->fresh()->status);
+    }
+
     public function test_an_outsider_cannot_open_someone_elses_project(): void
     {
         $project = $this->completeProject(Project::STATUS_APPROVED);

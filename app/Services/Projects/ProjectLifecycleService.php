@@ -617,16 +617,10 @@ class ProjectLifecycleService
         $method = self::EXECUTABLE_TRANSITIONS[$project->status][$to] ?? null;
 
         if ($method === null) {
-            throw new ProjectException(
-                'That lifecycle transition is not allowed.',
-                422,
-                'PROJECT_INVALID_TRANSITION',
-                [
-                    'project_id' => $project->id,
-                    'status' => $project->status,
-                    'requested_status' => $to,
-                    'allowed_transitions' => array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []),
-                ],
+            throw $this->invalidTransition(
+                $project,
+                $to,
+                array_keys(self::EXECUTABLE_TRANSITIONS[$project->status] ?? []),
             );
         }
 
@@ -832,7 +826,26 @@ class ProjectLifecycleService
             return;
         }
 
-        throw new ProjectException(
+        throw $this->invalidTransition($project, $to, Project::TRANSITIONS[$project->status] ?? []);
+    }
+
+    private function invalidTransition(Project $project, string $to, array $allowed): ProjectException
+    {
+        if ($project->status === Project::STATUS_APPROVED) {
+            return new ProjectException(
+                'This project has already been approved.',
+                422,
+                'PROJECT_INVALID_TRANSITION',
+                [
+                    'project_id' => $project->id,
+                    'status' => $project->status,
+                    'requested_status' => $to,
+                    'allowed_transitions' => $allowed,
+                ],
+            );
+        }
+
+        return new ProjectException(
             'That lifecycle transition is not allowed.',
             422,
             'PROJECT_INVALID_TRANSITION',
@@ -840,7 +853,7 @@ class ProjectLifecycleService
                 'project_id' => $project->id,
                 'status' => $project->status,
                 'requested_status' => $to,
-                'allowed_transitions' => Project::TRANSITIONS[$project->status] ?? [],
+                'allowed_transitions' => $allowed,
             ],
         );
     }
