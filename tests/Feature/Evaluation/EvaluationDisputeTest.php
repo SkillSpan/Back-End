@@ -157,7 +157,7 @@ class EvaluationDisputeTest extends TestCase
         $this->postJson("/api/v1/evaluations/{$this->evaluation->id}/disputes", $payload)->assertStatus(201);
         $this->postJson("/api/v1/evaluations/{$this->evaluation->id}/disputes", $payload)
             ->assertStatus(422)
-            ->assertJsonPath('code', 'EVALUATION_NOT_FINALIZED');
+            ->assertJsonPath('code', 'DISPUTE_ALREADY_OPEN');
     }
 
     public function test_unknown_disputed_criteria_are_rejected(): void

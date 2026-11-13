@@ -37,15 +37,6 @@ class DisputeService
             );
         }
 
-        if ($evaluation->status !== Evaluation::STATUS_FINALIZED) {
-            throw new EvaluationException(
-                'Only a finalized evaluation can be disputed.',
-                422,
-                'EVALUATION_NOT_FINALIZED',
-                ['evaluation_id' => $evaluation->id, 'status' => $evaluation->status],
-            );
-        }
-
         $openDispute = EvaluationDispute::query()
             ->where('evaluation_id', $evaluation->id)
             ->whereIn('status', EvaluationDispute::OPEN_STATUSES)
@@ -57,6 +48,15 @@ class DisputeService
                 422,
                 'DISPUTE_ALREADY_OPEN',
                 ['evaluation_id' => $evaluation->id],
+            );
+        }
+
+        if ($evaluation->status !== Evaluation::STATUS_FINALIZED) {
+            throw new EvaluationException(
+                'Only a finalized evaluation can be disputed.',
+                422,
+                'EVALUATION_NOT_FINALIZED',
+                ['evaluation_id' => $evaluation->id, 'status' => $evaluation->status],
             );
         }
 

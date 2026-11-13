@@ -132,8 +132,9 @@ class ProfessionalRecordTest extends TestCase
             ->assertJsonPath('data.record.sections.evaluation.count', 1)
             ->assertJsonPath('data.record.sections.skill.count', 1)
             ->assertJsonPath('data.record.sections.evaluation.visibility', ProfessionalRecordItem::VISIBILITY_PRIVATE)
-            ->assertJsonPath('data.record.total_items', 2)
-            ->assertJsonPath('data.record.verified_items', 2);
+            ->assertJsonPath('data.record.total_items', 3)
+            ->assertJsonPath('data.record.verified_items', 2)
+            ->assertJsonPath('data.record.sections.profile.count', 1);
     }
 
     public function test_visibility_can_be_changed_per_section(): void

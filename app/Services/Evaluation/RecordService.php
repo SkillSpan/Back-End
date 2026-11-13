@@ -8,6 +8,7 @@ use App\Models\ProfessionalRecordSectionVisibility;
 use App\Models\ProfessionalRecordShareAccess;
 use App\Models\ProfessionalRecordShareLink;
 use App\Models\ProfessionalRecordVerification;
+use App\Models\SkillEvidence;
 use App\Models\StudentProfile;
 use App\Models\User;
 use App\Traits\AuditsActions;
@@ -31,14 +32,33 @@ class RecordService
             ->get();
 
         $visibility = $this->visibilityMap($profile);
+        $derived = $this->derivedPayloads($profile, $student);
 
         $sections = [];
+        $total = 0;
+        $verified = 0;
 
         foreach (ProfessionalRecordItem::SECTIONS as $section) {
+            $payloads = $items
+                ->where('item_type', $section)
+                ->map(fn (ProfessionalRecordItem $item) => $this->itemPayload($item))
+                ->values()
+                ->all();
+
+            if (isset($derived[$section])) {
+                $payloads = array_merge($derived[$section], $payloads);
+            }
+
+            $total += count($payloads);
+            $verified += count(array_filter(
+                $payloads,
+                fn (array $row) => $row['verification_state'] === ProfessionalRecordItem::VERIFICATION_VERIFIED,
+            ));
+
             $sections[$section] = [
                 'visibility' => $visibility[$section] ?? $this->defaultVisibility(),
-                'count' => $items->where('item_type', $section)->count(),
-                'items' => $items->where('item_type', $section)->map(fn (ProfessionalRecordItem $item) => $this->itemPayload($item))->values()->all(),
+                'count' => count($payloads),
+                'items' => $payloads,
             ];
         }
 
@@ -50,9 +70,60 @@ class RecordService
                 'academic_level' => $profile->academic_level,
             ],
             'sections' => $sections,
-            'total_items' => $items->count(),
-            'verified_items' => $items->where('verification_state', ProfessionalRecordItem::VERIFICATION_VERIFIED)->count(),
+            'total_items' => $total,
+            'verified_items' => $verified,
             'share_links' => $this->shareLinks($student)->map(fn (ProfessionalRecordShareLink $link) => $this->shareLinkPayload($link))->values()->all(),
+        ];
+    }
+
+    private function derivedPayloads(StudentProfile $profile, User $student): array
+    {
+        $skills = SkillEvidence::query()
+            ->where('student_profile_id', $profile->id)
+            ->where('verification_status', SkillEvidence::STATUS_VERIFIED)
+            ->with('skill')
+            ->orderByDesc('evidence_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (SkillEvidence $evidence) => [
+                'id' => null,
+                'item_type' => ProfessionalRecordItem::TYPE_SKILL,
+                'title' => $evidence->skill?->name ?? 'Skill',
+                'description' => $evidence->description,
+                'role' => null,
+                'contribution' => null,
+                'issuer' => $evidence->source === 'project_performance' ? 'Project evaluation' : $evidence->source,
+                'project_type' => null,
+                'source_version' => null,
+                'supporting_reference' => $evidence->reference,
+                'verification_state' => ProfessionalRecordItem::VERIFICATION_VERIFIED,
+                'status' => ProfessionalRecordItem::STATUS_ACTIVE,
+                'visibility' => $this->defaultVisibility(),
+                'achieved_at' => $evidence->evidence_date === null
+                    ? null
+                    : (is_string($evidence->evidence_date) ? $evidence->evidence_date : $evidence->evidence_date->toDateString()),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            ProfessionalRecordItem::TYPE_PROFILE => [[
+                'id' => null,
+                'item_type' => ProfessionalRecordItem::TYPE_PROFILE,
+                'title' => $student->name,
+                'description' => $profile->bio,
+                'role' => null,
+                'contribution' => null,
+                'issuer' => $profile->university_name,
+                'project_type' => null,
+                'source_version' => null,
+                'supporting_reference' => '/profile',
+                'verification_state' => ProfessionalRecordItem::VERIFICATION_SELF_DECLARED,
+                'status' => ProfessionalRecordItem::STATUS_ACTIVE,
+                'visibility' => $this->defaultVisibility(),
+                'achieved_at' => null,
+            ]],
+            ProfessionalRecordItem::TYPE_SKILL => $skills,
         ];
     }
 
@@ -195,6 +266,26 @@ class RecordService
             ->orderByDesc('id')
             ->get();
 
+        $payloads = $items->map(fn (ProfessionalRecordItem $item) => $this->publicItemPayload($item))->values()->all();
+
+        if ($profile !== null && $profile->user !== null) {
+            $derived = $this->derivedPayloads($profile, $profile->user);
+
+            foreach ($sections as $section) {
+                foreach ($derived[$section] ?? [] as $row) {
+                    $payloads[] = [
+                        'title' => $row['title'],
+                        'description' => $row['description'],
+                        'role' => $row['role'],
+                        'issuer' => $row['issuer'],
+                        'project_type' => $row['project_type'],
+                        'verification_state' => $row['verification_state'],
+                        'achieved_at' => $row['achieved_at'],
+                    ];
+                }
+            }
+        }
+
         return [
             'student' => [
                 'name' => $profile?->user?->name,
@@ -202,7 +293,7 @@ class RecordService
                 'academic_level' => $profile?->academic_level,
             ],
             'sections' => $sections,
-            'items' => $items->map(fn (ProfessionalRecordItem $item) => $this->publicItemPayload($item))->values()->all(),
+            'items' => $payloads,
             'expires_at' => $link->expires_at?->toIso8601String(),
         ];
     }
@@ -284,6 +375,14 @@ class RecordService
             ->orderByDesc('id')
             ->get();
 
+        $payloads = $items->map(fn (ProfessionalRecordItem $item) => $this->itemPayload($item))->values()->all();
+
+        $derived = $this->derivedPayloads($profile, $student);
+
+        foreach ($selected as $section) {
+            $payloads = array_merge($payloads, $derived[$section] ?? []);
+        }
+
         return [
             'generated_at' => now()->toIso8601String(),
             'student' => [
@@ -293,7 +392,7 @@ class RecordService
                 'university' => $profile->university_name,
             ],
             'sections' => $selected,
-            'items' => $items->map(fn (ProfessionalRecordItem $item) => $this->itemPayload($item))->values()->all(),
+            'items' => $payloads,
         ];
     }
 
