@@ -3,11 +3,14 @@
 namespace App\Services\Evaluation;
 
 use App\Exceptions\RecordException;
+use App\Models\Evaluation;
 use App\Models\ProfessionalRecordItem;
 use App\Models\ProfessionalRecordSectionVisibility;
 use App\Models\ProfessionalRecordShareAccess;
 use App\Models\ProfessionalRecordShareLink;
 use App\Models\ProfessionalRecordVerification;
+use App\Models\Project;
+use App\Models\ProjectTeamMember;
 use App\Models\SkillEvidence;
 use App\Models\StudentProfile;
 use App\Models\User;
@@ -78,6 +81,50 @@ class RecordService
 
     private function derivedPayloads(StudentProfile $profile, User $student): array
     {
+        $verifiedProjects = Evaluation::query()
+            ->where('participant_id', $student->id)
+            ->whereIn('status', Evaluation::STUDENT_VISIBLE_STATUSES)
+            ->pluck('project_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+
+        $projects = ProjectTeamMember::query()
+            ->where('user_id', $student->id)
+            ->where('assignment_state', 'active')
+            ->with(['team.project.organization'])
+            ->get()
+            ->map(fn (ProjectTeamMember $member) => [$member, $member->team?->project])
+            ->filter(fn (array $pair) => $pair[1] instanceof Project)
+            ->filter(fn (array $pair) => in_array($pair[1]->status, [
+                Project::STATUS_ACTIVE,
+                Project::STATUS_UNDER_REVIEW,
+                Project::STATUS_COMPLETED,
+            ], true))
+            ->unique(fn (array $pair) => $pair[1]->id)
+            ->map(fn (array $pair) => [
+                'id' => null,
+                'item_type' => ProfessionalRecordItem::TYPE_PROJECT,
+                'title' => $pair[1]->title,
+                'description' => $pair[1]->description ?? $pair[1]->objectives,
+                'role' => $pair[0]->project_role,
+                'contribution' => null,
+                'issuer' => $pair[1]->organization?->name ?? 'SkillSpan',
+                'project_type' => $pair[1]->type,
+                'source_version' => null,
+                'supporting_reference' => '/projects/'.$pair[1]->id,
+                'verification_state' => in_array((int) $pair[1]->id, $verifiedProjects, true)
+                    ? ProfessionalRecordItem::VERIFICATION_VERIFIED
+                    : ProfessionalRecordItem::VERIFICATION_SELF_DECLARED,
+                'status' => ProfessionalRecordItem::STATUS_ACTIVE,
+                'visibility' => $this->defaultVisibility(),
+                'achieved_at' => $pair[1]->status === Project::STATUS_COMPLETED && $pair[1]->end_date !== null
+                    ? (is_string($pair[1]->end_date) ? $pair[1]->end_date : $pair[1]->end_date->toDateString())
+                    : null,
+            ])
+            ->values()
+            ->all();
+
         $skills = SkillEvidence::query()
             ->where('student_profile_id', $profile->id)
             ->where('verification_status', SkillEvidence::STATUS_VERIFIED)
@@ -123,6 +170,7 @@ class RecordService
                 'visibility' => $this->defaultVisibility(),
                 'achieved_at' => null,
             ]],
+            ProfessionalRecordItem::TYPE_PROJECT => $projects,
             ProfessionalRecordItem::TYPE_SKILL => $skills,
         ];
     }

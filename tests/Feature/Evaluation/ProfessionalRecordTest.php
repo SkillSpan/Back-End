@@ -10,6 +10,8 @@ use App\Models\ProfessionalRecordSectionVisibility;
 use App\Models\ProfessionalRecordShareAccess;
 use App\Models\ProfessionalRecordShareLink;
 use App\Models\Project;
+use App\Models\ProjectTeam;
+use App\Models\ProjectTeamMember;
 use App\Models\Role;
 use App\Models\Rubric;
 use App\Models\StudentProfile;
@@ -72,6 +74,14 @@ class ProfessionalRecordTest extends TestCase
             'rubric_id' => $this->rubric->id,
         ]);
 
+        $team = ProjectTeam::create(['project_id' => $this->project->id, 'name' => 'Record Team']);
+        ProjectTeamMember::forceCreate([
+            'project_team_id' => $team->id,
+            'user_id' => $this->member->id,
+            'project_role' => 'developer',
+            'assignment_state' => 'active',
+        ]);
+
         ProfessionalRecordItem::create([
             'student_profile_id' => $this->profile->id,
             'source_type' => 'evaluation',
@@ -132,9 +142,12 @@ class ProfessionalRecordTest extends TestCase
             ->assertJsonPath('data.record.sections.evaluation.count', 1)
             ->assertJsonPath('data.record.sections.skill.count', 1)
             ->assertJsonPath('data.record.sections.evaluation.visibility', ProfessionalRecordItem::VISIBILITY_PRIVATE)
-            ->assertJsonPath('data.record.total_items', 3)
+            ->assertJsonPath('data.record.total_items', 4)
             ->assertJsonPath('data.record.verified_items', 2)
-            ->assertJsonPath('data.record.sections.profile.count', 1);
+            ->assertJsonPath('data.record.sections.profile.count', 1)
+            ->assertJsonPath('data.record.sections.project.count', 1)
+            ->assertJsonPath('data.record.sections.project.items.0.title', 'Record Project')
+            ->assertJsonPath('data.record.sections.project.items.0.role', 'developer');
     }
 
     public function test_visibility_can_be_changed_per_section(): void
