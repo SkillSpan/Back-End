@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\Admin\ProjectController as AdminProjectController;
+use App\Http\Controllers\Api\Admin\RubricController as AdminRubricController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AssistantController;
 use App\Http\Controllers\Api\AuthController;
@@ -14,6 +16,8 @@ use App\Http\Controllers\Api\Company\OrganizationAccountController;
 use App\Http\Controllers\Api\Company\OrganizationProfileController;
 use App\Http\Controllers\Api\Company\TalentEngagementController;
 use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\EvaluationController;
+use App\Http\Controllers\Api\EvaluationDisputeController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\Internal\BaselineItemsController;
@@ -21,19 +25,23 @@ use App\Http\Controllers\Api\LearnerMessageController;
 use App\Http\Controllers\Api\MentorStudentController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\ProfessionalRecordController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ProjectManagementController;
 use App\Http\Controllers\Api\ProjectMatchingController;
 use App\Http\Controllers\Api\ProjectTeamController;
+use App\Http\Controllers\Api\ProjectWorkspaceController;
 use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\RubricController;
+use App\Http\Controllers\Api\SelfReflectionController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
 use App\Http\Controllers\Api\SkillsController;
+use App\Http\Controllers\Api\SubmissionController;
 use App\Http\Controllers\Api\SupportRequestController;
 use App\Http\Controllers\Api\SystemPulseController;
 use App\Http\Controllers\Api\TalentDiscoveryController;
@@ -226,6 +234,35 @@ Route::prefix('v1')->group(function () {
         Route::post('/team-invitations/{invitation}/response', [TeamInvitationController::class, 'respond'])
             ->name('team-invitations.respond')
             ->whereNumber('invitation');
+    });
+
+    Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
+        Route::get('/rubrics', [AdminRubricController::class, 'index'])
+            ->name('admin.rubrics.index');
+        Route::post('/rubrics', [AdminRubricController::class, 'store'])
+            ->name('admin.rubrics.store');
+        Route::post('/rubrics/{rubric}/versions', [AdminRubricController::class, 'storeVersion'])
+            ->whereNumber('rubric')
+            ->name('admin.rubrics.versions.store');
+        Route::patch('/rubric-versions/{rubric}', [AdminRubricController::class, 'update'])
+            ->whereNumber('rubric')
+            ->name('admin.rubric-versions.update');
+        Route::post('/rubric-versions/{rubric}/publish', [AdminRubricController::class, 'publish'])
+            ->whereNumber('rubric')
+            ->name('admin.rubric-versions.publish');
+        Route::post('/rubric-versions/{rubric}/deactivate', [AdminRubricController::class, 'deactivate'])
+            ->whereNumber('rubric')
+            ->name('admin.rubric-versions.deactivate');
+
+        Route::get('/moderation-cases', [AdminModerationController::class, 'index'])
+            ->name('admin.moderation-cases.index');
+        Route::post('/moderation-cases/{case}/decide', [AdminModerationController::class, 'decide'])
+            ->whereNumber('case')
+            ->name('admin.moderation-cases.decide');
+        Route::get('/evaluation-exceptions', [AdminModerationController::class, 'exceptions'])
+            ->name('admin.evaluation-exceptions.index');
+        Route::post('/evaluation-exceptions', [AdminModerationController::class, 'storeException'])
+            ->name('admin.evaluation-exceptions.store');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->group(function () {
@@ -423,6 +460,107 @@ Route::prefix('v1')->group(function () {
         Route::get('/conversations/{conversation}/chatbot/messages', [ChatbotController::class, 'messages']);
     });
 
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
+        Route::get('/projects/{project}/workspace', [ProjectWorkspaceController::class, 'workspace'])
+            ->whereNumber('project')
+            ->name('projects.workspace.show');
+        Route::get('/projects/{project}/milestones', [ProjectWorkspaceController::class, 'milestones'])
+            ->whereNumber('project')
+            ->name('projects.milestones.index');
+        Route::post('/projects/{project}/milestones', [ProjectWorkspaceController::class, 'storeMilestone'])
+            ->whereNumber('project')
+            ->name('projects.milestones.store');
+        Route::post('/projects/{project}/milestones/reorder', [ProjectWorkspaceController::class, 'reorderMilestones'])
+            ->whereNumber('project')
+            ->name('projects.milestones.reorder');
+        Route::patch('/milestones/{milestone}', [ProjectWorkspaceController::class, 'updateMilestone'])
+            ->whereNumber('milestone')
+            ->name('milestones.update');
+        Route::post('/milestones/{milestone}/extension-requests', [ProjectWorkspaceController::class, 'storeExtension'])
+            ->whereNumber('milestone')
+            ->name('milestones.extension-requests.store');
+        Route::get('/projects/{project}/extension-requests', [ProjectWorkspaceController::class, 'indexExtensions'])
+            ->whereNumber('project')
+            ->name('projects.extension-requests.index');
+        Route::patch('/extension-requests/{extension}', [ProjectWorkspaceController::class, 'decideExtension'])
+            ->whereNumber('extension')
+            ->name('extension-requests.update');
+
+        Route::post('/projects/{project}/submissions', [SubmissionController::class, 'store'])
+            ->whereNumber('project')
+            ->name('projects.submissions.store');
+        Route::get('/projects/{project}/submissions', [SubmissionController::class, 'index'])
+            ->whereNumber('project')
+            ->name('projects.submissions.index');
+        Route::get('/submissions/{submission}', [SubmissionController::class, 'show'])
+            ->whereNumber('submission')
+            ->name('submissions.show');
+        Route::get('/submissions/{submission}/file', [SubmissionController::class, 'file'])
+            ->whereNumber('submission')
+            ->name('submissions.file');
+        Route::get('/submissions/{submission}/first-pass-check', [SubmissionController::class, 'firstPass'])
+            ->whereNumber('submission')
+            ->name('submissions.first-pass-check');
+
+        Route::get('/evaluations/tasks', [EvaluationController::class, 'tasks'])
+            ->name('evaluations.tasks.index');
+        Route::post('/evaluations', [EvaluationController::class, 'store'])
+            ->name('evaluations.store');
+        Route::get('/evaluations/{evaluation}', [EvaluationController::class, 'show'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.show');
+        Route::patch('/evaluations/{evaluation}', [EvaluationController::class, 'update'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.update');
+        Route::post('/evaluations/{evaluation}/submit', [EvaluationController::class, 'submit'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.submit');
+        Route::post('/evaluations/{evaluation}/conflict', [EvaluationController::class, 'conflict'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.conflict');
+        Route::post('/evaluations/{evaluation}/corrections', [EvaluationController::class, 'correction'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.corrections.store');
+        Route::post('/evaluations/{evaluation}/disputes', [EvaluationDisputeController::class, 'store'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.disputes.store');
+        Route::get('/evaluations/{evaluation}/disputes', [EvaluationDisputeController::class, 'index'])
+            ->whereNumber('evaluation')
+            ->name('evaluations.disputes.index');
+        Route::get('/learner/disputes', [EvaluationDisputeController::class, 'mine'])
+            ->name('learner.disputes.index');
+        Route::get('/projects/{project}/evaluations', [EvaluationController::class, 'project'])
+            ->whereNumber('project')
+            ->name('projects.evaluations.index');
+        Route::get('/learner/evaluations', [EvaluationController::class, 'results'])
+            ->name('learner.evaluations.index');
+
+        Route::get('/projects/{project}/self-reflection', [SelfReflectionController::class, 'show'])
+            ->whereNumber('project')
+            ->name('projects.self-reflection.show');
+        Route::post('/projects/{project}/self-reflection', [SelfReflectionController::class, 'store'])
+            ->whereNumber('project')
+            ->name('projects.self-reflection.store');
+        Route::post('/projects/{project}/self-reflection/submit', [SelfReflectionController::class, 'submit'])
+            ->whereNumber('project')
+            ->name('projects.self-reflection.submit');
+
+        Route::get('/learner/professional-record', [ProfessionalRecordController::class, 'show'])
+            ->name('learner.professional-record.show');
+        Route::put('/learner/professional-record/visibility', [ProfessionalRecordController::class, 'updateVisibility'])
+            ->name('learner.professional-record.visibility');
+        Route::get('/learner/professional-record/share-links', [ProfessionalRecordController::class, 'shareLinks'])
+            ->name('learner.professional-record.share-links.index');
+        Route::post('/learner/professional-record/share-links', [ProfessionalRecordController::class, 'createShareLink'])
+            ->name('learner.professional-record.share-links.store');
+        Route::delete('/learner/professional-record/share-links/{link}', [ProfessionalRecordController::class, 'revokeShareLink'])
+            ->whereNumber('link')
+            ->name('learner.professional-record.share-links.destroy');
+        Route::post('/learner/professional-record/items/{item}/verification', [ProfessionalRecordController::class, 'verification'])
+            ->whereNumber('item')
+            ->name('learner.professional-record.items.verification');
+    });
+
     Route::middleware(['auth:sanctum', 'account.active'])->prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'index']);
         Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
@@ -443,4 +581,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/baseline-items', [BaselineItemsController::class, 'index'])
             ->middleware('throttle:60,1');
     });
+
+    Route::get('/r/{token}', [ProfessionalRecordController::class, 'publicRecord'])
+        ->middleware('throttle:60,1')
+        ->name('professional-record.public');
+
+    Route::get('/verify/{reference}', [ProfessionalRecordController::class, 'verify'])
+        ->middleware('throttle:60,1')
+        ->name('professional-record.verify');
 });

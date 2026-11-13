@@ -3,15 +3,20 @@
 namespace App\Services\Projects;
 
 use App\Exceptions\ProjectException;
+use App\Events\ProjectCompleted;
+use App\Events\ProjectEnteredReview;
 use App\Models\Application;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
+use App\Models\Evaluation;
+use App\Models\EvaluationException;
 use App\Models\Organization;
 use App\Models\Project;
 use App\Models\ProjectEligibilityConstraint;
 use App\Models\ProjectRequiredSkill;
 use App\Models\ProjectRole;
 use App\Models\ProjectTeamMember;
+use App\Models\Submission;
 use App\Models\User;
 use App\Traits\AuditsActions;
 use Illuminate\Support\Facades\DB;
@@ -423,6 +428,49 @@ class ProjectLifecycleService
         );
     }
 
+    public function beginReview(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_UNDER_REVIEW);
+        $this->assertRequiredDeliverablesSubmitted($project);
+
+        $updated = $this->transition(
+            $project,
+            $actor,
+            Project::STATUS_UNDER_REVIEW,
+            $reason,
+            'project.under_review',
+            [],
+            $requestId,
+            $ipAddress,
+            $userAgent,
+        );
+
+        ProjectEnteredReview::dispatch($updated);
+
+        return $updated;
+    }
+
+    public function returnToActive(
+        Project $project,
+        User $actor,
+        ?string $reason = null,
+        ?string $requestId = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): Project {
+        $this->assertMayManage($project, $actor);
+        $this->assertTransition($project, Project::STATUS_ACTIVE);
+
+        return $this->transition($project, $actor, Project::STATUS_ACTIVE, $reason, 'project.returned_to_active', [], $requestId, $ipAddress, $userAgent);
+    }
+
     public function complete(
         Project $project,
         User $actor,
@@ -433,8 +481,13 @@ class ProjectLifecycleService
     ): Project {
         $this->assertMayManage($project, $actor);
         $this->assertTransition($project, Project::STATUS_COMPLETED);
+        $this->assertEvaluationsFinalized($project);
 
-        return $this->transition($project, $actor, Project::STATUS_COMPLETED, $reason, 'project.completed', [], $requestId, $ipAddress, $userAgent);
+        $updated = $this->transition($project, $actor, Project::STATUS_COMPLETED, $reason, 'project.completed', [], $requestId, $ipAddress, $userAgent);
+
+        ProjectCompleted::dispatch($updated);
+
+        return $updated;
     }
 
     public function cancelByOwner(
@@ -535,8 +588,111 @@ class ProjectLifecycleService
         );
     }
 
-    private function assertTeamAssigned(Project $project): void
+    private function assertRequiredDeliverablesSubmitted(Project $project): void
     {
+        $milestones = $project->milestones()->get();
+
+        if ($milestones->isEmpty()) {
+            return;
+        }
+
+        $missing = [];
+
+        foreach ($milestones as $milestone) {
+            $hasSubmission = Submission::query()
+                ->where('project_milestone_id', $milestone->id)
+                ->where('is_current', true)
+                ->exists();
+
+            if (! $hasSubmission) {
+                $missing[] = [
+                    'milestone_id' => $milestone->id,
+                    'title' => $milestone->title,
+                    'effective_deadline' => $milestone->effectiveDeadline()?->toDateString(),
+                ];
+            }
+        }
+
+        if ($missing === []) {
+            return;
+        }
+
+        $exception = EvaluationException::query()
+            ->where('type', EvaluationException::TYPE_MISSING_DELIVERABLE)
+            ->where('subject_type', 'project')
+            ->where('subject_id', $project->id)
+            ->exists();
+
+        if ($exception) {
+            return;
+        }
+
+        throw new ProjectException(
+            'Required deliverables are still missing for this project.',
+            422,
+            'PROJECT_DELIVERABLES_PENDING',
+            [
+                'project_id' => $project->id,
+                'missing_milestones' => $missing,
+            ],
+        );
+    }
+
+    private function assertEvaluationsFinalized(Project $project): void
+    {
+        $participants = ProjectTeamMember::query()
+            ->where('assignment_state', 'active')
+            ->whereIn('project_team_id', $project->teams()->select('id'))
+            ->pluck('user_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($participants === []) {
+            return;
+        }
+
+        $withSubmissions = Submission::query()
+            ->where('project_id', $project->id)
+            ->where('is_current', true)
+            ->pluck('contributor_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($withSubmissions === []) {
+            return;
+        }
+
+        $finalized = Evaluation::query()
+            ->where('project_id', $project->id)
+            ->whereIn('status', [Evaluation::STATUS_FINALIZED, Evaluation::STATUS_DISPUTED])
+            ->pluck('participant_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $pending = array_values(array_diff($withSubmissions, $finalized));
+
+        if ($pending === []) {
+            return;
+        }
+
+        throw new ProjectException(
+            'Every participant evaluation must be finalized before the project can be completed.',
+            422,
+            'PROJECT_EVALUATIONS_PENDING',
+            [
+                'project_id' => $project->id,
+                'pending_participant_ids' => $pending,
+            ],
+        );
+    }
+
+    private function assertTeamAssigned(Project $project): void    {
         $members = ProjectTeamMember::query()
             ->whereHas('team', fn ($query) => $query->where('project_id', $project->id))
             ->where('assignment_state', 'active')
@@ -586,10 +742,12 @@ class ProjectLifecycleService
             Project::STATUS_CANCELLED => 'cancel',
         ],
         Project::STATUS_ACTIVE => [
+            Project::STATUS_UNDER_REVIEW => 'beginReview',
             Project::STATUS_COMPLETED => 'complete',
             Project::STATUS_CANCELLED => 'cancel',
         ],
         Project::STATUS_UNDER_REVIEW => [
+            Project::STATUS_ACTIVE => 'returnToActive',
             Project::STATUS_COMPLETED => 'complete',
             Project::STATUS_CANCELLED => 'cancel',
         ],
@@ -632,6 +790,8 @@ class ProjectLifecycleService
             'open' => $this->open($project, $actor, $requestId, $ipAddress, $userAgent),
             'beginSelection' => $this->beginSelection($project, $actor, $requestId, $ipAddress, $userAgent),
             'start' => $this->start($project, $actor, $requestId, $ipAddress, $userAgent),
+            'beginReview' => $this->beginReview($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
+            'returnToActive' => $this->returnToActive($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
             'reopen' => $this->reopen($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
             'revise' => $this->revise($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
             'complete' => $this->complete($project, $actor, $reason, $requestId, $ipAddress, $userAgent),
