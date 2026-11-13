@@ -336,4 +336,131 @@ class EvidenceCareerRoleEndpoints
         ],
     )]
     public function careerRolesSkills(): void {}
+
+    #[OA\Get(
+        path: '/v1/saved-career-roles',
+        operationId: 'savedCareerRolesIndex',
+        tags: ['Career Roles'],
+        summary: 'List the career roles the caller has saved',
+        description: 'Returns the caller\'s saved career roles, most recently saved first. '
+            ."\n\n".'`data` is a **plain JSON array**, not a paginator, so the client can render it directly. '
+            .'Only roles that are still selectable (approved and active) are returned: a saved role that was '
+            .'deactivated later silently leaves the list while its saved row is kept, so it comes back if the '
+            .'role is reactivated. '
+            ."\n\n".'The list is per account — one user never sees another user\'s saves.',
+        security: [['bearerAuth' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Saved career roles retrieved.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: true),
+                        new OA\Property(property: 'message', type: 'string', example: 'Saved career roles retrieved successfully.'),
+                        new OA\Property(
+                            property: 'data',
+                            type: 'array',
+                            description: 'Empty array when nothing is saved.',
+                            items: new OA\Items(
+                                properties: [
+                                    new OA\Property(property: 'id', type: 'integer', example: 12),
+                                    new OA\Property(property: 'title', type: 'string', example: 'Data Analyst'),
+                                    new OA\Property(property: 'slug', type: 'string', example: 'data-analyst'),
+                                    new OA\Property(property: 'version', type: 'integer', example: 1),
+                                    new OA\Property(property: 'status', type: 'string', example: 'approved'),
+                                    new OA\Property(property: 'description', type: 'string', nullable: true, example: 'Turns data into decisions.'),
+                                    new OA\Property(property: 'effective_date', type: 'string', format: 'date', nullable: true, example: '2026-01-01'),
+                                    new OA\Property(property: 'skills_count', type: 'integer', description: 'Total required skills, even before the skill map is opened.', example: 5),
+                                    new OA\Property(property: 'is_saved', type: 'boolean', example: true),
+                                    new OA\Property(property: 'saved_at', type: 'string', format: 'date-time', nullable: true, example: '2026-11-13T14:05:00+00:00'),
+                                ],
+                            ),
+                        ),
+                        new OA\Property(property: 'request_id', type: 'string', format: 'uuid', example: '3f2504e0-4f89-41d3-9a0c-0305e82c3301'),
+                    ],
+                ),
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+        ],
+    )]
+    public function savedCareerRolesIndex(): void {}
+
+    #[OA\Put(
+        path: '/v1/saved-career-roles/{id}',
+        operationId: 'savedCareerRolesStore',
+        tags: ['Career Roles'],
+        summary: 'Save a career role',
+        description: 'Saves the career role for the caller. Idempotent: saving the same role twice keeps one row and '
+            .'still answers 200, so a double click is harmless. '
+            ."\n\n".'Only approved, active roles can be saved — a draft or retired role is refused with 422 instead of '
+            .'being stored.',
+        security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', required: true, description: 'Career role id.', schema: new OA\Schema(type: 'integer'), example: 12),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Career role saved (or already saved).',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: true),
+                        new OA\Property(property: 'message', type: 'string', example: 'Career role saved.'),
+                        new OA\Property(
+                            property: 'data',
+                            properties: [
+                                new OA\Property(property: 'career_role_id', type: 'integer', example: 12),
+                                new OA\Property(property: 'is_saved', type: 'boolean', example: true),
+                                new OA\Property(property: 'saved_at', type: 'string', format: 'date-time', nullable: true, example: '2026-11-13T14:05:00+00:00'),
+                            ],
+                            type: 'object',
+                        ),
+                        new OA\Property(property: 'request_id', type: 'string', format: 'uuid', example: '3f2504e0-4f89-41d3-9a0c-0305e82c3301'),
+                    ],
+                ),
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 404, description: '`CAREER_ROLE_NOT_FOUND` — the career role does not exist.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: '`CAREER_ROLE_NOT_APPROVED` — the role exists but is not approved or is inactive.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+        ],
+    )]
+    public function savedCareerRolesStore(): void {}
+
+    #[OA\Delete(
+        path: '/v1/saved-career-roles/{id}',
+        operationId: 'savedCareerRolesDestroy',
+        tags: ['Career Roles'],
+        summary: 'Remove a career role from the saved list',
+        description: 'Removes the saved row for the caller. Idempotent: removing a role that was never saved still '
+            .'answers 200 with `is_saved: false`, so the client never has to guess the previous state.',
+        security: [['bearerAuth' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', required: true, description: 'Career role id.', schema: new OA\Schema(type: 'integer'), example: 12),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Career role removed from the saved list.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'success', type: 'boolean', example: true),
+                        new OA\Property(property: 'message', type: 'string', example: 'Career role removed from saved roles.'),
+                        new OA\Property(
+                            property: 'data',
+                            properties: [
+                                new OA\Property(property: 'career_role_id', type: 'integer', example: 12),
+                                new OA\Property(property: 'is_saved', type: 'boolean', example: false),
+                            ],
+                            type: 'object',
+                        ),
+                        new OA\Property(property: 'request_id', type: 'string', format: 'uuid', example: '3f2504e0-4f89-41d3-9a0c-0305e82c3301'),
+                    ],
+                ),
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 404, description: '`CAREER_ROLE_NOT_FOUND` — the career role does not exist.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+            new OA\Response(response: 422, description: '`CAREER_ROLE_NOT_APPROVED` — the role exists but is not approved or is inactive.', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
+        ],
+    )]
+    public function savedCareerRolesDestroy(): void {}
 }

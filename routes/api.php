@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
 use App\Http\Controllers\Api\RubricController;
+use App\Http\Controllers\Api\SavedCareerRoleController;
 use App\Http\Controllers\Api\SelfReflectionController;
 use App\Http\Controllers\Api\SetupController;
 use App\Http\Controllers\Api\SkillMatchController;
@@ -354,6 +355,17 @@ Route::prefix('v1')->group(function () {
         Route::get('/', [CareerRoleController::class, 'index']);
         Route::get('/{id}', [CareerRoleController::class, 'show']);
         Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
+    });
+
+    Route::middleware(['auth:sanctum', 'account.active'])->prefix('saved-career-roles')->group(function () {
+        Route::get('/', [SavedCareerRoleController::class, 'index'])
+            ->name('saved-career-roles.index');
+        Route::put('/{id}', [SavedCareerRoleController::class, 'store'])
+            ->whereNumber('id')
+            ->name('saved-career-roles.store');
+        Route::delete('/{id}', [SavedCareerRoleController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('saved-career-roles.destroy');
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:company_admin'])
