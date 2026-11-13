@@ -449,8 +449,8 @@ return new class extends Migration
                 $table->foreignId('evaluation_id')->nullable()->constrained()->nullOnDelete();
                 $table->foreignId('dispute_id')->nullable()->constrained('evaluation_disputes')->nullOnDelete();
                 $table->foreignId('correction_request_id')->nullable()->constrained('evaluation_correction_requests')->nullOnDelete();
-                $table->string('source_type')->nullable()->after('correction_request_id');
-                $table->unsignedBigInteger('source_id')->nullable()->after('source_type');
+                $table->string('source_type')->nullable();
+                $table->unsignedBigInteger('source_id')->nullable();
                 $table->string('status')->default('open');
                 $table->string('decision')->nullable();
                 $table->text('reason')->nullable();
