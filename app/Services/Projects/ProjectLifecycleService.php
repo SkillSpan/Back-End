@@ -2,9 +2,9 @@
 
 namespace App\Services\Projects;
 
-use App\Exceptions\ProjectException;
 use App\Events\ProjectCompleted;
 use App\Events\ProjectEnteredReview;
+use App\Exceptions\ProjectException;
 use App\Models\Application;
 use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
@@ -692,7 +692,8 @@ class ProjectLifecycleService
         );
     }
 
-    private function assertTeamAssigned(Project $project): void    {
+    private function assertTeamAssigned(Project $project): void
+    {
         $members = ProjectTeamMember::query()
             ->whereHas('team', fn ($query) => $query->where('project_id', $project->id))
             ->where('assignment_state', 'active')
