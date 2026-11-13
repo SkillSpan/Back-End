@@ -172,6 +172,39 @@ class ProfessionalRecordController extends Controller
         }
     }
 
+    public function export(Request $request)
+    {
+        $requestId = $this->requestId($request);
+
+        try {
+            $raw = $request->query('sections');
+            $sections = is_array($raw)
+                ? $raw
+                : ($raw === null ? [] : array_values(array_filter(array_map('trim', explode(',', (string) $raw)))));
+
+            $export = $this->records->export($request->user(), $sections);
+
+            if ($request->query('format') === 'json') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Professional record export generated successfully.',
+                    'data' => ['export' => $export],
+                    'request_id' => $requestId,
+                ], 200, ['X-Request-ID' => $requestId]);
+            }
+
+            return response($this->records->renderExportHtml($export), 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+                'Content-Disposition' => 'inline; filename="skillspan-professional-record.html"',
+                'X-Request-ID' => $requestId,
+            ]);
+        } catch (ProjectException $e) {
+            return $this->failureFrom($e, $requestId);
+        } catch (Throwable $e) {
+            return $this->unexpected($e, $requestId);
+        }
+    }
+
     public function publicRecord(Request $request, string $token): JsonResponse
     {
         $requestId = $this->requestId($request);

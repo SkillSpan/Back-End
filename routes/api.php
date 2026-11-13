@@ -547,6 +547,8 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/learner/professional-record', [ProfessionalRecordController::class, 'show'])
             ->name('learner.professional-record.show');
+        Route::get('/learner/professional-record/export', [ProfessionalRecordController::class, 'export'])
+            ->name('learner.professional-record.export');
         Route::put('/learner/professional-record/visibility', [ProfessionalRecordController::class, 'updateVisibility'])
             ->name('learner.professional-record.visibility');
         Route::get('/learner/professional-record/share-links', [ProfessionalRecordController::class, 'shareLinks'])

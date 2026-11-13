@@ -271,6 +271,75 @@ class RecordService
         ];
     }
 
+    public function export(User $student, array $sections = []): array
+    {
+        $profile = $this->profile($student);
+        $selected = $this->normalizeSections($sections);
+
+        $items = ProfessionalRecordItem::query()
+            ->where('student_profile_id', $profile->id)
+            ->where('status', ProfessionalRecordItem::STATUS_ACTIVE)
+            ->whereIn('item_type', $selected)
+            ->orderByDesc('achieved_at')
+            ->orderByDesc('id')
+            ->get();
+
+        return [
+            'generated_at' => now()->toIso8601String(),
+            'student' => [
+                'name' => $student->name,
+                'specialization' => $profile->specialization,
+                'academic_level' => $profile->academic_level,
+                'university' => $profile->university_name,
+            ],
+            'sections' => $selected,
+            'items' => $items->map(fn (ProfessionalRecordItem $item) => $this->itemPayload($item))->values()->all(),
+        ];
+    }
+
+    public function renderExportHtml(array $export): string
+    {
+        $rows = '';
+
+        foreach ($export['items'] as $item) {
+            $rows .= '<article class="item">'
+                .'<h3>'.e((string) $item['title']).'</h3>'
+                .'<p class="meta">'.e((string) $item['item_type'])
+                .' &middot; '.e((string) ($item['issuer'] ?? 'SkillSpan'))
+                .' &middot; '.e((string) ($item['achieved_at'] ?? ''))
+                .' &middot; '.e((string) $item['verification_state'])
+                .'</p>'
+                .($item['description'] === null ? '' : '<p>'.e((string) $item['description']).'</p>')
+                .($item['contribution'] === null ? '' : '<p class="muted">'.e((string) $item['contribution']).'</p>')
+                .'</article>';
+        }
+
+        if ($rows === '') {
+            $rows = '<p class="muted">No record items are available for the selected sections.</p>';
+        }
+
+        $student = $export['student'];
+
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            .'<title>'.e((string) $student['name']).' — SkillSpan professional record</title>'
+            .'<style>'
+            .'body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;color:#111}'
+            .'h1{margin:0 0 4px;font-size:24px}'
+            .'h2{font-size:16px;text-transform:uppercase;letter-spacing:.08em;margin:28px 0 8px;color:#555}'
+            .'h3{margin:0 0 4px;font-size:16px}'
+            .'.meta{font-size:12px;color:#666;margin:0 0 8px}'
+            .'.muted{color:#666}'
+            .'.item{border-top:1px solid #e5e5e5;padding:12px 0}'
+            .'.footer{margin-top:32px;font-size:12px;color:#777}'
+            .'</style></head><body>'
+            .'<h1>'.e((string) $student['name']).'</h1>'
+            .'<p class="meta">'.e((string) ($student['specialization'] ?? '')).'</p>'
+            .'<h2>Professional record</h2>'
+            .$rows
+            .'<p class="footer">Generated '.e((string) $export['generated_at']).' by SkillSpan.</p>'
+            .'</body></html>';
+    }
+
     public function itemPayload(ProfessionalRecordItem $item): array
     {
         return [

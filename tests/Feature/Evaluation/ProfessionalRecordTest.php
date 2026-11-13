@@ -270,6 +270,38 @@ class ProfessionalRecordTest extends TestCase
             ->assertJsonPath('code', 'RECORD_VERIFICATION_NOT_FOUND');
     }
 
+    public function test_the_record_can_be_exported_as_a_printable_document(): void
+    {
+        Sanctum::actingAs($this->member);
+
+        $response = $this->get('/api/v1/learner/professional-record/export');
+
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/html', (string) $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('Record Project', (string) $response->getContent());
+        $this->assertStringContainsString('Code Quality', (string) $response->getContent());
+    }
+
+    public function test_the_record_export_can_be_limited_to_selected_sections_as_json(): void
+    {
+        Sanctum::actingAs($this->member);
+
+        $this->getJson('/api/v1/learner/professional-record/export?format=json&sections=skill')
+            ->assertStatus(200)
+            ->assertJsonPath('data.export.sections.0', ProfessionalRecordItem::TYPE_SKILL)
+            ->assertJsonCount(1, 'data.export.items')
+            ->assertJsonPath('data.export.items.0.title', 'Code Quality');
+    }
+
+    public function test_the_record_export_rejects_an_unknown_section(): void
+    {
+        Sanctum::actingAs($this->member);
+
+        $this->getJson('/api/v1/learner/professional-record/export?format=json&sections=certificates')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'RECORD_SECTION_INVALID');
+    }
+
     public function test_finalizing_an_evaluation_creates_a_record_item(): void
     {
         $evaluation = Evaluation::create([
