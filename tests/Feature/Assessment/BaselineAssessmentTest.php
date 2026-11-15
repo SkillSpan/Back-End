@@ -6,8 +6,10 @@ use App\Models\BaselineAssessment;
 use App\Models\BaselineAssessmentItem;
 use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
+use App\Models\LearnerSkill;
 use App\Models\Role;
 use App\Models\Skill;
+use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1164,6 +1166,33 @@ class BaselineAssessmentTest extends TestCase
                 'is_active' => true,
             ],
         );
+    }
+
+    public function test_matrix_projects_baseline_results_without_overwriting_self_assessment(): void
+    {
+        [$user, $profile] = $this->createLearner();
+        [$other, $otherProfile] = $this->createLearner();
+        $skill = Skill::firstOrCreate(['slug' => 'matrix-test'], ['name' => 'Matrix Test', 'status' => 'active']);
+        $self = LearnerSkill::create([
+            'learner_id' => $user->id, 'skill_id' => $skill->id, 'level' => 2,
+            'confidence_score' => 20, 'source_type' => 'self',
+        ]);
+        foreach ([[$profile, 4], [$otherProfile, 1]] as [$owner, $level]) {
+            SkillEvaluation::create([
+                'student_profile_id' => $owner->id, 'skill_id' => $skill->id,
+                'level' => $level, 'confidence' => 90, 'algorithm_version' => 'test-v1',
+                'calculated_at' => now(), 'snapshot' => ['source' => 'baseline_assessment'],
+            ]);
+        }
+        Sanctum::actingAs($user);
+        $this->getJson('/api/v1/skills/matrix?learner_id='.$other->id)
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.learner_id', $user->id)
+            ->assertJsonPath('data.0.source_type', 'assessment')
+            ->assertJsonPath('data.0.level', 4)
+            ->assertJsonPath('data.0.confidence_score', 90);
+        $this->assertEquals(2, $self->fresh()->level);
+        $this->assertSame('self', $self->fresh()->source_type);
     }
 
     private function createLearner(): array

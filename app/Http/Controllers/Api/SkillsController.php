@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LearnerSkill;
 use App\Models\Skill;
+use App\Models\SkillEvaluation;
 use App\Support\ReferenceCache;
 use App\Support\ReferenceResponse;
 use Illuminate\Http\Request;
@@ -56,7 +57,36 @@ class SkillsController extends Controller
             });
         }
 
-        $learnerSkills = $query->get();
+        $learnerSkills = $query->get()->keyBy(fn ($row) => $row->learner_id.':'.$row->skill_id);
+        $evaluations = SkillEvaluation::with(['skill', 'studentProfile'])
+            ->when($learnerId, fn ($q) => $q->whereHas('studentProfile', fn ($q) => $q->where('user_id', $learnerId)))
+            ->when($careerRoleId, fn ($q) => $q->whereHas('skill.careerRoles', fn ($q) => $q->where('career_role_id', $careerRoleId)))
+            ->orderByDesc('calculated_at')->orderByDesc('id')->get()
+            ->unique(fn ($evaluation) => $evaluation->student_profile_id.':'.$evaluation->skill_id);
+
+        foreach ($evaluations as $evaluation) {
+            if (($evaluation->snapshot['source'] ?? null) !== 'baseline_assessment') {
+                continue;
+            }
+            $ownerId = $evaluation->studentProfile->user_id;
+            $key = $ownerId.':'.$evaluation->skill_id;
+            $stored = $learnerSkills->get($key);
+            if ($stored?->calculated_at && $stored->calculated_at->gt($evaluation->calculated_at)) {
+                continue;
+            }
+            $row = new LearnerSkill([
+                'learner_id' => $ownerId,
+                'skill_id' => $evaluation->skill_id,
+                'level' => (float) $evaluation->level,
+                'confidence_score' => (float) $evaluation->confidence,
+                'source_type' => 'assessment',
+                'latest_skill_evaluation_id' => $evaluation->id,
+                'calculated_at' => $evaluation->calculated_at,
+            ]);
+            $row->setRelation('skill', $evaluation->skill);
+            $learnerSkills->put($key, $row);
+        }
+        $learnerSkills = $learnerSkills->values();
 
         return response()->json([
             'success' => true,
