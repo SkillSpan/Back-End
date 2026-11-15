@@ -174,6 +174,9 @@ class ProfileController extends Controller
                 ? (float) $profile->weekly_availability_hours
                 : null,
             'preferred_work_type' => $profile->preferred_work_type,
+            'primary_career_role_id' => $profile->primary_career_role_id === null
+                ? null
+                : (int) $profile->primary_career_role_id,
             'visibility' => $profile->visibility,
             'completeness_percent' => $profile->completeness_percent,
             'enrollment_status' => $profile->enrollment_status,

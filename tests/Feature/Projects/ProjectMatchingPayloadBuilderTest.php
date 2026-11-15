@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Projects;
 
+use App\Events\SkillDataChanged;
 use App\Models\AlgorithmConfiguration;
 use App\Models\CareerRole;
 use App\Models\Project;
@@ -16,6 +17,8 @@ use App\Models\User;
 use App\Services\Projects\ProjectMatchingPayloadBuilder;
 use App\Services\Projects\ProjectMatchingSnapshotService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ProjectMatchingPayloadBuilderTest extends TestCase
@@ -350,6 +353,28 @@ class ProjectMatchingPayloadBuilderTest extends TestCase
         $payload = $this->builder->build($snapshot);
 
         $this->assertArrayNotHasKey('target_career_role', $payload['learner']);
+    }
+
+    public function test_a_profile_goal_change_reaches_the_next_project_matching_snapshot(): void
+    {
+        Event::fake([SkillDataChanged::class]);
+        $learner = $this->createLearnerWithCareerRole();
+        $project = $this->createOpenProject();
+        $previous = $this->makeValidatedSnapshot($learner, $project);
+        $oldGoal = $learner->studentProfile->primary_career_role_id;
+        $goal = CareerRole::create([
+            'title' => 'Data Analyst', 'slug' => 'data-analyst', 'version' => 2,
+            'status' => 'approved', 'is_active' => true,
+        ]);
+        Sanctum::actingAs($learner);
+        $this->putJson('/api/v1/profile', ['primary_career_role_id' => $goal->id])->assertOk();
+        $next = $this->makeValidatedSnapshot($learner->fresh('studentProfile'), $project);
+        $payload = $this->builder->build($next);
+
+        $this->assertSame($goal->id, $payload['learner']['target_career_role']['id']);
+        $this->assertSame('Data Analyst', $payload['learner']['target_career_role']['title']);
+        $this->assertSame(2, $payload['learner']['target_career_role']['version']);
+        $this->assertEquals($oldGoal, $this->builder->build($previous)['learner']['target_career_role']['id']);
     }
 
     public function test_invalid_pending_snapshot_is_rejected(): void
