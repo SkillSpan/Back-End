@@ -70,6 +70,17 @@ class IntelligencePersistenceService
         });
     }
 
+    private function resolveBand(float $score): ?string
+    {
+        foreach (config('readiness.bands', []) as $band => $range) {
+            if ($score >= (float) $range['min'] && $score <= (float) $range['max']) {
+                return $band;
+            }
+        }
+
+        return null;
+    }
+
     private function persistReadiness(
         DecisionSnapshot $snapshot,
         array $result,
@@ -88,7 +99,7 @@ class IntelligencePersistenceService
             'assessment_reliability_component' => $result['assessment_reliability_component'] ?? null,
             'profile_completeness_component' => $result['profile_completeness_component'] ?? null,
             'critical_cap_applied' => (bool) ($result['critical_skill_cap_applied'] ?? false),
-            'band' => $result['band'] ?? null,
+            'band' => $result['band'] ?? $this->resolveBand((float) $result['readiness_score']),
             'algorithm_version' => $algorithmVersion,
             'configuration_version' => $configurationVersion,
             'request_id' => $requestId,
@@ -97,6 +108,7 @@ class IntelligencePersistenceService
                 'decision_uuid' => $snapshot->decision_uuid,
                 'fastapi_skill_gap' => $result['fastapi_skill_gap'] ?? $result,
                 'fastapi_result' => $result,
+                'band_ranges' => config('readiness.bands', []),
                 'request_id' => $requestId,
             ],
         ]);
@@ -105,6 +117,7 @@ class IntelligencePersistenceService
     private function persistSkillGaps(DecisionSnapshot $snapshot, array $skillGap): array
     {
         $results = [];
+        $inputSkills = collect($snapshot->snapshot['skills'] ?? [])->keyBy('skill_id');
 
         foreach ($skillGap['skill_results'] as $skillResult) {
             $results[] = SkillGapResult::create([
@@ -120,7 +133,9 @@ class IntelligencePersistenceService
                 'is_critical' => (bool) $skillResult['is_critical'],
                 'confidence' => isset($skillResult['confidence']) && is_numeric($skillResult['confidence'])
                     ? (float) $skillResult['confidence']
-                    : null,
+                    : (is_numeric($inputSkills->get((int) $skillResult['skill_id'])['confidence'] ?? null)
+                        ? (float) $inputSkills->get((int) $skillResult['skill_id'])['confidence']
+                        : null),
                 'status' => (string) $skillResult['status'],
                 'explanation' => $skillResult['explanation'] ?? null,
             ]);

@@ -187,6 +187,25 @@ class IntelligenceCalculateTest extends TestCase
         $this->assertArrayNotHasKey('snapshot', $response->json('data'), 'raw internal snapshot must not be exposed');
     }
 
+    public function test_missing_engine_metadata_uses_snapshot_confidence_and_configured_band(): void
+    {
+        [$user, $profile, $role, $roleSkills] = $this->createScenario();
+        Sanctum::actingAs($user);
+        $gap = $this->skillGapResponse($profile, $role, $roleSkills);
+        foreach ($gap['skill_results'] as &$skill) {
+            unset($skill['confidence']);
+        }
+        unset($skill, $gap['band']);
+        $this->fakeSequence($gap, $this->readinessResponse($profile, $role), null);
+
+        $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id]);
+        $response->assertStatus(201)
+            ->assertJsonPath('data.readiness.band', 'moderate_readiness');
+        foreach ($response->json('data.skill_gaps') as $skill) {
+            $this->assertEquals(90.0, $skill['confidence']);
+        }
+    }
+
     public function test_snapshot_contains_learner_skill_state_and_evidence_summary(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
