@@ -27,10 +27,6 @@ use Throwable;
 
 class AuthService
 {
-    /**
-     * POST /api/auth/register
-     * تسجيل الأفراد (Learner) فقط.
-     */
     public function registerIndividual(array $validatedData): User
     {
         try {
@@ -55,25 +51,6 @@ class AuthService
         }
     }
 
-    /**
-     * POST /api/v1/auth/check-email
-     *
-     * Answers one question — "is this address already registered?" — and
-     * returns a boolean. It deliberately returns no other attribute of the
-     * account (no id, name, status, role or verification state).
-     *
-     * ⚠️ withTrashed() is not optional here. The `unique:users,email` rule in
-     * RegisterRequest queries the table directly, so it also sees
-     * soft-deleted rows: a deleted account's address still occupies the
-     * unique index and registration still fails with 422. If this method
-     * ignored trashed rows it would answer "available" and registration would
-     * then reject the address — exactly the kind of frontend/backend
-     * disagreement that makes a UI lie to the user.
-     *
-     * The address is normalised the same way registration normalises it
-     * (lowercase + trim). User::setEmailAttribute() already guarantees stored
-     * values are normalised, so this only has to handle the incoming query.
-     */
     public function emailExists(string $email): bool
     {
         return User::withTrashed()
@@ -81,13 +58,6 @@ class AuthService
             ->exists();
     }
 
-    /**
-     * POST /api/auth/register/organization
-     * تسجيل خاص بالمؤسسات (شركة / جامعة / جهة تدريب). يتطلب ملف إثبات
-     * إلزامي. لا يوجد OTP لهاد الفلو — اليوزر بينعمله verify تلقائيًا،
-     * لكن تسجيل الدخول يضل ممنوع لحد ما الإدارة توافق على المؤسسة
-     * (Organization::verification_status لسا pending لحد المراجعة).
-     */
     public function registerOrganization(array $validatedData): User
     {
         try {
@@ -98,12 +68,6 @@ class AuthService
             $this->uploadProofFile($user, $organization, $validatedData['proof_file']);
             $this->createOrganizationMember($user, $organization);
 
-            // تسجيل المؤسسات: لا يوجد إرسال OTP هون. البريد يُعتبر
-            // موثّق تلقائيًا لأنه أصلاً في-review يدوي من الإدارة عبر
-            // Organization::verification_status (pending/approved/rejected)
-            // و assertOrganizationIsApproved() بتمنع تسجيل الدخول لحد
-            // ما تتم الموافقة. طبقة الـ OTP كانت بوابة إضافية زائدة
-            // كانت عم توقف تسجيل الشركة، فتم إلغاؤها لهاد الفلو تحديدًا.
             $user->forceFill([
                 'email_verified_at' => now(),
                 'status' => 'active',
@@ -121,12 +85,6 @@ class AuthService
         }
     }
 
-    /**
-     * POST /api/auth/google
-     * Authenticate or register an individual user using a verified Google ID token.
-     *
-     * @return array{user: User, token: string}
-     */
     public function loginWithGoogle(
         string $credential,
         bool $termsAccepted = false,
@@ -174,22 +132,12 @@ class AuthService
 
             DB::beginTransaction();
 
-            /*
-             * First try to find the user by Google ID.
-             */
             $user = User::where('google_id', $googleId)->first();
 
-            /*
-             * If the Google ID is not linked yet, check the email.
-             * This allows an existing SkillSpan account to link its Google account.
-             */
             if (! $user) {
                 $user = User::where('email', $email)->first();
             }
 
-            /*
-             * Existing SkillSpan account.
-             */
             if ($user) {
                 if ($user->status !== 'active' || ! $user->email_verified_at) {
                     DB::rollBack();
@@ -199,9 +147,6 @@ class AuthService
                     ]);
                 }
 
-                /*
-                 * Link Google to an existing account if it is not linked yet.
-                 */
                 if (! $user->google_id) {
                     $user->google_id = $googleId;
                 } elseif ($user->google_id !== $googleId) {
@@ -229,9 +174,6 @@ class AuthService
                 ];
             }
 
-            /*
-             * New Google user.
-             */
             if (! $termsAccepted || ! $privacyAccepted) {
                 DB::rollBack();
 
@@ -241,24 +183,6 @@ class AuthService
                 ]);
             }
 
-            /*
-             * Disposable-email gate for the Google sign-up path.
-             *
-             * This is the third self-registration flow (the other two are
-             * /auth/register and /auth/register/organization). The address
-             * cannot be validated by GoogleLoginRequest because it is not
-             * client input — it arrives inside the Google ID token — so the
-             * check has to run here, and only on the creation branch. An
-             * account that already exists is never re-checked, so no current
-             * user can be locked out by this.
-             *
-             * The 'indisposable' rule is used as the predicate so that the
-             * domain list, the whitelist and the include_subdomains setting
-             * all stay driven by the same package config as the two
-             * FormRequest flows. The error is reported on 'credential'
-             * because that is the only field this endpoint accepts, and it is
-             * the key every other identity error in this method already uses.
-             */
             if (Validator::make(['email' => $email], ['email' => ['indisposable']])->fails()) {
                 DB::rollBack();
 
@@ -267,10 +191,6 @@ class AuthService
                 ]);
             }
 
-            /*
-             * Reuse the existing individual-user creation logic.
-             * A random password is generated because Google handles authentication.
-             */
             $user = $this->createUser([
                 'name' => $name !== '' ? $name : str()->before($email, '@'),
                 'email' => $email,
@@ -279,10 +199,6 @@ class AuthService
                 'privacy_accepted_at' => now(),
             ]);
 
-            /*
-             * Google already verified the user's email.
-             * Therefore no OTP verification is required.
-             */
             $user->forceFill([
                 'google_id' => $googleId,
                 'status' => 'active',
@@ -290,9 +206,6 @@ class AuthService
                 'last_login_at' => now(),
             ])->save();
 
-            /*
-             * Reuse the existing SkillSpan individual-user setup.
-             */
             $this->assignRole($user, 'individual');
             $this->createStudentProfile($user, []);
 
@@ -307,14 +220,6 @@ class AuthService
                 'created' => true,
             ];
         } catch (ValidationException $e) {
-            // A ValidationException can be thrown from *inside* the
-            // transaction — most notably by assertOrganizationIsApproved()
-            // for a pending/rejected organization. Rethrowing without a
-            // rollback left the transaction open on a reused connection,
-            // where an unrelated later request could run inside it.
-            // (DB::rollBack() is a no-op when no transaction is active, so
-            // this is also safe for the validations that run before
-            // beginTransaction().)
             DB::rollBack();
 
             throw $e;
@@ -327,22 +232,6 @@ class AuthService
         }
     }
 
-    /**
-     * Network boundary for Google ID token verification — kept as its own
-     * method (instead of inlined in loginWithGoogle()) so tests can stub
-     * it directly instead of hitting Google's real servers with a fake
-     * token (see tests/Feature/Auth/GoogleLoginTest.php::mockVerifiedToken()).
-     *
-     * google/apiclient's Verify::verifyIdToken() swallows
-     * ExpiredException|SignatureInvalidException|DomainException
-     * internally and just returns false, so we had zero visibility into
-     * *why* a fresh, audience-matching token was still being rejected.
-     * This try/catch — placed around the call, not inside the library —
-     * surfaces the real exception class + message in the logs instead of
-     * guessing.
-     *
-     * @return array<string, mixed>|false
-     */
     protected function verifyGoogleIdToken(string $credential, string $clientId): array|false
     {
         $client = new Google_Client([
@@ -361,19 +250,8 @@ class AuthService
         }
     }
 
-    /**
-     * يتحقق من حالة موافقة المؤسسة لأي يوزر مرتبط بمؤسسة، بنفس منطق
-     * AuthController::assertOrganizationIsApproved() — مطلوب هون كمان
-     * لأن تسجيل الدخول عبر Google لازم يمر بنفس فحص الموافقة، وإلا
-     * صار مسار bypass لحساب مؤسسة pending/rejected عبر Google بدل
-     * الـ login العادي.
-     */
     private function assertOrganizationIsApproved(User $user): void
     {
-        // Same reasoning as AuthController::assertOrganizationIsApproved():
-        // check every ACTIVE membership instead of only the first one, so a
-        // second (or 'removed') membership cannot be used to bypass the
-        // approval gate on a pending/rejected organization.
         $blocking = $user->organizations()
             ->wherePivot('status', 'active')
             ->whereIn('verification_status', ['pending', 'rejected'])
@@ -394,12 +272,6 @@ class AuthService
         ]);
     }
 
-    /**
-     * An account that must not be able to act on its own behalf, regardless
-     * of whether it still controls the mailbox: soft-deleted, suspended or
-     * explicitly deleted. Used by the verification flow so that email
-     * verification can never be used to restore a suspended account.
-     */
     private function isAccountBlocked(User $user): bool
     {
         return $user->trashed()
@@ -413,7 +285,6 @@ class AuthService
             'email' => $data['email'],
             'phone' => $data['phone'] ?? null,
             'locale' => $data['locale'] ?? 'en',
-            // password cast ('hashed') will hash; Hash::make is also fine with isHashed guard
             'password' => $data['password'],
             'status' => 'pending',
             'email_verified_at' => null,
@@ -460,17 +331,10 @@ class AuthService
             'graduation_status' => $graduationStatus,
             'visibility' => 'private',
             'consent_given' => true,
-            // SRS PROF-05: completeness is derived from the configured
-            // field list — an untouched profile has none filled, so 0.
-            // (A hardcoded 15 here outranked genuinely fuller profiles
-            // until the first update recomputed it.)
             'completeness_percent' => 0,
         ]);
     }
 
-    /**
-     * @return array{0: string, 1: string|null, 2: bool}
-     */
     private function mapAcademicStatus(string $academicStatus): array
     {
         return match ($academicStatus) {
@@ -523,13 +387,6 @@ class AuthService
 
     private function uploadProofFile(User $user, Organization $organization, HttpUploadedFile $file): void
     {
-        // Stored on the configured default disk, not a hardcoded 'local' one.
-        // In a containerised deployment the local disk lives inside the
-        // container image and is wiped by every deploy and restart, while the
-        // database rows survive on their own server — leaving every uploaded
-        // proof pointing at a file that no longer exists. Pointing this at the
-        // default disk lets FILESYSTEM_DISK=s3 move uploads to storage that
-        // actually persists, without touching this code again.
         $path = $file->store('proofs/'.$organization->id);
 
         UploadedFile::forceCreate([
@@ -577,9 +434,6 @@ class AuthService
         try {
             DB::beginTransaction();
 
-            // first() + false — NOT firstOrFail(): a 404 for unknown
-            // addresses would distinguish them from wrong-OTP failures
-            // and leak which emails are registered.
             $user = User::where('email', strtolower(trim($email)))->first();
 
             if (! $user) {
@@ -588,11 +442,6 @@ class AuthService
                 return false;
             }
 
-            // Account standing is a different question from mailbox ownership.
-            // A suspended (or deleted) account must not be able to clear its
-            // own suspension by re-verifying its email. The return value is
-            // identical to a wrong/expired OTP so this endpoint stays
-            // indistinguishable from a normal failure.
             if ($this->isAccountBlocked($user)) {
                 DB::rollBack();
 
@@ -613,9 +462,6 @@ class AuthService
             $maxAttempts = (int) config('verification.max_attempts', 5);
 
             if ($verification->attempts >= $maxAttempts) {
-                // تجاوز الحد الأقصى للمحاولات: نرفض الطلب بشكل نهائي حتى لو
-                // الرمز صحيح، لمنع الـ brute-force. المستخدم لازم يطلب
-                // رمز جديد عبر resend-otp.
                 $verification->forceFill(['decision' => 'rejected', 'decided_at' => now()])->save();
                 DB::commit();
 
@@ -634,10 +480,6 @@ class AuthService
                 'decided_at' => now(),
             ])->save();
 
-            // Only a pending account is promoted by email verification. The
-            // status is deliberately NOT force-set to 'active' here: doing so
-            // silently undid an administrative suspension. A blocked account
-            // never reaches this point (guarded above).
             if ($user->status === 'pending') {
                 $user->status = 'active';
             }
@@ -657,9 +499,6 @@ class AuthService
 
     public function resendOtp(User $user): void
     {
-        // Never issue a fresh challenge to a blocked account — otherwise a
-        // suspended user could request a new OTP and immediately verify it.
-        // Returning silently keeps the caller's response neutral.
         if ($this->isAccountBlocked($user)) {
             return;
         }
@@ -678,19 +517,6 @@ class AuthService
 
     public function sendPasswordResetOtp(User $user): void
     {
-        /*
-         * A suspended or deleted account must not be able to run the reset
-         * flow at all — otherwise "forgot password" is a way to keep acting on
-         * an account the platform has already shut down.
-         *
-         * The refusal is silent on purpose. Both callers answer with the same
-         * neutral 200 they use for an unknown address, so this endpoint never
-         * becomes a way to probe account standing.
-         *
-         * Pending accounts are NOT blocked: `isAccountBlocked()` deliberately
-         * excludes them, because they still have to be able to finish
-         * activation, and a reset grants nothing until they verify.
-         */
         if ($this->isAccountBlocked($user)) {
             Log::info('Password reset refused for a blocked account.', [
                 'user_id' => $user->id,
@@ -705,7 +531,6 @@ class AuthService
 
         $lifetimeMinutes = (int) config('password_reset.otp_lifetime_minutes', 10);
 
-        // أي طلبات سابقة لم تُستهلك تُعتبر منتهية بمجرد توليد رمز جديد.
         DB::table('password_reset_tokens')
             ->where('user_id', $user->id)
             ->whereNull('consumed_at')
@@ -741,25 +566,12 @@ class AuthService
 
         $resendInterval = (int) config('password_reset.resend_interval_seconds', 60);
 
-        // NOT now()->diffInSeconds($record->created_at): Carbon 3 made that
-        // diff SIGNED, so an older record yields a negative number and this
-        // check could never pass again — resend was silently dead forever.
-        // (DB::table rows carry raw string dates, hence the explicit parse.)
         $cooldownEndsAt = Carbon::parse($record->created_at)
             ->addSeconds($resendInterval);
 
         return now()->greaterThanOrEqualTo($cooldownEndsAt);
     }
 
-    /**
-     * تتحقق من صحة كود استرجاع كلمة المرور فقط، بدون استهلاكه وبدون تغيير
-     * أي كلمة مرور. مخصصة لزر "Verify code" بالفرونت إند، عشان نعرف قبل
-     * ما نعرض شاشة "كلمة مرور جديدة" إذا كان الكود صح أصلاً.
-     *
-     * بتشارك نفس عداد attempts مع resetPassword() (نفس السطر بالجدول)،
-     * فمحاولات التخمين هون بتُحسب على نفس الحد الأقصى، ومحاولات reset-password
-     * المباشرة برضه بتُحسب هون — ما في طريقة تلف على العداد.
-     */
     public function verifyPasswordResetOtp(string $email, string $otp): bool
     {
         $user = User::where('email', strtolower(trim($email)))->first();
@@ -768,8 +580,6 @@ class AuthService
             return false;
         }
 
-        // Same standing gate as resetPassword(): the pre-check screen must not
-        // report success for an account that can no longer use the flow.
         if ($this->isAccountBlocked($user)) {
             return false;
         }
@@ -787,8 +597,6 @@ class AuthService
         $maxAttempts = (int) config('verification.max_attempts', 5);
 
         if ($record->attempts >= $maxAttempts) {
-            // تجاوز الحد الأقصى: نرفض حتى لو الكود صح فعليًا، لمنع
-            // brute-force. المستخدم لازم يطلب كود جديد عبر forgot-password/resend.
             return false;
         }
 
@@ -800,24 +608,9 @@ class AuthService
             return false;
         }
 
-        // الكود صح: ما بنستهلكه (consumed_at يضل null) لأن الاستهلاك
-        // الفعلي بيصير بس عند resetPassword() لما يتحدد كلمة مرور جديدة.
         return true;
     }
 
-    /**
-     * الإيميل مطلوب هون (زي verifyPasswordResetOtp تمامًا) — لأنه بدونه
-     * كنا مضطرين نمسح Hash::check على كل الـ tokens الفعّالة بالنظام
-     * كله لحد ما نلاقي تطابق. هاد كان فيه مشكلتين حقيقيتين:
-     *   1. أمان: تخمين عشوائي لكود مكون من 6 أرقام بيتفحص مقابل كل
-     *      المستخدمين الفعّالين مرة وحدة، فكل ما زاد عدد طلبات الاسترجاع
-     *      المتزامنة، زادت فرصة التخمين العرضي (بدل 1/1,000,000 لمستخدم
-     *      واحد، تصير تقريبًا N/1,000,000 لو في N طلب فعّال بنفس الوقت).
-     *   2. أداء: Hash::check (bcrypt) عملية بطيئة عمدًا؛ تكرارها على كل
-     *      سجل فعّال بكل طلب reset-password بيفتح باب DoS واضح.
-     * رجّعناها تاخد الإيميل زي الأول، فالبحث يصير مباشر على مستخدم واحد
-     * بس (نفس منطق verifyPasswordResetOtp تمامًا).
-     */
     public function resetPassword(string $email, string $otp, string $newPassword): bool
     {
         try {
@@ -831,14 +624,6 @@ class AuthService
                 return false;
             }
 
-            // Account standing, checked before the token is even read. A
-            // suspended or deleted account must not be able to complete a reset
-            // — the flow would otherwise succeed (and rotate the password) on an
-            // account the platform has already shut down. The failure is the
-            // same `false` a wrong code produces, so it is indistinguishable
-            // from a normal rejection. Pending accounts are allowed through:
-            // `isAccountBlocked()` excludes them, and a reset grants nothing
-            // until they finish activation.
             if ($this->isAccountBlocked($user)) {
                 Log::info('Password reset refused for a blocked account.', [
                     'user_id' => $user->id,
@@ -849,17 +634,6 @@ class AuthService
                 return false;
             }
 
-            /*
-             * `lockForUpdate()` serialises the read-modify-write on MySQL /
-             * PostgreSQL: a second concurrent reset blocks on this row until the
-             * first commits, then re-reads it — already consumed, so the
-             * `whereNull('consumed_at')` filter no longer matches and it bails
-             * out early.
-             *
-             * SQLite (the test driver) ignores the clause, so this is not the
-             * guarantee on its own — the conditional UPDATE further down is, and
-             * that one holds on every driver.
-             */
             $record = DB::table('password_reset_tokens')
                 ->where('user_id', $user->id)
                 ->whereNull('consumed_at')
@@ -897,24 +671,6 @@ class AuthService
                 return false;
             }
 
-            /*
-             * Consume the token with a compare-and-swap, and do it BEFORE the
-             * password is written.
-             *
-             * This single `UPDATE ... WHERE consumed_at IS NULL` is what makes a
-             * token usable exactly once: the row can only move from
-             * "unconsumed" to "consumed" a single time, and the affected-row
-             * count tells each caller whether it was the one that won. Two
-             * requests that both passed the checks above therefore cannot both
-             * proceed — the loser is refused with 0 rows.
-             *
-             * The ordering is the point. Validating, writing the password and
-             * only then marking the row consumed is exactly the race this
-             * closes: both requests read the row as unconsumed, both write a new
-             * password, and the "consume" is a formality neither can lose.
-             * Claiming the row first leaves no window at all. If anything after
-             * this throws, the transaction rolls back and the claim with it.
-             */
             $consumed = DB::table('password_reset_tokens')
                 ->where('id', $record->id)
                 ->whereNull('consumed_at')
@@ -928,13 +684,6 @@ class AuthService
 
             $user->update(['password' => $newPassword]);
 
-            // AUTH-SEC: changing the password must invalidate every existing
-            // session — a token leaked before the password change stays valid
-            // otherwise. This revokes the Sanctum tokens (forcing re-login
-            // everywhere) and marks the matching auth_sessions rows so the
-            // revocation stays auditable. This is NOT a periodic expiry, so it
-            // does not nag the user: it only logs the account out when their
-            // password actually changes, which is the desired security behavior.
             $user->tokens()->delete();
 
             AuthSession::where('user_id', $user->id)
@@ -951,21 +700,6 @@ class AuthService
         }
     }
 
-    /**
-     * US-AUTH-06 flagged that a token was being issued on login without a
-     * matching row being written to auth_sessions, which meant logout /
-     * logout-all had nothing to mark as revoked. This is the single place
-     * that closes that gap — every code path that calls
-     * $user->createToken() (login, login/organization, login/google) must
-     * also call this right after, so AuthController::logout() /
-     * logoutAll() always have a record to update.
-     *
-     * token_hash intentionally stores the exact same value Sanctum stores
-     * on personal_access_tokens.token (hash('sha256', $plainTextToken)),
-     * so a later request's $user->currentAccessToken()->token can be
-     * matched straight back to the row created here — no extra column or
-     * lookup table needed.
-     */
     public function recordAuthSession(User $user, NewAccessToken $tokenResult, ?Request $request = null): void
     {
         AuthSession::forceCreate([
@@ -980,11 +714,6 @@ class AuthService
         ]);
     }
 
-    /**
-     * Best-effort device label from the User-Agent header, only used for
-     * the auth_sessions.device audit column — never for any access-control
-     * decision, so a wrong guess here has no security impact.
-     */
     private function guessDevice(?string $userAgent): ?string
     {
         if (! $userAgent) {

@@ -15,26 +15,6 @@ use Database\Seeders\SpecializationsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * Ordering of the Career Role dropdown on the admin "Questions" screen.
- *
- * THE BUG THIS PINS
- * -----------------
- * The screen does NOT read the learner-facing career-role list
- * (GET /api/v1/career-roles). It has its own endpoint,
- * GET /admin/api/questions/career-roles, backed by
- * QuestionBankService::careerRoles(). That method returned only the roles
- * mapped to the specialization, sorted alphabetically — so choosing a
- * specialization either hid every other role or, once the list stopped
- * filtering, showed them in one flat title order with no priority at all.
- *
- * The contract now: the chosen specialization sets the ORDER and never the
- * filter — its mapped roles first (title order), every other active role after
- * (title order), and a neutral order for the self-learning track.
- *
- * The full seeded catalog is used so the assertions are about the real Data
- * Science mapping, exactly as the operator sees it.
- */
 class AdminQuestionCareerRoleOrderTest extends TestCase
 {
     use RefreshDatabase;
@@ -56,8 +36,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             MvpCatalogSeeder::class,
         ]);
     }
-
-    // ------------------------------------------------ ordering
 
     public function test_data_science_lists_its_six_roles_first(): void
     {
@@ -84,7 +62,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $titles = $this->careerRoleTitles($dataScience);
 
-        // The whole selectable catalog, not just the mapped roles.
         $this->assertSame(
             CareerRole::where('status', 'approved')->where('is_active', true)->count(),
             count($titles),
@@ -92,8 +69,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $rest = array_slice($titles, 6);
 
-        // None of the mapped roles may appear in the rest block: the two
-        // blocks must not interleave.
         foreach (array_slice($titles, 0, 6) as $mapped) {
             $this->assertNotContains($mapped, $rest, "[{$mapped}] appears twice across the two blocks.");
         }
@@ -102,7 +77,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             $this->assertContains($title, $rest, "[{$title}] must still be offered after the priority block.");
         }
 
-        // No duplicates: a mapped role must not appear again in the rest.
         $this->assertSame(count($titles), count(array_unique($titles)));
     }
 
@@ -120,11 +94,8 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             'The priority block must depend on the chosen specialization.',
         );
 
-        // Computer Science's own mapping leads its list (its mapped roles,
-        // title order — "AI Engineer" sorts first among them).
         $this->assertSame('AI Engineer', $computerScienceTitles[0]);
 
-        // …and both still expose the same complete set of roles.
         $dataScienceSorted = $dataScienceTitles;
         $computerScienceSorted = $computerScienceTitles;
         sort($dataScienceSorted);
@@ -139,15 +110,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $titles = $this->careerRoleTitles($free);
 
-        /*
-         * "Neutral" means no priority rank is applied at all, so the result
-         * must be exactly what the same set looks like ordered by title alone.
-         *
-         * Comparing against a plain `sort()` in PHP would encode a collation:
-         * MySQL's *_ci collation sorts "BI Developer" before "Backend
-         * Developer", SQLite's binary collation does the opposite. Asking the
-         * database for the unranked order keeps the assertion true on both.
-         */
         $unranked = CareerRole::query()
             ->selectable()
             ->orderBy('career_roles.title')
@@ -161,20 +123,15 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         );
     }
 
-    // ------------------------------------------------ exclusions
-
     public function test_deactivated_and_unapproved_roles_never_appear(): void
     {
         $dataScience = Specialization::where('name', 'Data Science')->firstOrFail();
 
         $titles = $this->careerRoleTitles($dataScience);
 
-        // Deactivated for the MVP (QA is out of scope).
         $this->assertNotContains('QA Engineer', $titles);
-        // Deactivated with the design family.
         $this->assertNotContains('UI Designer', $titles);
 
-        // A draft role, even when mapped to the chosen specialization.
         $draft = CareerRole::forceCreate([
             'title' => 'Draft Data Role',
             'slug' => 'draft-data-role',
@@ -187,8 +144,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $this->assertNotContains('Draft Data Role', $this->careerRoleTitles($dataScience));
     }
-
-    // ------------------------------------------------ assessment untouched
 
     public function test_the_skills_dropdown_and_the_question_chain_are_unchanged(): void
     {
@@ -206,7 +161,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             'The skills dropdown must still list exactly the role\'s required skills.',
         );
 
-        // The endpoint contract is unchanged: same envelope, same item shape.
         $response = $this->getJson(
             '/admin/api/questions/career-roles?specialization_id='
             .Specialization::where('name', 'Data Science')->firstOrFail()->id
@@ -220,11 +174,6 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         );
     }
 
-    // ------------------------------------------------ helpers
-
-    /**
-     * @return list<string>
-     */
     private function careerRoleTitles(Specialization $specialization): array
     {
         $this->actingAs($this->admin());

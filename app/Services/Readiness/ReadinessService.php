@@ -120,30 +120,14 @@ class ReadinessService
             $roleSkills,
         );
 
-        /*
-         * US-INT-01 §10: resolve the active algorithm configuration.
-         * An explicit error is returned when none is active; no fabricated
-         * default configuration is used.
-         */
         $configuration = $this->decisionSnapshotService->resolveConfiguration();
         $configurationVersion = 'config-v'.$configuration->version;
 
-        /*
-         * ADR-001 — the composite STRUCTURE version, recorded alongside the
-         * numeric configuration version so a historical score stays
-         * replayable. Resolved from configuration, never fabricated.
-         */
         $compositeVersion = (string) config(
             'readiness.composite_algorithm_version',
             'composite-readiness-v1'
         );
 
-        /*
-         * US-INT-01 §6: capture the validated input state BEFORE the
-         * FastAPI call. The snapshot starts as pending and is marked
-         * succeeded only after the FastAPI response is validated and
-         * persistence completes atomically.
-         */
         $decisionSnapshot = $this->decisionSnapshotService->createPendingSnapshot(
             array_merge($payload, [
                 'career_role_id' => (int) $careerRole->id,
@@ -152,11 +136,6 @@ class ReadinessService
                 'user_id' => (int) $studentProfile->user_id,
                 'target_role' => (string) $careerRole->title,
                 'flow' => DecisionSnapshot::FLOW_READINESS_LEGACY,
-                // Placeholder only — the persisted value always comes from
-                // the validated response below. Deliberately NOT the shared
-                // `services.data_science.algorithm_version` hint, which
-                // defaults to `skill-gap-v1`: that is a different flow's
-                // algorithm, which this composite never calls.
                 'algorithm_version' => (string) config(
                     'readiness.skill_match.algorithm_version',
                     'skill-match-v1'
@@ -181,9 +160,6 @@ class ReadinessService
             $roleSkills,
         );
 
-        /*
-         * Readiness components supplied by the application layer.
-         */
         $practicalExperience = $this->practicalExperienceService->calculate(
             $studentProfile
         );
@@ -196,16 +172,6 @@ class ReadinessService
             $studentProfile
         );
 
-        /*
-         * Missing-component policy (agreed with Data Science): an
-         * unavailable component (score === null) is excluded rather than
-         * treated as 0 or blocking the calculation. Remaining component
-         * weights are renormalized over only the available components,
-         * and the result is flagged `is_provisional`. skill_match is
-         * always available at this point (validateDataScienceResult()
-         * already succeeded above); profile_completeness never returns
-         * null by design (see ProfileCompletenessService).
-         */
         $weights = config('readiness.weights', []);
 
         $skillMatch = (float) $result['skill_match_score'];
@@ -240,8 +206,6 @@ class ReadinessService
         $availableWeightSum = array_sum(array_column($availableComponents, 'weight'));
 
         if ($availableWeightSum <= 0.0) {
-            // Defensive only — skill_match is always available here, so
-            // this should never actually be reached.
             throw new ReadinessIntegrationException(
                 'Readiness cannot be calculated because no components are available.',
                 422,
@@ -262,10 +226,6 @@ class ReadinessService
             ? null
             : (float) $profileCompleteness['score'];
 
-        /*
-         * Calculate the final readiness score using the configured
-         * component weights, renormalized over available components only.
-         */
         $finalScore = 0.0;
         foreach ($availableComponents as $component) {
             $finalScore += $component['score'] * $component['weight'];
@@ -274,22 +234,12 @@ class ReadinessService
 
         $finalScore = min(max($finalScore, 0.0), 100.0);
 
-        /*
-         * ADR-001 §5.1 — the NOMINAL weights above are not what actually
-         * produced the score once a component is excluded: the policy
-         * redistributes the excluded component's weight proportionally over
-         * the available ones. Record the EFFECTIVE weights so a historical
-         * result is reproducible rather than merely labelled.
-         */
         $effectiveWeights = [];
 
         foreach ($availableComponents as $name => $component) {
             $effectiveWeights[$name] = round($component['weight'] / $availableWeightSum, 6);
         }
 
-        /*
-         * Critical-skill cap.
-         */
         $criticalMinimumMatch = (float) config(
             'readiness.critical_skill.minimum_match',
             0.50
@@ -308,9 +258,6 @@ class ReadinessService
                 continue;
             }
 
-            // Skill Match v1 already computes match_ratio per skill
-            // (0..1, capped at 1.0) — no need to re-derive it from
-            // current_level/required_level here.
             if ((float) $skillResult['match_ratio'] < $criticalMinimumMatch) {
                 $criticalCapApplied = true;
                 $criticalSkillNames[] = (string) $skillResult['skill_name'];
@@ -325,21 +272,8 @@ class ReadinessService
 
         $band = $this->resolveBand($finalScore);
 
-        /*
-         * The algorithm_version stored with the decision must represent
-         * the actual FastAPI algorithm used for this calculation.
-         *
-         * configuration_version remains the Laravel-side active
-         * AlgorithmConfiguration version.
-         */
         $algorithmVersion = (string) $result['algorithm_version'];
 
-        /*
-         * ADR-001 §5.1 — each component's own algorithm/config version, so a
-         * historical composite can be replayed from its parts. skill_match's
-         * algorithm_version is FastAPI's validated response value; its config
-         * version is the service's own weight configuration.
-         */
         $componentVersions = [
             'skill_match' => [
                 'algorithm_version' => $algorithmVersion,
@@ -390,10 +324,6 @@ class ReadinessService
         ) {
             $snapshot = $decisionSnapshot;
 
-            /*
-             * Mark the Decision Snapshot as successfully completed only
-             * after the FastAPI response has passed validation.
-             */
             $snapshot->update([
                 'algorithm_version' => $algorithmVersion,
                 'status' => DecisionSnapshot::STATUS_SUCCEEDED,
@@ -414,12 +344,6 @@ class ReadinessService
                 ],
             ]);
 
-            /*
-             * Persist the final readiness result.
-             *
-             * Historical results are append-only: every successful
-             * calculation creates a new record.
-             */
             $readinessResult = ReadinessResult::create([
                 'student_profile_id' => $studentProfile->id,
                 'career_role_id' => $careerRole->id,
@@ -454,13 +378,6 @@ class ReadinessService
                         'profile_completeness' => $profileCompletenessScore,
                     ],
 
-                    /*
-                     * ADR-001 §5.1 — which components were unavailable and
-                     * therefore excluded, plus the exact weights applied after
-                     * redistribution. Together with the version triple
-                     * (composite / configuration / algorithm) these make the
-                     * score reproducible rather than merely labelled.
-                     */
                     'missing_component_policy' => [
                         'excluded_components' => $excludedComponents,
                         'is_provisional' => $isProvisional,
@@ -489,14 +406,6 @@ class ReadinessService
                 ],
             ]);
 
-            /*
-             * US-INT-01 §17:
-             * Store every validated Skill Match v1 result as an
-             * independent, historical, append-only record tied to this
-             * decision. Skill Match v1 does not provide per-skill
-             * confidence/explanation (that was a /skill-gap-only concept),
-             * so those two columns are stored as null going forward.
-             */
             foreach ($result['skill_results'] as $skillResult) {
                 $requiredLevel = (float) $skillResult['required_level'];
                 $achievedLevel = (float) $skillResult['achieved_level'];
@@ -558,7 +467,6 @@ class ReadinessService
         CareerRole $careerRole,
         $roleSkills,
     ): void {
-        // Skill Match v1 contract, confirmed by Data Science.
         $required = [
             'student_profile_id',
             'career_role_id',
@@ -691,10 +599,6 @@ class ReadinessService
             );
         }
 
-        // The importance weights are normalized internally by Data
-        // Science: normalized_weight_i = importance_weight_i /
-        // SUM(importance_weight). Recompute the expected sum from our own
-        // payload so we can cross-check normalized_importance_weight below.
         $weightTotal = array_sum(array_column($payload['skills'], 'importance_weight'));
 
         $expectedSkills = [];
@@ -816,7 +720,6 @@ class ReadinessService
                 );
             }
 
-            // normalized_importance_weight = importance_weight / SUM(importance_weight)
             $expectedNormalizedWeight = $weightTotal > 0
                 ? (float) $expected['importance_weight'] / $weightTotal
                 : 0.0;
@@ -838,10 +741,6 @@ class ReadinessService
             $requiredLevel = (float) $expected['required_level'];
             $currentLevel = (float) $expected['current_level'];
 
-            // achieved_level is current_level capped at required_level —
-            // over-qualification never counts beyond 100% of what the
-            // role requires (contract note: "the result never exceeds
-            // 100%").
             $expectedAchievedLevel = $requiredLevel > 0
                 ? min($currentLevel, $requiredLevel)
                 : $currentLevel;
@@ -860,9 +759,6 @@ class ReadinessService
                 );
             }
 
-            // required_level = 0 => not_required, match_ratio not
-            // meaningfully constrained beyond the 0..1 Pydantic schema
-            // bound (already enforced by FastAPI).
             if ($requiredLevel > 0) {
                 $expectedMatchRatio = min(
                     max($expectedAchievedLevel / $requiredLevel, 0.0),

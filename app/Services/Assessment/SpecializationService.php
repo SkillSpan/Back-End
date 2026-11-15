@@ -10,26 +10,6 @@ use App\Support\ReferenceCache;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 
-/**
- * Specialization management for the admin page.
- *
- * Works on the existing `specializations` table and the existing
- * `career_role_specialization` pivot — it introduces no parallel model. The
- * "Manage Career Roles" screen is a view over that pivot, and creating a
- * career role reuses CareerRole + CareerRoleSkill.
- *
- * Deletion is deliberately conservative: a specialization that still has
- * career roles linked to it is refused (deactivating is the safe
- * alternative), and the free-track row is protected.
- *
- * EVERY WRITE INVALIDATES THE REFERENCE CACHE. `GET /api/v1/reference/
- * specializations` is cached for twelve hours (the database is remote, so the
- * round trip dominates the endpoint). Without an explicit invalidation an
- * operator would create, rename, activate or deactivate a track and the
- * learner-facing dropdown would keep serving the old list for the rest of the
- * TTL — the change would look saved and do nothing. Every mutating method below
- * therefore calls {@see ReferenceCache::flush()} once it has committed.
- */
 class SpecializationService
 {
     public function paginate(string $search = '', ?string $status = null, int $perPage = 15): LengthAwarePaginator
@@ -48,16 +28,12 @@ class SpecializationService
             ->withQueryString();
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
     public function create(array $data): Specialization
     {
         $specialization = Specialization::create([
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
             'is_active' => (bool) ($data['is_active'] ?? true),
-            // Only the seeder may flag a free track.
             'is_free_track' => false,
         ]);
 
@@ -66,9 +42,6 @@ class SpecializationService
         return $specialization;
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
     public function update(Specialization $specialization, array $data): Specialization
     {
         $specialization->update([
@@ -110,25 +83,11 @@ class SpecializationService
         $this->forgetReferenceCache();
     }
 
-    /**
-     * Drop the cached reference lists after a specialization changed.
-     *
-     * Centralised so a future mutating method cannot forget it: every write
-     * above ends with this call, and the admin endpoints therefore take effect
-     * on the very next `GET /api/v1/reference/specializations` instead of up to
-     * twelve hours later.
-     */
     private function forgetReferenceCache(): void
     {
         ReferenceCache::flush();
     }
 
-    /**
-     * Every career role, each flagged with whether it is linked to this
-     * specialization. Drives the "Manage Career Roles" checklist.
-     *
-     * @return array<int, array{id:int,title:string,status:string,attached:bool}>
-     */
     public function roleOptions(Specialization $specialization, string $search = ''): array
     {
         $attached = $specialization->careerRoles()
@@ -149,11 +108,6 @@ class SpecializationService
             ->all();
     }
 
-    /**
-     * Replace the specialization's linked career roles with the given set.
-     *
-     * @param  array<int, mixed>  $roleIds
-     */
     public function syncCareerRoles(Specialization $specialization, array $roleIds): Specialization
     {
         $validIds = CareerRole::query()
@@ -166,11 +120,6 @@ class SpecializationService
         return $specialization->refresh();
     }
 
-    /**
-     * Skills that can be attached to a newly created career role.
-     *
-     * @return array<int, array{id:int,name:string,slug:string}>
-     */
     public function skillOptions(string $search = ''): array
     {
         return Skill::query()
@@ -185,28 +134,6 @@ class SpecializationService
             ->all();
     }
 
-    /**
-     * Create a career role and attach its required skills.
-     *
-     * Refuses a title that already maps to an existing role slug, so the
-     * panel can never silently overwrite a role by reusing its name.
-     *
-     * THE NEW ROLE IS CREATED INACTIVE (`is_active = false`).
-     *
-     * Creating a role used to publish it to every learner immediately, because
-     * the column defaults to TRUE. That made "add a role" and "offer this role
-     * to the whole student body" the same button, with no review step and no
-     * way back other than a manual UPDATE — a half-authored role (no skills
-     * yet, skills still being attached) would appear in every picker the moment
-     * it was saved.
-     *
-     * Activation is now an explicit, separate decision taken by an
-     * administrator through `POST /admin/api/career-roles/{id}/activate`. Roles
-     * that already existed keep whatever activation state they had; only new
-     * rows start hidden.
-     *
-     * @param  array<int, mixed>  $skillIds
-     */
     public function createCareerRole(string $title, array $skillIds): CareerRole
     {
         $slug = Str::slug($title);
@@ -221,8 +148,6 @@ class SpecializationService
             'version' => 1,
             'status' => 'approved',
             'effective_date' => now()->toDateString(),
-            // Explicit, not inherited from the column default: publishing a
-            // role is a separate, deliberate step.
             'is_active' => false,
         ]);
 

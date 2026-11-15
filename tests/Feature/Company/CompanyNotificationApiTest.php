@@ -12,18 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The notification and organization-profile surface the Company Dashboard
- * depends on (US-COMP-03 §2, §5, §6 and AC-04 / AC-10 / AC-11 / BR-11).
- *
- * The dashboard's own tests live in CompanyDashboardTest; these pin the two
- * endpoints it reads alongside the summary, including the three places where
- * the frontend's contract and the existing API had drifted apart:
- *
- *   - it sends PATCH .../read, the API only answered POST;
- *   - it sends ?unread=1, the API only understood ?unread_only=1;
- *   - it sends ?per_page=, the API ignored it entirely.
- */
 class CompanyNotificationApiTest extends TestCase
 {
     use RefreshDatabase;
@@ -82,10 +70,6 @@ class CompanyNotificationApiTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // AC-10 — mark as read, and the read state persists
-    // -----------------------------------------------------------------
-
     public function test_patch_marks_a_notification_as_read_and_it_stays_read(): void
     {
         $admin = $this->companyAdmin($this->organization());
@@ -97,7 +81,6 @@ class CompanyNotificationApiTest extends TestCase
 
         $this->assertNotNull($notification->fresh()->read_at);
 
-        // AC-10 — a second read of the list still reports it as read.
         $list = $this->getJson('/api/v1/notifications')->assertOk()->json('data');
 
         $this->assertSame(0, $this->getJson('/api/v1/notifications')->json('meta.unread_count'));
@@ -137,10 +120,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertNull($foreign->fresh()->read_at);
     }
 
-    // -----------------------------------------------------------------
-    // AC-11 / BR-11 — filters and pagination
-    // -----------------------------------------------------------------
-
     public function test_the_unread_alias_filters_the_list(): void
     {
         $admin = $this->companyAdmin($this->organization());
@@ -158,7 +137,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertSame(2, $unread['meta']['total']);
         $this->assertSame(2, $unread['meta']['unread_count']);
 
-        // The original spelling keeps working.
         $legacy = $this->getJson('/api/v1/notifications?unread_only=1')->assertOk()->json();
         $this->assertSame(2, $legacy['meta']['total']);
     }
@@ -177,8 +155,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertSame(5, $small['meta']['per_page']);
         $this->assertCount(5, $small['data']);
 
-        // BR-11 — asking for more than the maximum returns the maximum, it does
-        // not fail and it does not return everything.
         $huge = $this->getJson('/api/v1/notifications?per_page=1000')->assertOk()->json();
         $this->assertSame(50, $huge['meta']['per_page']);
         $this->assertCount(50, $huge['data']);
@@ -198,10 +174,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertSame(2, $this->getJson('/api/v1/notifications/unread-count')->json('data.unread_count'));
     }
 
-    // -----------------------------------------------------------------
-    // AC-03 / AC-04 — organization status and completeness
-    // -----------------------------------------------------------------
-
     public function test_the_organization_profile_reports_completeness_and_missing_fields(): void
     {
         $organization = $this->organization(attributes: [
@@ -219,8 +191,6 @@ class CompanyNotificationApiTest extends TestCase
 
         $data = $this->getJson('/api/v1/organization/profile')->assertOk()->json('data');
 
-        // name + type are always set, contact_email is set, the other three
-        // groups are empty → 2 of 6.
         $this->assertSame(33, $data['profile_completeness']);
         $this->assertSame('verified', $data['verification_status']);
 
@@ -267,16 +237,6 @@ class CompanyNotificationApiTest extends TestCase
             ->assertJsonPath('code', 'ORGANIZATION_PENDING');
     }
 
-    // -----------------------------------------------------------------
-    // Database task list — a notification knows its organization and entity
-    // -----------------------------------------------------------------
-
-    /**
-     * The story asks a notification to carry the organization it belongs to and
-     * the record it is about, not just a free-text `link`. US-COMP-03 itself
-     * never reads the two columns — they exist so US-PRJ-01 can emit company
-     * events that the dashboard can scope and open.
-     */
     public function test_a_dispatched_notification_records_its_organization_and_entity(): void
     {
         $organization = $this->organization();
@@ -300,10 +260,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertSame($organization->id, $notification->organization->id);
     }
 
-    /**
-     * Every row written before the columns existed, and every mentor/student
-     * notification after them, has no organization — and must stay valid.
-     */
     public function test_a_notification_without_an_organization_stays_valid(): void
     {
         $user = User::forceCreate([
@@ -325,7 +281,6 @@ class CompanyNotificationApiTest extends TestCase
         $this->assertNull($notification->entity_type);
         $this->assertNull($notification->entity_id);
 
-        // And it still lists and counts for its recipient.
         Sanctum::actingAs($user);
 
         $this->assertSame(1, $this->getJson('/api/v1/notifications')->json('meta.total'));

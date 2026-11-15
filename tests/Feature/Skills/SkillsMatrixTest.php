@@ -61,13 +61,6 @@ class SkillsMatrixTest extends TestCase
         ]);
     }
 
-    /**
-     * Regression test for the fix documented in SkillsController::matrix():
-     * a non-admin used to receive the *entire* learner_skills table
-     * (every learner's rows) because $learnerId/$careerRoleId were method
-     * arguments the route never populated. This locks in that a learner
-     * only ever sees their own skills.
-     */
     public function test_learner_only_sees_their_own_skills_by_default(): void
     {
         $me = $this->learner('me@test.com');
@@ -97,11 +90,6 @@ class SkillsMatrixTest extends TestCase
             ->assertJsonPath('data.0.learner_id', $me->id);
     }
 
-    /**
-     * A learner passing ?learner_id= for another user must NOT be able to
-     * view that user's skills — the controller ignores the query param for
-     * non-admins and always scopes to $user->id instead.
-     */
     public function test_learner_cannot_view_another_learners_skills_via_query_param(): void
     {
         $me = $this->learner('me@test.com');
@@ -123,10 +111,6 @@ class SkillsMatrixTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
-    /**
-     * Admins are the one role explicitly allowed to inspect another
-     * learner's matrix, and only via the explicit ?learner_id= query param.
-     */
     public function test_admin_can_view_a_specific_learners_skills_via_query_param(): void
     {
         $admin = $this->admin();
@@ -157,12 +141,6 @@ class SkillsMatrixTest extends TestCase
             ->assertJsonPath('data.0.learner_id', $targetLearner->id);
     }
 
-    /**
-     * An admin calling the endpoint with NO learner_id filter intentionally
-     * still sees every learner's rows (documented "admin overview" behavior
-     * in the controller) — this pins that behavior down explicitly so it
-     * isn't mistaken for a bug later.
-     */
     public function test_admin_without_filter_sees_every_learners_skills(): void
     {
         $admin = $this->admin();

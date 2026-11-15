@@ -15,9 +15,6 @@ return new class extends Migration
                 $table->enum('status', ['active', 'archived', 'closed'])->default('active');
                 $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
                 $table->timestamp('last_message_at')->nullable();
-                // Privacy/retention: conversations past this timestamp are
-                // eligible for automated archival or purge by a scheduled
-                // cleanup command. NULL = no expiry (admin-set connections).
                 $table->timestamp('retention_expires_at')->nullable();
                 $table->text('archived_reason')->nullable();
                 $table->timestamps();

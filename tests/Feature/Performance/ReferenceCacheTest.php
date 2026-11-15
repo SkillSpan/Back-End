@@ -13,21 +13,6 @@ use Illuminate\Support\Facades\Cache;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The reference endpoints (university / specialization / country dropdowns and
- * the skills taxonomy) are cached because the database sits on a different
- * provider from the application, so every round trip costs roughly a second.
- *
- * These tests pin two things at once:
- *
- *   1. the cache actually short-circuits the query — a row inserted after the
- *      first call must NOT appear on the second, and must appear again once the
- *      key is dropped;
- *   2. the response contract is untouched — same envelope, same columns. The
- *      cache stores plain arrays, so a change that accidentally starts caching
- *      Eloquent models (with their casts and appended attributes) would show up
- *      here as extra keys.
- */
 class ReferenceCacheTest extends TestCase
 {
     use RefreshDatabase;
@@ -57,10 +42,6 @@ class ReferenceCacheTest extends TestCase
         ]);
     }
 
-    // ---------------------------------------------------------------------
-    // Universities
-    // ---------------------------------------------------------------------
-
     public function test_the_universities_list_is_served_from_cache_on_the_second_call(): void
     {
         $this->university('Alpha University');
@@ -71,7 +52,6 @@ class ReferenceCacheTest extends TestCase
 
         $this->university('Zeta University');
 
-        // Still the cached list: the row added a moment ago is not there yet.
         $this->getJson('/api/v1/reference/universities')
             ->assertOk()
             ->assertJsonMissing(['name' => 'Zeta University']);
@@ -113,10 +93,6 @@ class ReferenceCacheTest extends TestCase
         $this->assertSame(['Alpha University', 'Zeta University'], $names);
     }
 
-    // ---------------------------------------------------------------------
-    // Specializations
-    // ---------------------------------------------------------------------
-
     public function test_the_specializations_list_is_cached(): void
     {
         Specialization::forceCreate(['name' => 'Software Engineering', 'is_active' => true]);
@@ -137,10 +113,6 @@ class ReferenceCacheTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['name' => 'Data Science']);
     }
-
-    // ---------------------------------------------------------------------
-    // Countries
-    // ---------------------------------------------------------------------
 
     public function test_the_countries_list_is_cached(): void
     {
@@ -176,14 +148,12 @@ class ReferenceCacheTest extends TestCase
             ->assertJsonFragment(['name' => 'Cairo University'])
             ->assertJsonMissing(['name' => 'Jordan University']);
 
-        // A new row for Egypt does not leak into the cached response ...
         $this->university('Ain Shams University', $egypt->id);
 
         $this->getJson("/api/v1/reference/countries/{$egypt->id}/universities")
             ->assertOk()
             ->assertJsonMissing(['name' => 'Ain Shams University']);
 
-        // ... and dropping only Egypt's key leaves Jordan's cache intact.
         Cache::forget(ReferenceCache::countryUniversities($egypt->id));
 
         $this->getJson("/api/v1/reference/countries/{$egypt->id}/universities")
@@ -194,10 +164,6 @@ class ReferenceCacheTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['name' => 'Jordan University']);
     }
-
-    // ---------------------------------------------------------------------
-    // Skills taxonomy
-    // ---------------------------------------------------------------------
 
     public function test_the_skills_taxonomy_is_cached(): void
     {

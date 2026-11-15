@@ -16,12 +16,6 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-/**
- * US-INT-01 — intelligence endpoints (skill gap + readiness + roadmap
- * in one atomic decision). Thin controller: validation via FormRequest,
- * orchestration in IntelligenceService, presentation in the resource.
- * Routes sit behind auth:sanctum + role:learner (routes/api.php).
- */
 class IntelligenceController extends Controller
 {
     public function __construct(private readonly IntelligenceService $intelligenceService) {}
@@ -95,16 +89,6 @@ class IntelligenceController extends Controller
             );
         }
 
-        /*
-         * The read model is scoped to the INTELLIGENCE flow.
-         *
-         * Two flows persist SUCCEEDED decision snapshots: this one
-         * (skill gaps + readiness + roadmap) and the legacy composite
-         * readiness flow (`POST /readiness/calculate`), which never has a
-         * roadmap. Selecting the newest succeeded row across both meant a
-         * readiness calculation silently shadowed the learner's roadmap —
-         * the roadmap was in the database, the endpoint reported null.
-         */
         $snapshot = $studentProfile->decisionSnapshots()
             ->where('status', DecisionSnapshot::STATUS_SUCCEEDED)
             ->intelligenceFlow()
@@ -138,9 +122,6 @@ class IntelligenceController extends Controller
 
     private function requestId(Request $request): string
     {
-        // Correlate with the incoming X-Request-ID when present;
-        // otherwise generate one server-side (US-INT-01 §5). The same
-        // ID travels to FastAPI, the logs, and the decision snapshot.
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
     }
 

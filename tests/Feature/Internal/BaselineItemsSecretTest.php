@@ -7,16 +7,6 @@ use App\Models\Skill;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * Regression tests for the server-to-server baseline-items endpoint.
- *
- * The shared secret was compared with !==, which short-circuits on the
- * first differing byte and therefore leaks the length of the matching
- * prefix through response timing. The endpoint returns `correct_answer`
- * for every item, so it is worth a constant-time comparison — the same
- * hash_equals() pattern SetupController already used for
- * ADMIN_SETUP_SECRET.
- */
 class BaselineItemsSecretTest extends TestCase
 {
     use RefreshDatabase;
@@ -51,11 +41,6 @@ class BaselineItemsSecretTest extends TestCase
         ])->assertStatus(401);
     }
 
-    /**
-     * A value sharing a long prefix with the real secret must still be
-     * rejected — this is the case a short-circuiting comparison is most
-     * sensitive to.
-     */
     public function test_near_miss_secret_is_rejected(): void
     {
         $nearMiss = substr(self::SECRET, 0, -1).'X';
@@ -72,9 +57,6 @@ class BaselineItemsSecretTest extends TestCase
         ])->assertStatus(401);
     }
 
-    /**
-     * Fails closed: with no secret configured, nobody gets in.
-     */
     public function test_endpoint_is_disabled_when_no_secret_is_configured(): void
     {
         config(['services.internal.baseline_items_secret' => '']);
@@ -84,10 +66,6 @@ class BaselineItemsSecretTest extends TestCase
         ])->assertStatus(401);
     }
 
-    /**
-     * The Data Science service needs the prompt text to render/score
-     * questions, so `question_text` is part of the internal contract.
-     */
     public function test_items_payload_exposes_question_text(): void
     {
         $skill = Skill::create([

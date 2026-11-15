@@ -4,60 +4,24 @@ namespace App\Services\Baseline;
 
 use App\Exceptions\BaselineAssessmentException;
 use App\Models\BaselineAssessment;
-use App\Models\BaselineAssessmentItem;
 use App\Models\BaselineQuestionSnapshot;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
-/**
- * Builds the EXACT request body the Intelligence (FastAPI) baseline endpoint
- * accepts, from the assessment's frozen snapshot.
- *
- * Contract (source of truth: the FastAPI `BaselineRequest` schema):
- *
- *   questions[]: { question_id:int, question_type:"single_choice"|"scale",
- *                  options:string[], correct_answer:string|null,
- *                  scoring_rule:dict<string,float>|null, weight:float,
- *                  skill_mappings:[{skill_id:int, skill_slug:string, weight:float}] }
- *   responses[]: { question_id:int, answer:string }
- *
- * Identifier rule: the public/client identifier (`item_id`, e.g. "sql-001")
- * stays a frontend concern. Everything sent upstream uses
- * `baseline_assessment_item_id` — the numeric `baseline_assessment_items`
- * primary key — and it is a real PHP int, never a numeric string.
- *
- * Everything is read from the snapshot, not from the live question bank: the
- * learner must be scored against the questions and scoring keys that were
- * frozen when the assessment started. Snapshots created before scoring was
- * frozen are handled by a strictly-verified fallback (see
- * {@see resolveScoring()}); anything that cannot be proven correct fails
- * closed.
- */
 class BaselineIntelligencePayloadBuilder
 {
-    /** The only question types the Intelligence baseline contract accepts. */
     public const SUPPORTED_QUESTION_TYPES = ['single_choice', 'scale'];
 
     public const TYPE_SINGLE_CHOICE = 'single_choice';
 
     public const TYPE_SCALE = 'scale';
 
-    /**
-     * Tolerance for floating-point weight sums (1.0 expected).
-     */
     private const WEIGHT_EPSILON = 0.0001;
 
     public function __construct(
         private readonly BaselineQuestionSelectionService $questionSelection,
     ) {}
 
-    /**
-     * @param  Collection<int, BaselineQuestionSnapshot>  $snapshots
-     * @param  array<int, array<string, mixed>>  $responses  Frontend responses (string item_ids).
-     * @return array{questions: array<int, array<string, mixed>>, responses: array<int, array<string, mixed>>}
-     *
-     * @throws BaselineAssessmentException
-     */
     public function build(
         BaselineAssessment $assessment,
         Collection $snapshots,
@@ -82,12 +46,9 @@ class BaselineIntelligencePayloadBuilder
                 );
             }
 
-            // `baseline_question_snapshots.id` is a snapshot row id — NOT the
-            // identifier the contract wants. Only the assessment item id is.
             $questionId = $snapshot->baseline_assessment_item_id;
 
             if ($questionId === null || (int) $questionId <= 0) {
-                // Happens for legacy rows detached by ON DELETE SET NULL.
                 throw BaselineAssessmentException::snapshotIncomplete(
                     [(int) $snapshot->id],
                     ['missing_baseline_assessment_item_id'],
@@ -99,9 +60,6 @@ class BaselineIntelligencePayloadBuilder
             $questionType = $this->questionSelection->snapshotItemType($snapshot);
 
             if (! in_array($questionType, self::SUPPORTED_QUESTION_TYPES, true)) {
-                // `text` exists in the Laravel bank but is not part of the
-                // Intelligence baseline contract. Never coerce it and never
-                // send it to collect an opaque upstream 422.
                 throw BaselineAssessmentException::unsupportedQuestionType([[
                     'item_id' => $itemId,
                     'item_type' => $questionType,
@@ -123,14 +81,10 @@ class BaselineIntelligencePayloadBuilder
                 'skill_mappings' => [[
                     'skill_id' => (int) $snapshot->skill_id,
                     'skill_slug' => $scoring['skill_slug'],
-                    // One baseline item maps to exactly one skill in the
-                    // current design, so the single mapping carries all of it.
                     'weight' => 1.0,
                 ]],
             ];
 
-            // Case-insensitive because the client identifier is opaque and the
-            // existing response validation already compares it that way.
             $questionIdByItemId[strtolower($itemId)] = $questionId;
         }
 
@@ -141,8 +95,6 @@ class BaselineIntelligencePayloadBuilder
             $key = strtolower(trim((string) $rawId));
 
             if ($key === '' || ! isset($questionIdByItemId[$key])) {
-                // Should be unreachable: membership was already validated
-                // against the same snapshot. Fail closed rather than drop it.
                 throw BaselineAssessmentException::invalidIntelligencePayload([
                     "responses.{$index}.question_id",
                 ]);
@@ -164,20 +116,6 @@ class BaselineIntelligencePayloadBuilder
         return $payload;
     }
 
-    /**
-     * Resolve the scoring inputs for one snapshot.
-     *
-     * Preferred path: the values frozen at assessment start.
-     *
-     * Legacy path (rows created before scoring was frozen): fall back to the
-     * live item ONLY when every frozen value we do have still matches it. If
-     * the item was edited, detached or deleted, fail closed — a score derived
-     * from a snapshot we cannot verify is worse than no score.
-     *
-     * @return array{correct_answer: ?string, scoring_rule: ?array<string, float>, weight: float, skill_slug: string}
-     *
-     * @throws BaselineAssessmentException
-     */
     private function resolveScoring(
         BaselineAssessment $assessment,
         BaselineQuestionSnapshot $snapshot,
@@ -189,11 +127,6 @@ class BaselineIntelligencePayloadBuilder
             || $snapshot->scoring_rule !== null;
 
         if ($hasFrozenScoring) {
-            // Identity/weight must be frozen for the payload to be
-            // attributable to this snapshot. A missing type-specific grading
-            // value (correct_answer for single_choice, scoring_rule for scale)
-            // is reported by the contract validation below instead, so the
-            // error names the actual field.
             if ($snapshot->weight === null
                 || ! is_numeric($snapshot->weight)
                 || ! is_string($snapshot->skill_slug)
@@ -205,9 +138,6 @@ class BaselineIntelligencePayloadBuilder
             }
 
             return [
-                // Passed through as frozen; the contract validation below
-                // rejects a value that is invalid for the question type
-                // instead of silently dropping it.
                 'correct_answer' => $snapshot->correct_answer !== null
                     ? (string) $snapshot->correct_answer
                     : null,
@@ -220,16 +150,10 @@ class BaselineIntelligencePayloadBuilder
         return $this->resolveScoringFromVerifiedLiveItem($assessment, $snapshot);
     }
 
-    /**
-     * @return array{correct_answer: ?string, scoring_rule: ?array<string, float>, weight: float, skill_slug: string}
-     *
-     * @throws BaselineAssessmentException
-     */
     private function resolveScoringFromVerifiedLiveItem(
         BaselineAssessment $assessment,
         BaselineQuestionSnapshot $snapshot
     ): array {
-        /** @var BaselineAssessmentItem|null $item */
         $item = $snapshot->item;
 
         if (! $item) {
@@ -261,8 +185,6 @@ class BaselineIntelligencePayloadBuilder
             $mismatches[] = 'assessment_version_mismatch';
         }
 
-        // Only verifiable when options were frozen. A pre-freeze snapshot has
-        // no option list of its own, so there is nothing to compare.
         if ($frozenOptions !== []
             && $this->normalizeOptions($frozenOptions) !== $this->normalizeOptions(
                 is_array($item->options) ? $item->options : []
@@ -286,7 +208,6 @@ class BaselineIntelligencePayloadBuilder
             );
         }
 
-        // Diagnosis only: ids, never answers or learner data.
         Log::warning('Baseline snapshot is missing frozen scoring data; using verified live item.', [
             'assessment_id' => (int) $assessment->id,
             'snapshot_id' => (int) $snapshot->id,
@@ -303,10 +224,6 @@ class BaselineIntelligencePayloadBuilder
         ];
     }
 
-    /**
-     * @param  array<int, mixed>  $options
-     * @return array<int, string>
-     */
     private function normalizeOptions(array $options): array
     {
         return array_values(array_map(
@@ -315,9 +232,6 @@ class BaselineIntelligencePayloadBuilder
         ));
     }
 
-    /**
-     * @return ?array<string, float>
-     */
     private function normalizeScoringRule(mixed $rule): ?array
     {
         if (! is_array($rule) || $rule === []) {
@@ -333,16 +247,6 @@ class BaselineIntelligencePayloadBuilder
         return $normalized;
     }
 
-    /**
-     * Mirror of the upstream schema/validators, applied BEFORE any HTTP call.
-     *
-     * Problems are field paths only — the payload carries learner answers and
-     * grading keys, so neither is ever echoed into the error details or logs.
-     *
-     * @param  array{questions: array<int, array<string, mixed>>, responses: array<int, array<string, mixed>>}  $payload
-     *
-     * @throws BaselineAssessmentException
-     */
     private function assertContract(array $payload): void
     {
         $questions = $payload['questions'];
@@ -458,8 +362,6 @@ class BaselineIntelligencePayloadBuilder
                 if (! is_string($slug) || trim($slug) === '') {
                     $problems[] = "{$mappingPath}.skill_slug";
                 } elseif (is_int($skillId)) {
-                    // Rule 13: one skill_id must not carry two different slugs
-                    // inside the same snapshot.
                     if (isset($slugBySkillId[$skillId]) && $slugBySkillId[$skillId] !== $slug) {
                         $problems[] = "{$mappingPath}.skill_slug_conflict";
                     }

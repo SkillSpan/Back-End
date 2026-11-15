@@ -5,11 +5,6 @@ namespace Database\Seeders;
 use App\Models\AlgorithmConfiguration;
 use Illuminate\Database\Seeder;
 
-/**
- * US-INT-01 §10 — seeds the initial active algorithm configuration so
- * intelligence calculations have a versioned, auditable configuration
- * to bind to decisions. Idempotent: safe to run repeatedly.
- */
 class AlgorithmConfigurationSeeder extends Seeder
 {
     public function run(): void

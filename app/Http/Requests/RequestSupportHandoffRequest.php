@@ -6,20 +6,6 @@ use App\Models\SupportRequest;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/**
- * Escalate the assistant conversation to a human.
- *
- * The `transcript` is sent by the client because the platform deliberately
- * stores no assistant conversation (§12.5 data minimisation) — there is no
- * server-side history to read from. It is capped here and again in
- * SupportRequestService, because it is the only learner-authored content that
- * ends up persisted.
- *
- * `source_interaction_id` is optional and its ownership is NOT validated here:
- * SupportRequestController scopes the lookup to the caller's own student
- * profile, so another learner's id is indistinguishable from a non-existent
- * one (BR-11) instead of returning a 403 that confirms the id exists.
- */
 class RequestSupportHandoffRequest extends FormRequest
 {
     public function authorize(): bool

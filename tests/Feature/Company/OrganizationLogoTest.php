@@ -12,21 +12,6 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The organization logo.
- *
- * Until this endpoint existed the `organizations.logo` column was readable and
- * unwritable: `GET /profile/me` returned it, nothing could set it, and
- * `POST /profile/avatar` is `role:learner` so a company could not use that
- * either. These tests pin the three things that make the new endpoint safe:
- *
- *   1. the file really is an image — extension AND detected type, so a renamed
- *      script is refused before it is stored;
- *   2. a replacement deletes the file it replaced, so the disk does not grow a
- *      new logo per upload;
- *   3. the payload gains a renderable `logo_url` without changing what `logo`
- *      already meant.
- */
 class OrganizationLogoTest extends TestCase
 {
     use RefreshDatabase;
@@ -37,10 +22,6 @@ class OrganizationLogoTest extends TestCase
     {
         parent::setUp();
 
-        // A logo is public by nature, so the public disk is the contract, not a
-        // test-only override: the private `local` disk serves /storage/{path}
-        // only for a signed request, which would make logo_url a 404 in a
-        // browser while the upload itself looked successful.
         $this->assertSame('public', config('company.profile.logo.disk'));
         Storage::fake('public');
 
@@ -50,10 +31,6 @@ class OrganizationLogoTest extends TestCase
             'description' => '',
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Acme', string $status = 'verified'): Organization
     {
@@ -86,10 +63,6 @@ class OrganizationLogoTest extends TestCase
 
         return $user->fresh();
     }
-
-    // -----------------------------------------------------------------
-    // Upload
-    // -----------------------------------------------------------------
 
     public function test_a_company_admin_can_upload_a_logo(): void
     {
@@ -129,8 +102,6 @@ class OrganizationLogoTest extends TestCase
 
         $response = $this->getJson('/api/v1/profile/me')->assertOk();
 
-        // `logo` keeps its original meaning (the stored path); `logo_url` is the
-        // renderable form the UI actually needs.
         $response->assertJsonPath('data.logo', $stored);
         $this->assertNotNull($response->json('data.logo_url'));
     }
@@ -180,9 +151,6 @@ class OrganizationLogoTest extends TestCase
         $organization = $this->organization();
         $admin = $this->companyAdmin($organization);
 
-        // Zero, not "1 KB": a generated PNG's real byte size depends on the
-        // encoder, and a threshold test that can pass by luck is worse than no
-        // test. Any non-empty file exceeds a zero budget.
         config(['company.profile.logo.max_kb' => 0]);
 
         Sanctum::actingAs($admin);
@@ -205,10 +173,6 @@ class OrganizationLogoTest extends TestCase
             ->assertJsonPath('code', 'LOGO_MISSING');
     }
 
-    // -----------------------------------------------------------------
-    // Delete
-    // -----------------------------------------------------------------
-
     public function test_the_logo_can_be_removed_and_removal_is_idempotent(): void
     {
         $organization = $this->organization();
@@ -229,15 +193,10 @@ class OrganizationLogoTest extends TestCase
         $this->assertNull($organization->fresh()->logo);
         Storage::disk('public')->assertMissing($path);
 
-        // A second press is not an error.
         $this->deleteJson('/api/v1/company/profile/logo')
             ->assertOk()
             ->assertJsonPath('data.logo', null);
     }
-
-    // -----------------------------------------------------------------
-    // Guards
-    // -----------------------------------------------------------------
 
     public function test_a_learner_is_refused(): void
     {

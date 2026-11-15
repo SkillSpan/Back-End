@@ -12,20 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * `POST /projects/{id}/clone` and `POST /projects/{id}/transitions`.
- *
- * Two things these tests exist to prove:
- *
- *   1. **A clone is a copy, not a shortcut.** It starts as a `draft` whatever
- *      the source is, it keeps the source's owner and organization (so an
- *      administrator cannot clone another company's project into their own),
- *      and it carries the child rows that make the project submittable.
- *   2. **The dispatcher is not a sixth implementation.** Every target it
- *      accepts lands on the same service method as the dedicated route, so the
- *      same actor, the same guard and the same refusal codes apply. It must
- *      refuse exactly what the dedicated routes refuse.
- */
 class ProjectCloneAndTransitionTest extends TestCase
 {
     use RefreshDatabase;
@@ -39,10 +25,6 @@ class ProjectCloneAndTransitionTest extends TestCase
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
         Role::create(['name' => 'University Admin', 'slug' => 'university_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Test Org'): Organization
     {
@@ -103,9 +85,6 @@ class ProjectCloneAndTransitionTest extends TestCase
         return $role;
     }
 
-    /**
-     * A project with the child rows a clone is expected to carry across.
-     */
     private function completeProject(string $status = Project::STATUS_DRAFT, ?User $owner = null): Project
     {
         $owner ??= $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -142,10 +121,6 @@ class ProjectCloneAndTransitionTest extends TestCase
         return $project->fresh();
     }
 
-    // -----------------------------------------------------------------
-    // Clone
-    // -----------------------------------------------------------------
-
     public function test_an_owner_can_clone_a_project_into_a_new_draft(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -160,10 +135,8 @@ class ProjectCloneAndTransitionTest extends TestCase
             ->assertJsonPath('data.version', 1)
             ->assertJsonPath('data.title', 'Source Project (copy)');
 
-        // A new row, not the source renamed.
         $this->assertNotSame($source->id, $response->json('data.id'));
 
-        // Cloning an OPEN project must never publish a second one.
         $this->assertSame(Project::STATUS_OPEN, $source->fresh()->status);
     }
 
@@ -184,11 +157,8 @@ class ProjectCloneAndTransitionTest extends TestCase
         $this->assertSame(2, $copy->projectRoles()->count());
         $this->assertSame(1, $copy->eligibilityConstraints()->count());
 
-        // Inactive roles survive: a clone that dropped them would silently
-        // change what the project asks for.
         $this->assertSame(1, $copy->projectRoles()->where('is_active', false)->count());
 
-        // Ownership is inherited, not reassigned to the actor.
         $this->assertSame($source->owner_id, $copy->owner_id);
         $this->assertSame($source->organization_id, $copy->organization_id);
     }
@@ -227,7 +197,6 @@ class ProjectCloneAndTransitionTest extends TestCase
 
         $response = $this->postJson("/api/v1/projects/{$source->id}/clone")->assertStatus(201);
 
-        // 250 + " (copy)" would be 257 — over the column's limit.
         $this->assertLessThanOrEqual(255, mb_strlen($response->json('data.title')));
     }
 
@@ -256,7 +225,6 @@ class ProjectCloneAndTransitionTest extends TestCase
 
         $response = $this->postJson("/api/v1/projects/{$source->id}/clone")->assertStatus(201);
 
-        // The copy stays with the company that owned the source.
         $copy = Project::find($response->json('data.id'));
         $this->assertSame($source->organization_id, $copy->organization_id);
         $this->assertSame($source->owner_id, $copy->owner_id);
@@ -285,10 +253,6 @@ class ProjectCloneAndTransitionTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR');
     }
 
-    // -----------------------------------------------------------------
-    // Transition dispatcher
-    // -----------------------------------------------------------------
-
     public function test_the_dispatcher_submits_a_draft(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -311,8 +275,6 @@ class ProjectCloneAndTransitionTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // Approving is a platform-administrator decision. The dispatcher must
-        // refuse it for exactly the same reason `POST /approve` does.
         $this->postJson("/api/v1/projects/{$project->id}/transitions", ['to' => 'approved'])
             ->assertStatus(403);
 
@@ -330,17 +292,12 @@ class ProjectCloneAndTransitionTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
 
-        // The list the client gets back is the EXECUTABLE set, not the model's
-        // declared edges — a client following it cannot hit a dead end.
         $this->assertSame(['submitted'], $response->json('details.allowed_transitions'));
     }
 
     public function test_the_dispatcher_reports_an_empty_executable_set_for_a_dead_end_state(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
-        // `archived` is the one state nothing leaves: a filed-away project is
-        // history. (`active` used to be the example here, until completing and
-        // archiving became reachable.)
         $project = $this->completeProject(Project::STATUS_ARCHIVED, $owner);
 
         Sanctum::actingAs($owner);

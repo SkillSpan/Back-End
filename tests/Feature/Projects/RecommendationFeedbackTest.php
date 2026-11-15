@@ -13,13 +13,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-MATCH-02 — recommendation feedback (save / hide / decline).
- *
- * Asserts that feedback still lands in the EXISTING feedback_events table
- * through the existing FeedbackEvent model, and that `decline` maps onto the
- * pre-existing `reject` event rather than a parallel concept.
- */
 class RecommendationFeedbackTest extends TestCase
 {
     use RefreshDatabase;
@@ -154,8 +147,6 @@ class RecommendationFeedbackTest extends TestCase
             ->assertStatus(201)
             ->assertJsonPath('data.event_type', 'reject');
 
-        // `decline` is stored as the pre-existing `reject` event — no new
-        // parallel event type was introduced.
         $this->assertDatabaseHas('feedback_events', [
             'recommendation_id' => $recommendation->id,
             'event_type' => 'reject',
@@ -190,8 +181,6 @@ class RecommendationFeedbackTest extends TestCase
 
     public function test_a_learner_cannot_leave_feedback_on_someone_elses_recommendation(): void
     {
-        // NOTE: deliberately not 'owner@test.com' — createProject() already uses
-        // that address for the project owner, and users.email is unique.
         $owner = $this->createLearner('rec-owner@test.com');
         $attacker = $this->createLearner('attacker@test.com');
         Sanctum::actingAs($attacker);
@@ -239,8 +228,6 @@ class RecommendationFeedbackTest extends TestCase
 
     public function test_repeated_feedback_is_recorded_as_separate_events(): void
     {
-        // Unlike notifications, feedback is an append-only log: saving twice is
-        // two distinct learner actions and both are kept.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 
@@ -256,11 +243,6 @@ class RecommendationFeedbackTest extends TestCase
 
     public function test_no_suppression_window_is_applied(): void
     {
-        // US-MATCH-02 mentions suppressing hidden/declined recommendations "for
-        // a configured period", but no such configuration exists. This test
-        // pins the ACTUAL behaviour: only the event is recorded, nothing is
-        // suppressed, and the recommendation remains readable. If a suppression
-        // policy is ever approved this test must change deliberately.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 
@@ -276,8 +258,6 @@ class RecommendationFeedbackTest extends TestCase
 
     public function test_the_existing_relation_still_reads_the_events(): void
     {
-        // Proves the feedback is readable through the pre-existing model
-        // relation, i.e. no parallel store was created.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 

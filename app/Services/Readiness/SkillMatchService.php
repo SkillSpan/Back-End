@@ -4,35 +4,12 @@ namespace App\Services\Readiness;
 
 use App\Exceptions\SkillMatchException;
 
-/**
- * Implements the skill-match-v1 algorithm exactly as specified by Data
- * Science (see conversation with the analyst, skill-match-v1 /
- * career-role-config-v1 contract). Deterministic: no DB access, no current
- * date, no randomness, no external calls — pure function of its input.
- */
 class SkillMatchService
 {
     private const ALGORITHM_VERSION = 'skill-match-v1';
 
     private const WEIGHT_CONFIGURATION_VERSION = 'career-role-config-v1';
 
-    /**
-     * @param  array{
-     *     student_profile_id: int,
-     *     career_role_id: int,
-     *     career_role_version: int,
-     *     user_id: int,
-     *     target_role: string,
-     *     skills: array<int, array{
-     *         skill_id: int,
-     *         skill_name: string,
-     *         current_level: float,
-     *         required_level: float,
-     *         importance_weight: float,
-     *         is_critical: bool,
-     *     }>,
-     * }  $payload
-     */
     public function calculate(array $payload): array
     {
         $skills = $payload['skills'];
@@ -66,8 +43,6 @@ class SkillMatchService
             $normalizedWeight = $importanceWeight / $originalWeightTotal;
             $normalizedWeightTotal += $normalizedWeight;
 
-            // Overachieving a skill does not push the score past 100% —
-            // a skill's contribution is capped at what was required of it.
             $achievedLevel = min($currentLevel, $requiredLevel);
 
             if ($requiredLevel <= 0) {
@@ -100,9 +75,6 @@ class SkillMatchService
             ];
         }
 
-        // Edge case: every skill has required_level = 0 (nothing required
-        // of the learner for this role) — nothing to be short of, so the
-        // learner is fully matched by definition.
         $skillMatchScore = $weightedRequiredTotal > 0
             ? min(round(($weightedAchievedTotal / $weightedRequiredTotal) * 100, 2), 100.0)
             : 100.0;

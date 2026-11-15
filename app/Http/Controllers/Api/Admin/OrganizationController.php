@@ -16,19 +16,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
-/**
- * Admin review/approval workflow for organization (company / university /
- * training partner) registrations. Per SRS PROF-02, ADM-01 and ADM-03, a
- * newly registered organization stays in "pending" state until an
- * authorized administrator reviews the uploaded proof document and
- * approves or rejects the registration.
- */
 class OrganizationController extends Controller
 {
-    /**
-     * GET /api/admin/organizations
-     * List organization registration requests, optionally filtered by status.
-     */
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status');
@@ -48,11 +37,6 @@ class OrganizationController extends Controller
         ]);
     }
 
-    /**
-     * GET /api/admin/organizations/{organization}
-     * Show a single organization request with a link to its uploaded proof
-     * document so the admin can review it before deciding.
-     */
     public function show(Organization $organization): JsonResponse
     {
         return response()->json([
@@ -62,20 +46,12 @@ class OrganizationController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/admin/organizations/{organization}/approve
-     * Approve the organization: mark it verified, mark the proof document
-     * as approved, and notify the organization admin by email.
-     */
     public function approve(Request $request, Organization $organization): JsonResponse
     {
         if ($organization->verification_status !== 'pending') {
             return $this->alreadyReviewedResponse($organization);
         }
 
-        // ADM: never approve an organization that has no submitted proof
-        // document — approving "verified" without evidence would be a
-        // false trust signal.
         if (! $organization->proofFile()) {
             return response()->json([
                 'success' => false,
@@ -123,10 +99,6 @@ class OrganizationController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/admin/organizations/{organization}/reject
-     * Reject the organization with an optional reason and notify the admin.
-     */
     public function reject(Request $request, Organization $organization): JsonResponse
     {
         if ($organization->verification_status !== 'pending') {
@@ -190,25 +162,12 @@ class OrganizationController extends Controller
         ]);
     }
 
-    /**
-     * Move the organization out of `pending` and return whether THIS call was
-     * the one that did it.
-     *
-     * Both review actions check `verification_status !== 'pending'` before
-     * they start, but that is a read followed by a write: two requests that
-     * arrive together — a double-click on the panel, or a client retry after a
-     * timeout — both read `pending` and both carry on to send the email.
-     * Restating the condition inside the UPDATE makes the transition atomic,
-     * so exactly one request can ever claim the row and exactly one email is
-     * sent. The loser is answered the same way as a sequential repeat.
-     */
     private function claimPendingOrganization(Organization $organization, int $actorId, string $status): bool
     {
         $claimed = Organization::whereKey($organization->getKey())
             ->where('verification_status', 'pending')
             ->update([
                 'verification_status' => $status,
-                // Only an approval carries a verification timestamp.
                 'verified_at' => $status === 'verified' ? now() : null,
                 'verified_by' => $actorId,
             ]);
@@ -217,19 +176,11 @@ class OrganizationController extends Controller
             return false;
         }
 
-        // The UPDATE above went straight to the database, so the in-memory
-        // model still holds the old attributes; the audit snapshot and the
-        // response both read from it.
         $organization->refresh();
 
         return true;
     }
 
-    /**
-     * The one response for "this organization is not pending any more".
-     * Shared by the pre-check and the atomic guard so that a repeat and a
-     * race are indistinguishable to the caller.
-     */
     private function alreadyReviewedResponse(Organization $organization): JsonResponse
     {
         return response()->json([
@@ -255,9 +206,6 @@ class OrganizationController extends Controller
             'contact_email' => $organization->contact_email,
             'contact_phone' => $organization->contact_phone,
             'website' => $organization->website,
-            // The review panel renders this in the expanded card. Without it
-            // the panel cannot tell "no description was submitted" apart from
-            // "the API did not send one", and always claimed the former.
             'description' => $organization->description,
             'industry' => $organization->industry,
             'company_size' => $organization->company_size,
@@ -274,8 +222,6 @@ class OrganizationController extends Controller
     {
         $file = $organization->proofFile();
 
-        // The default disk, matching wherever AuthService::uploadProofFile
-        // stored it — see the note there about container filesystems.
         if (! $file || ! Storage::exists($file->path)) {
             return response()->json([
                 'success' => false,
@@ -297,46 +243,15 @@ class OrganizationController extends Controller
             'size' => $file->size,
             'uploaded_at' => $file->created_at?->toIso8601String(),
             'download_url' => route($this->proofFileRouteName(), $file->fileable_id),
-            // Whether the file is actually on the configured disk. The row can
-            // outlive the file — a container filesystem without a persistent
-            // volume drops uploads on every deploy — and a link to a file that
-            // is no longer there looks like a broken page rather than a lost
-            // upload. The panel uses this to say which one it is.
             'available' => Storage::exists($file->path),
         ];
     }
 
-    /**
-     * Route name used to build proof-document download links.
-     *
-     * Kept overridable because the same controller also backs the
-     * session-authenticated web panel: the browser opens that link with a
-     * session cookie, so it has to point at the web route rather than at
-     * the token-protected API one.
-     */
     protected function proofFileRouteName(): string
     {
         return 'admin.organizations.proof-file';
     }
 
-    /**
-     * Deliver the review outcome to the organization's own administrators.
-     *
-     * Recipients are the user ACCOUNTS that administer the organization, so
-     * the mail goes to the address that owns the membership — not to
-     * `contact_email`, which is a public contact address the organization may
-     * not control. Memberships marked 'removed' are skipped, matching the
-     * pivot-status filter used everywhere else the organization admin is
-     * resolved (AuthController, the organization's own profile endpoint).
-     *
-     * Every outcome is logged. Laravel's mail channel returns silently when a
-     * notifiable has no routable address, and this loop does nothing at all
-     * when no membership matches — so without a trace here, "the approval
-     * email never arrived" is indistinguishable from "there was nobody to
-     * send it to", and there is nothing to debug against. The recipient list
-     * and the skipped memberships are the two facts needed to tell those
-     * apart.
-     */
     private function notifyOrganizationAdmins(Organization $organization, $notification): void
     {
         $members = $organization->members()
@@ -386,16 +301,6 @@ class OrganizationController extends Controller
         }
     }
 
-    /**
-     * Clamp the requested page size so a caller cannot ask for an unbounded
-     * result set.
-     *
-     * This list used to pass `per_page` straight into `paginate()`, so
-     * `?per_page=1000000` asked the database for a million organizations in one
-     * response — the one list endpoint on the API without a ceiling. Default 15
-     * and a hard maximum of 100 mirror Admin\ProjectController and
-     * Admin\SupportController, which already clamp the same way.
-     */
     private function perPage(Request $request): int
     {
         $perPage = (int) $request->query('per_page', 15);

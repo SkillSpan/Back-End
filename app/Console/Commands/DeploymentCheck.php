@@ -8,18 +8,6 @@ use Illuminate\Support\Facades\Schema;
 use PDO;
 use Throwable;
 
-/**
- * Read-only post-deployment check: config sanity, DB connectivity, the region
- * the database actually lives in, and how long a query really takes.
- *
- * It exists because the app and the database can end up on different
- * continents without anything in the code looking wrong: the page is slow,
- * every query pays the round trip, and no test fails. This command makes that
- * visible in one screen.
- *
- * It writes nothing: no migration, no INSERT/UPDATE/DELETE. The only queries
- * are SELECT 1 and a COUNT(*) on `users`.
- */
 class DeploymentCheck extends Command
 {
     protected $signature = 'app:deployment-check {--json : Print a machine-readable report}';
@@ -68,7 +56,6 @@ class DeploymentCheck extends Command
             $failures[] = 'DB_PASSWORD is empty.';
         }
 
-        // --- connectivity & latency (never throws; reports instead) ---------
         $latency = [
             'tcp_connect_ms' => $this->tcpConnectMs($host, $port),
             'pdo_connect_ms' => null,
@@ -139,8 +126,6 @@ class DeploymentCheck extends Command
             $failures[] = $migrations['pending'].' migration(s) recorded on disk but not applied.';
         }
 
-        // The threshold is deliberately generous: the point is to catch a
-        // cross-continent round trip, not to grade a busy server.
         if ($latency['select_1_avg_ms'] !== null && $latency['select_1_avg_ms'] > 100) {
             $failures[] = sprintf(
                 'SELECT 1 averages %.1f ms — that is cross-region distance, not query cost.',
@@ -239,11 +224,6 @@ class DeploymentCheck extends Command
         return $elapsed;
     }
 
-    /**
-     * `b6ad...-mysql.services.clever-cloud.com` is not self-describing, but its
-     * CNAME is (`par-mysql-c6...`). The prefix is the region: par=Paris,
-     * rbx=Roubaix, mtl=Montreal, …
-     */
     private function regionHint(string $host): string
     {
         if ($host === '') {
@@ -257,7 +237,6 @@ class DeploymentCheck extends Command
                 $target = (string) $records[0]['target'];
             }
         } catch (Throwable) {
-            // DNS is best-effort; the rest of the report still stands.
         }
 
         $candidates = [$target, $host];

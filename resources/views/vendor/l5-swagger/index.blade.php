@@ -24,7 +24,7 @@
       margin:0;
       background: #fafafa;
     }
-    </style>
+</style>
     @if(config('l5-swagger.defaults.ui.display.dark_mode'))
         <style>
             body#dark-mode,
@@ -112,15 +112,17 @@
             #dark-mode .opblock-summary-description {
                 color: #fafafa;
             }
-        </style>
+</style>
     @endif
 </head>
 
 <body @if(config('l5-swagger.defaults.ui.display.dark_mode')) id="dark-mode" @endif>
 <div id="swagger-ui"></div>
 
-<script src="{{ l5_swagger_asset($documentation, 'swagger-ui-bundle.js') }}"></script>
-<script src="{{ l5_swagger_asset($documentation, 'swagger-ui-standalone-preset.js') }}"></script>
+<script src="{{ l5_swagger_asset($documentation, 'swagger-ui-bundle.js') }}">
+</script>
+<script src="{{ l5_swagger_asset($documentation, 'swagger-ui-standalone-preset.js') }}">
+</script>
 <script>
     window.onload = function() {
         const urls = [];
@@ -129,7 +131,6 @@
             urls.push({name: "{{ $title }}", url: "{{ $url }}"});
         @endforeach
 
-        // Build a system
         const ui = SwaggerUIBundle({
             dom_id: '#swagger-ui',
             urls: urls,

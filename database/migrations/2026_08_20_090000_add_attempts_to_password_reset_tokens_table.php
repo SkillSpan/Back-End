@@ -6,11 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * نضيف عداد محاولات على password_reset_tokens، بنفس منطق
-     * account_verifications، عشان نمنع brute-force على كود استرجاع
-     * كلمة المرور (سواء عبر endpoint التحقق الجديد أو reset-password نفسه).
-     */
     public function up(): void
     {
         Schema::table('password_reset_tokens', function (Blueprint $table) {

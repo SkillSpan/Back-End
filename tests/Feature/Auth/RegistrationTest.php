@@ -12,23 +12,6 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
-/**
- * The registration fixtures deliberately use example.com, NOT test.com.
- *
- * test.com is on the disposable-domains blocklist that
- * propaganistas/laravel-disposable-email ships, so any address at that domain
- * is rejected with 422 by the 'indisposable' rule on RegisterRequest (the
- * individual flow) — and was, until the organisation flow was exempted. Using
- * it here made these tests pass for the wrong reason — e.g. the
- * duplicate-email test still went green because the address was rejected as
- * disposable before the unique rule was ever reached.
- *
- * Note the rule now covers only the individual and Google paths; the
- * organisation flow accepts disposable domains on purpose.
- *
- * Disposable-email behaviour itself is covered separately in
- * DisposableEmailRegistrationTest.
- */
 class RegistrationTest extends TestCase
 {
     use RefreshDatabase;
@@ -54,9 +37,6 @@ class RegistrationTest extends TestCase
             'password_confirmation' => 'password123',
             'terms_accepted' => true,
             'privacy_accepted' => true,
-            // Academic fields (university/specialization) are collected
-            // later via POST /api/v1/profile as Foreign Keys — the
-            // registration payload only seeds a bare profile row.
             'career_status' => 'طالب',
         ]);
 
@@ -68,8 +48,6 @@ class RegistrationTest extends TestCase
         $this->assertDatabaseHas('student_profiles', [
             'user_id' => User::where('email', 'ahmed@example.com')->first()->id,
             'career_status' => 'طالب',
-            // SRS PROF-05: an untouched profile has zero completeness —
-            // no hardcoded baseline outranking real progress.
             'completeness_percent' => 0,
         ]);
         $this->assertNotNull(User::where('email', 'ahmed@example.com')->first()->terms_accepted_at);
@@ -107,14 +85,6 @@ class RegistrationTest extends TestCase
         ]);
     }
 
-    /**
-     * The organization flow does not send an OTP — the account is marked
-     * email-verified at registration and gated on the manual proof-document
-     * review. The response must therefore NOT claim that email verification
-     * is required, and must not hand back a resend window for a code that
-     * was never issued (which is what used to send clients into a dead-end
-     * verification screen).
-     */
     public function test_organization_registration_does_not_claim_email_verification_is_required(): void
     {
         $response = $this->postJson('/api/v1/auth/register/organization', [
@@ -134,13 +104,10 @@ class RegistrationTest extends TestCase
             ->assertJsonPath('data.requires_verification', false)
             ->assertJsonMissingPath('data.resend_available_at');
 
-        // The account really is verified and active at this point, so the
-        // response and the persisted state now agree.
         $user = User::where('email', 'admin2@company.com')->first();
         $this->assertSame('active', $user->status);
         $this->assertNotNull($user->email_verified_at);
 
-        // And no verification code was ever sent.
         Notification::assertNothingSent();
     }
 
@@ -201,20 +168,6 @@ class RegistrationTest extends TestCase
         $response->assertJsonValidationErrors(['proof_file']);
     }
 
-    /**
-     * Regression: the live frontend was sending seven organization details
-     * under UNPREFIXED names (`organization_size`, `website`, `description`,
-     * `country`, `city`, `address`, `postal_code`) that matched NO rule on
-     * RegisterOrganizationRequest, so they validated as absent and the
-     * columns stayed NULL — which is what made the admin panel say
-     * "No description was provided for this organization." even though the
-     * user typed one.
-     *
-     * The canonical fix lives on the frontend (see FRONTEND_ORG_FIELD_FIX.patch
-     * and FRONTEND_ORG_REGISTRATION_FIELD_AUDIT.md). Until that lands we
-     * accept both names in prepareForValidation() — this test pins the
-     * fallback so it cannot quietly break again.
-     */
     public function test_organization_registration_accepts_legacy_unprefixed_field_names(): void
     {
         $file = UploadedFile::fake()->image('proof.jpg');
@@ -227,16 +180,12 @@ class RegistrationTest extends TestCase
             'terms_accepted' => true,
             'privacy_accepted' => true,
 
-            // The canonical, prefixed names — these have always worked.
             'organization_name' => 'Northwind Traders',
             'organization_type' => 'company',
             'organization_industry' => 'Software & IT Services',
             'organization_contact_email' => 'sam@acme.example',
             'organization_contact_phone' => '+962 6 555 1234',
 
-            // The seven legacy, unprefixed names — these are what the live
-            // frontend is sending today. Before the fallback they were
-            // silently dropped and stored as NULL.
             'organization_size' => '11 - 50 employees',
             'website' => 'https://northwind.example',
             'description' => 'We build developer tooling for the region.',
@@ -250,7 +199,6 @@ class RegistrationTest extends TestCase
 
         $response->assertStatus(201);
 
-        // Every column that the user typed must actually be in the database.
         $this->assertDatabaseHas('organizations', [
             'name' => 'Northwind Traders',
             'industry' => 'Software & IT Services',
@@ -266,11 +214,6 @@ class RegistrationTest extends TestCase
         ]);
     }
 
-    /**
-     * No-regression guard for the fallback: when BOTH the canonical and the
-     * legacy name are sent, the canonical one wins (the contract). The
-     * fallback must only kick in when the canonical field is absent.
-     */
     public function test_the_canonical_organization_field_name_wins_when_both_are_sent(): void
     {
         $file = UploadedFile::fake()->image('proof.jpg');
@@ -302,7 +245,6 @@ class RegistrationTest extends TestCase
             'city' => 'Cairo',
         ]);
 
-        // And neither legacy value leaked into a different column.
         $org = Organization::where('name', 'Both Names Co')->first();
         $this->assertSame('canonical description', $org->description);
         $this->assertSame('Cairo', $org->city);

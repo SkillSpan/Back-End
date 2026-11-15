@@ -5,16 +5,8 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * Presentation for a single in-app notification. `is_read` is derived
- * from `read_at` so the client does not have to interpret a timestamp
- * to render the unread badge.
- */
 class NotificationResource extends JsonResource
 {
-    /**
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [

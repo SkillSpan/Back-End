@@ -45,13 +45,6 @@ class Conversation extends Model
         return $this->hasMany(Message::class)->latest('created_at');
     }
 
-    /**
-     * Users who have removed this conversation from their own list.
-     *
-     * Deliberately NOT a delete: the conversation, its messages and the audit
-     * trail stay intact for the other participant. See the
-     * `conversation_user_hides` migration for the reasoning.
-     */
     public function hiddenFor()
     {
         return $this->belongsToMany(User::class, 'conversation_user_hides')
@@ -59,9 +52,6 @@ class Conversation extends Model
             ->withTimestamps();
     }
 
-    /**
-     * Scope to only active conversations.
-     */
     public function scopeActive($query)
     {
         return $query->where('status', 'active');

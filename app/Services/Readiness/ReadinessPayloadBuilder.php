@@ -9,10 +9,6 @@ use Illuminate\Support\Collection;
 
 class ReadinessPayloadBuilder
 {
-    /**
-     * Build the exact request contract accepted by the current FastAPI service.
-     * importance_weight is normalized on a 0..1 scale.
-     */
     public function build(StudentProfile $studentProfile, CareerRole $careerRole, Collection $roleSkills): array
     {
         $skills = [];
@@ -58,7 +54,6 @@ class ReadinessPayloadBuilder
                 'skill_name' => (string) $roleSkill->skill->name,
                 'current_level' => $currentLevel,
                 'required_level' => $requiredLevel,
-                // importance_weight is normalized on a 0..1 scale.
                 'importance_weight' => $importanceWeight,
                 'is_critical' => (bool) $roleSkill->is_critical,
             ];

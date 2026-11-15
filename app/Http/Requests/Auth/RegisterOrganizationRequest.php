@@ -13,36 +13,12 @@ class RegisterOrganizationRequest extends FormRequest
         return true;
     }
 
-    /**
-     * نطبّع الإيميل (حروف صغيرة + إزالة مسافات) قبل الفاليديشن،
-     * عشان قاعدة unique تكتشف التكرار حتى لو انكتب بحروف مختلفة.
-     *
-     * نسخ احتياطي للأسماء القديمة (بدون بادئة organization_):
-     * الـ frontend كان يبعت seven حقول بأسماء بدون البادئة
-     * (`organization_size`, `website`, `description`, `country`, `city`,
-     * `address`, `postal_code`)، اللي ما كانت متطابقة مع أي قاعدة
-     * فاليديشن، فكانت validation بتنجح مع `null` وما بتخزن شي —
-     * ولهذا الـ admin panel كان يعرض "No description was provided"
-     * حتى لو المستخدم كتب وصف. حالياً الـ patch جاهز في
-     * `FRONTEND_ORG_FIELD_FIX.patch`، لكن لحد ما يُطبَّق على
-     * الـ frontend بنقبل كلتا التسميتين — prefixed (canonical) ولّا
-     * unprefixed (legacy). لما يُحدَّث الـ frontend، يصير الـ fallback
-     * no-op بدون أي تغيير بالعقد.
-     *
-     * normalization of the email is also done here (lowercase + trim)
-     * so the unique rule catches duplicates regardless of letter casing.
-     */
     protected function prepareForValidation(): void
     {
         if ($this->has('email')) {
             $this->merge(['email' => strtolower(trim((string) $this->input('email')))]);
         }
 
-        // Canonical → legacy aliases. The prefixed name is the contract;
-        // the unprefixed one is the older send that the frontend was using
-        // before FRONTEND_ORG_FIELD_FIX landed. We only fall back when the
-        // canonical value is empty, so a future client that sends both
-        // correctly cannot be surprised by the wrong one winning.
         $legacyAliases = [
             'organization_company_size' => 'organization_size',
             'organization_website' => 'website',
@@ -68,25 +44,6 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            // ⚠️ Deliberately NO 'indisposable' here — unlike the individual
-            // flow in RegisterRequest, and unlike the Google sign-up path in
-            // AuthService::loginWithGoogle().
-            //
-            // An organisation is a VETTED entity, not a self-serve account:
-            // the organisation is created with verification_status 'pending'
-            // and an administrator has to review the uploaded proof document
-            // before it can operate. That human review — not the mailbox — is
-            // the real gate, so a throwaway address buys a registrant nothing.
-            //
-            // The rule was actively harmful on this path: companies and
-            // university / training-partner desks legitimately register from
-            // shared, role-based or domain-less mailboxes, and the rule turned
-            // them away with a message that reads as an accusation. Do not add
-            // it back.
-            //
-            // Deliberately NOT applied to 'organization_contact_email' below
-            // either: that is a public contact address, not the account
-            // identity.
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'confirmed', Password::min(8)],
@@ -115,8 +72,6 @@ class RegisterOrganizationRequest extends FormRequest
     {
         return [
             'email.unique' => 'This email is already registered.',
-            // No 'email.indisposable' key on purpose — the rule is not in the
-            // rule set above, so a message for it could never be reached.
             'terms_accepted.accepted' => 'You must accept the Terms and Conditions.',
             'privacy_accepted.accepted' => 'You must accept the Privacy Policy.',
             'proof_file.required' => 'Please upload a document proving the organization\'s identity (company or university registration certificate).',

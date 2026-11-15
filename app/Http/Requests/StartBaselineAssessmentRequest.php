@@ -6,29 +6,6 @@ use App\Models\CareerRole;
 use App\Models\Specialization;
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * POST /api/v1/baseline-assessments
- *
- * Two independent rules, both about ACTIVATION rather than about the pivot:
- *
- *   career_role_id    — must exist, be approved AND be active.
- *   specialization_id — optional; when sent it must exist and be active.
- *
- * WHAT CHANGED IN THE MVP
- * -----------------------
- * This request used to cross-check that the role was linked to the given
- * specialization through `career_role_specialization`, which made the pivot an
- * access-control list. Under the MVP policy the specialization no longer
- * restricts the choice — a Computer Science learner may start an assessment
- * for a Data Science role — so that cross-check is gone. The specialization
- * still validates as a value (it must be a real, active track), it simply no
- * longer vetoes the role.
- *
- * A DEACTIVATED ROLE CANNOT START A NEW ASSESSMENT. This is the one place the
- * activation flag blocks a write: every read path (an assessment that already
- * exists, its snapshot, readiness, roadmaps) keeps working, because those rows
- * reference the role by id and are never re-validated here.
- */
 class StartBaselineAssessmentRequest extends FormRequest
 {
     public function authorize(): bool
@@ -47,7 +24,7 @@ class StartBaselineAssessmentRequest extends FormRequest
                     $role = CareerRole::find($value);
 
                     if (! $role) {
-                        return; // already reported by the exists rule
+                        return;
                     }
 
                     if ($role->status !== 'approved') {
@@ -56,18 +33,12 @@ class StartBaselineAssessmentRequest extends FormRequest
                         return;
                     }
 
-                    // Deactivated for the MVP: not offered, so not startable.
-                    // Its history stays readable — only NEW assessments are
-                    // refused.
                     if (! $role->is_active) {
                         $fail('The selected career role is not available.');
                     }
                 },
             ],
 
-            // Optional: when supplied, it must be a real, active track.
-            // Omitting it preserves the original career_role_id-only contract
-            // for existing consumers.
             'specialization_id' => [
                 'sometimes',
                 'nullable',
@@ -92,16 +63,6 @@ class StartBaselineAssessmentRequest extends FormRequest
         ];
     }
 
-    /**
-     * There is deliberately no `withValidator()` cross-field rule here.
-     *
-     * The one this request used to carry ("the role must belong to the
-     * specialization") encoded the old pivot-as-access-list behaviour. Under
-     * the MVP policy any active role may be assessed under any active
-     * specialization, so the only remaining constraints are the two activation
-     * checks above — and those belong in `rules()` so they run whether or not
-     * the other id is present.
-     */
     public function messages(): array
     {
         return [

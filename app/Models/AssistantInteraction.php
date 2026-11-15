@@ -6,15 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * US-REC-01 — one permitted assistant interaction.
- *
- * Audit metadata only: which permitted intent was asked, which context
- * snapshot the answer was derived from (by reference), and the outcome.
- * The question and the assistant's reply are deliberately NOT stored —
- * SRS v1.1 §12.5 requires approved privacy/retention rules, and the
- * approved reading is data minimisation.
- */
 class AssistantInteraction extends Model
 {
     use HasFactory;
@@ -25,7 +16,6 @@ class AssistantInteraction extends Model
 
     public const STATUS_FAILED = 'failed';
 
-    /** §12.6 incident flow / REC-08 — report classifications. */
     public const REPORT_UNSAFE = 'unsafe';
 
     public const REPORT_IRRELEVANT = 'irrelevant';

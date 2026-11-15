@@ -4,16 +4,6 @@ namespace App\OpenApi;
 
 use OpenApi\Attributes as OA;
 
-/**
- * Root OpenAPI document.
- *
- * Everything here is descriptive only — it documents the API that already
- * exists in routes/api.php. It does not change any behaviour.
- *
- * The API is versioned under the `/v1` prefix (see routes/api.php), and the
- * server below is `/api`, so an operation path of `/v1/auth/login` resolves
- * to `/api/v1/auth/login` — exactly the registered route.
- */
 #[OA\Info(
     version: '1.0.0',
     title: 'SkillSpan API',

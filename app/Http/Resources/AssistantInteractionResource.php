@@ -6,29 +6,8 @@ use App\Services\Assistant\AssistantAnswer;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * US-REC-01 — assistant interaction presentation.
- *
- * Exposes audit metadata, plus the assistant's reply on the /ask response.
- *
- * The reply is **relayed, never stored**, and that split is the whole design:
- * §12.5 data minimisation means the conversation is not persisted, but dropping
- * the reply entirely would leave the UI with nothing to show. So it travels on
- * {@see AssistantAnswer}, which is deliberately not an Eloquent model — an
- * unpersisted attribute on a model *looks* storable, and one careless `save()`
- * later it is in the database.
- *
- * `answer` is null on the /report response, which has no reply to relay.
- */
 class AssistantInteractionResource extends JsonResource
 {
-    /**
-     * Set by AssistantController::ask() only.
-     *
-     * Declared as a real property rather than left dynamic so the read in
-     * toArray() is not routed through JsonResource::__get, which forwards to the
-     * underlying model and would find nothing there.
-     */
     public ?AssistantAnswer $answer = null;
 
     public function toArray(Request $request): array
@@ -53,26 +32,6 @@ class AssistantInteractionResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
         ];
 
-        /*
-         * Only on /ask. Note that `reply` being present here while
-         * `response_status` is `failed` is a coherent combination, not a bug:
-         * the service answered with its fallback text, so there IS a reply, but
-         * no model produced it — see AssistantService::ask(). Monitoring should
-         * branch on response_status; the UI should render the reply.
-         *
-         * `handoff_available` is the UI's cue to offer "talk to technical
-         * support". It is true when the assistant replied but nothing in the
-         * snapshot could ground an answer to the question — either because
-         * the service said so (`insufficient_context`), or because Laravel
-         * knows the source behind that intent was `available => false` when
-         * it built the snapshot. The second condition is the one that fires
-         * in practice: the service reports `answered` on every call it
-         * receives, so the first has never occurred in production.
-         * {@see AssistantContextBuilder::groundsIntent()}
-         *
-         * It is never true on a provider outage, where a human would be
-         * handed a question the assistant never actually considered.
-         */
         if ($this->answer !== null) {
             $payload['reply'] = $this->answer->reply;
             $payload['provider_used'] = $this->answer->providerUsed;

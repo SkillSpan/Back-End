@@ -8,47 +8,9 @@ use App\Models\Recommendation;
 use App\Models\Roadmap;
 use App\Models\RoadmapAction;
 use App\Models\StudentProfile;
-use App\Services\Intelligence\IntelligencePayloadBuilder;
 
-/**
- * US-REC-01 — approved learner context snapshot.
- *
- * The assistant equivalent of {@see IntelligencePayloadBuilder}.
- * It assembles ONLY data the learner is authorised to see (BR-11 / §12.5):
- * every single query is explicitly scoped to the authenticated learner.
- *
- * Two rules are enforced structurally rather than by convention:
- *
- *  1. **No fabrication (REC-07).** A source that has no row for this
- *     learner is recorded as `['available' => false, 'reason' => …]`.
- *     It is never silently omitted, and never defaulted to a plausible
- *     value. The assistant service is told "this is unknown", which is
- *     what lets it express uncertainty instead of inventing an answer.
- *
- *  2. **No recomputation (BR-REC-02, BR-06).** Readiness, skill gaps and
- *     the roadmap are read back exactly as they were stored. Nothing is
- *     recalculated or "corrected" here — a stored score that looks wrong
- *     is still the authoritative score, and the assistant explains it.
- *
- * Payload hygiene matches the approved intelligence payload: internal
- * numeric identifiers and validated levels only — no name, no email, no
- * free text belonging to the learner.
- */
 class AssistantContextBuilder
 {
-    /**
-     * Which context sources can ground an answer to each permitted intent.
-     *
-     * Declared here, beside the snapshot keys it names, rather than on the
-     * service: a renamed snapshot key breaks at the point that produces it
-     * instead of silently degrading the handoff to "always offer".
-     *
-     * `project_bounded_help` accepts either source — a learner may be
-     * discussing a project they applied to, or one that was recommended to
-     * them, and either one is real grounding.
-     *
-     * @var array<string, list<string>>
-     */
     private const INTENT_GROUNDING = [
         'explain_readiness' => ['readiness'],
         'explain_skill_gap' => ['skill_gaps'],
@@ -58,11 +20,6 @@ class AssistantContextBuilder
         'project_bounded_help' => ['project_recommendations', 'project_applications'],
     ];
 
-    /**
-     * Build the snapshot plus its reproducibility reference.
-     *
-     * @return array{snapshot: array<string, mixed>, reference: string}
-     */
     public function build(StudentProfile $studentProfile): array
     {
         $careerRoleId = $studentProfile->primary_career_role_id !== null
@@ -70,9 +27,6 @@ class AssistantContextBuilder
             : null;
 
         $snapshot = [
-            // Internal identifier only — the same shape the approved
-            // intelligence payload already sends (SRS §8.6, line 418:
-            // "receives only validated decision data").
             'student_profile_id' => (int) $studentProfile->id,
             'career_role' => $this->careerRole($studentProfile),
             'readiness' => $this->readiness($studentProfile, $careerRoleId),
@@ -85,37 +39,10 @@ class AssistantContextBuilder
 
         return [
             'snapshot' => $snapshot,
-            // Deterministic fingerprint of the data actually sent. Stored on
-            // the interaction row instead of the snapshot itself, so the
-            // audit trail proves provenance without retaining learner
-            // content (SRS v1.1 §9.5, §12.5).
             'reference' => 'ctx-'.substr(hash('sha256', (string) json_encode($snapshot)), 0, 32),
         ];
     }
 
-    /**
-     * Can the snapshot we are about to send ground an answer to this intent?
-     *
-     * ⚠️ This exists because the assistant service never reports that it
-     * cannot answer. Its `status` field is `answered` on every call it has
-     * ever made: verified against production, `insufficient_context` has
-     * been recorded **zero** times — including for learners with no stored
-     * data whatsoever. A refusal comes back as a *well-formed answer about
-     * the missing data* ("no skill-gap analysis is available for you yet"),
-     * which is grounded to the service and a non-answer to the learner. So
-     * `answer_status` alone can never drive the handoff offer.
-     *
-     * Laravel is the only party that knows what it actually sent. When the
-     * source behind the question is `available => false`, the learner's own
-     * data cannot answer it — the model is working from general
-     * documentation at best. That is precisely "the chat does not have the
-     * answer", which is what the offer is for.
-     *
-     * An unknown intent returns true: never offer a human on a rule we do
-     * not have.
-     *
-     * @param  array<string, mixed>  $snapshot
-     */
     public function groundsIntent(array $snapshot, string $intent): bool
     {
         $sources = self::INTENT_GROUNDING[$intent] ?? null;
@@ -133,33 +60,14 @@ class AssistantContextBuilder
         return false;
     }
 
-    /**
-     * Scoped lookup for an optional targeted recommendation.
-     *
-     * Returns null when the row does not exist OR belongs to another
-     * learner — the two cases are deliberately indistinguishable to the
-     * caller so the endpoint cannot be used to probe for other learners'
-     * identifiers (BR-11).
-     */
     public function findOwnedRecommendation(StudentProfile $studentProfile, int $recommendationId): ?Recommendation
     {
         return Recommendation::query()
             ->whereKey($recommendationId)
-            // student_profiles.user_id is UNIQUE, so scoping by the
-            // authenticated learner's user id is exactly equivalent to
-            // scoping by student_profile_id — recommendations is keyed on
-            // user_id and has no student_profile_id column.
             ->where('user_id', $studentProfile->user_id)
             ->first();
     }
 
-    /**
-     * Scoped lookup for an optional targeted project.
-     *
-     * A learner may discuss a project only if it is genuinely part of
-     * their own journey: they applied to it, or it was recommended to
-     * them. Merely knowing a project id is not enough (BR-11).
-     */
     public function findAccessibleProject(StudentProfile $studentProfile, int $projectId): ?Project
     {
         $userId = $studentProfile->user_id;
@@ -183,9 +91,6 @@ class AssistantContextBuilder
         return Project::query()->whereKey($projectId)->first();
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function careerRole(StudentProfile $studentProfile): array
     {
         $careerRole = $studentProfile->primaryCareerRole;
@@ -203,11 +108,6 @@ class AssistantContextBuilder
         ];
     }
 
-    /**
-     * Latest stored readiness result — read, never recalculated.
-     *
-     * @return array<string, mixed>
-     */
     private function readiness(StudentProfile $studentProfile, ?int $careerRoleId): array
     {
         $readiness = $studentProfile->readinessResults()
@@ -255,14 +155,6 @@ class AssistantContextBuilder
         ];
     }
 
-    /**
-     * Skill gaps from the most recent SUCCESSFUL decision snapshot.
-     *
-     * Read back verbatim from `skill_gap_results`; the assistant never
-     * re-derives a gap (BR-REC-02).
-     *
-     * @return array<string, mixed>
-     */
     private function skillGaps(StudentProfile $studentProfile): array
     {
         $snapshot = $studentProfile->decisionSnapshots()
@@ -313,9 +205,6 @@ class AssistantContextBuilder
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function roadmap(StudentProfile $studentProfile, ?int $careerRoleId): array
     {
         $roadmap = $this->latestRoadmap($studentProfile, $careerRoleId);
@@ -368,22 +257,6 @@ class AssistantContextBuilder
         ];
     }
 
-    /**
-     * ROAD-11 — "one explainable Next Best Action".
-     *
-     * ⚠️ There is no stored Next Best Action flag anywhere in the schema
-     * (`roadmap_actions` has priority_score / order_index / fastapi_order
-     * / status, but nothing that nominates a single action). This is
-     * therefore a READ-SIDE SELECTION, not a recomputation: the first
-     * action that is still outstanding, in the order the roadmap already
-     * defines. No priority is re-derived and no score is invented.
-     *
-     * If the intelligence service is meant to nominate the action
-     * explicitly, it needs to return that flag — until then this is the
-     * most faithful reading of ROAD-11 and is flagged as such.
-     *
-     * @return array<string, mixed>
-     */
     private function nextBestAction(StudentProfile $studentProfile, ?int $careerRoleId): array
     {
         $roadmap = $this->latestRoadmap($studentProfile, $careerRoleId);
@@ -420,9 +293,6 @@ class AssistantContextBuilder
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function projectRecommendations(StudentProfile $studentProfile): array
     {
         $recommendations = Recommendation::query()
@@ -460,11 +330,6 @@ class AssistantContextBuilder
         return ['available' => true, 'recommendations' => $items];
     }
 
-    /**
-     * Application context — the learner's own project applications.
-     *
-     * @return array<string, mixed>
-     */
     private function projectApplications(StudentProfile $studentProfile): array
     {
         $applications = Application::query()
@@ -501,13 +366,6 @@ class AssistantContextBuilder
             ->first();
     }
 
-    /**
-     * Explicit "we do not know this" marker. Never a default value, never
-     * a silent omission — REC-07 requires the assistant to be able to
-     * distinguish an unknown from a zero.
-     *
-     * @return array{available: false, reason: string}
-     */
     private function unavailable(string $reason): array
     {
         return ['available' => false, 'reason' => $reason];

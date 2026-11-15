@@ -7,24 +7,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
-/**
- * Read-only region + latency probe for the deployed service.
- *
- * Purpose: the app runs on Render (US West) and the database lives at a different
- * provider, so "the site is slow" can only be settled by measuring the real
- * round trip from the machine that actually talks to MySQL. That machine is the
- * container, not a laptop, so the numbers have to come from here.
- *
- * It reports nothing secret: the host is never echoed, only the region encoded
- * in its CNAME (`par-` = Paris, `mtl-` = Montreal, ...), the resolved IPs, and
- * timings. Two queries at most, both constant-cost, no writes.
- *
- * Reached on a fixed unguessable path rather than the open root so it does not
- * show up in a casual route scan.
- */
 class SystemPulseController extends Controller
 {
-    /** Clever Cloud puts the region in the CNAME: <region>-mysql-<n>. */
     private const REGIONS = [
         'par' => 'Paris (FR)',
         'rbx' => 'Roubaix (FR)',
@@ -80,7 +64,6 @@ class SystemPulseController extends Controller
         ]);
     }
 
-    /** First CNAME hop for the database host, or an empty string. */
     private function cname(string $host): string
     {
         if ($host === '' || ! function_exists('dns_get_record')) {
@@ -96,7 +79,6 @@ class SystemPulseController extends Controller
         return '';
     }
 
-    /** @return list<string> */
     private function ips(string $host): array
     {
         if ($host === '') {

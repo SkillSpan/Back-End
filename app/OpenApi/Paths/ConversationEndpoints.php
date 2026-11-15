@@ -4,21 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for the mentor-student communication endpoints.
- * Two controllers share the conversation path space:
- *
- *  - App\Http\Controllers\Api\ConversationController — human conversations and messages
- *  - App\Http\Controllers\Api\ChatbotController      — automated (message_type=chatbot) messages
- *
- * All endpoints require auth:sanctum + account.active. Participant
- * authorization is enforced inside App\Services\ConversationService (not at
- * the middleware layer), which surfaces as HTTP 403 with a machine-readable
- * `code` in the error envelope.
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class ConversationEndpoints
 {
     #[OA\Post(

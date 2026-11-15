@@ -11,23 +11,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-/**
- * Chatbot communication endpoints for a mentor-student conversation.
- *
- * A "chatbot message" is an automated message posted into a conversation
- * (reminders, prompts, guided next-steps) and tagged message_type=chatbot
- * so it is separable from human traffic in both the API and the audit
- * trail. Authorization is identical to human messaging: only the two
- * participants may post or read, enforced in ConversationService.
- */
 class ChatbotController extends Controller
 {
     public function __construct(private readonly ConversationService $conversationService) {}
 
-    /**
-     * POST /api/v1/conversations/{conversation}/chatbot/messages
-     * Post a chatbot message into a conversation.
-     */
     public function send(SendChatbotMessageRequest $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -56,10 +43,6 @@ class ChatbotController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/conversations/{conversation}/chatbot/messages
-     * Retrieve only the chatbot messages in a conversation.
-     */
     public function messages(Request $request, int $conversation): JsonResponse
     {
         $requestId = $this->requestId($request);

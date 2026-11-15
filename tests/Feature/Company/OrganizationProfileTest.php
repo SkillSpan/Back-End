@@ -15,31 +15,6 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-COMP-04 — Organization Profile Management.
- *
- * The story's fifteen testing bullets, in the order it lists them:
- *
- *   1  view the profile                      → test_company_admin_can_view_...
- *   2  update the profile                    → test_profile_can_be_updated_...
- *   3  a missing required field              → test_missing_required_field_...
- *   4  a bad e-mail / website / phone        → test_invalid_contact_details_...
- *   5  nothing is written when it fails      → test_profile_is_untouched_...
- *   6  upload a document                     → test_document_can_be_uploaded
- *   7  replace a document                    → test_replacing_a_document_...
- *   8  an unsupported file type              → test_unsupported_document_...
- *   9  an oversized file                     → test_oversized_document_...
- *   10 document access control               → test_a_document_of_another_...
- *   11 completeness                           → test_completeness_counts_...
- *   12 re-verification policy                 → test_reverification_* (three modes)
- *   13 the audit record                       → test_profile_update_and_document_..._are_audited
- *   14 cross-organization access              → test_an_admin_only_ever_edits_...
- *   15 learner direct access                  → test_a_learner_cannot_reach_...
- *
- * Plus the two things a reader of the code would otherwise have to assume:
- * the read-only fields are refused rather than ignored, and the legacy
- * `/organization/profile` path returns the very same payload.
- */
 class OrganizationProfileTest extends TestCase
 {
     use RefreshDatabase;
@@ -52,19 +27,12 @@ class OrganizationProfileTest extends TestCase
     {
         parent::setUp();
 
-        // Uploads go to a fake local disk, so `available` is true and nothing
-        // is written to the real storage directory during the suite.
         Storage::fake('local');
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyAdminRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
-
-    /** The enum is pending|verified|rejected — there is no 'approved' value. */
     private function organization(string $name = 'Acme', string $status = 'verified', array $attributes = []): Organization
     {
         return Organization::forceCreate(array_merge([
@@ -119,20 +87,12 @@ class OrganizationProfileTest extends TestCase
         return HttpUploadedFile::fake()->create($name, $kilobytes, 'application/pdf');
     }
 
-    /**
-     * A file that starts with %PDF — so the MIME gate accepts it — and carries
-     * a PHP payload after the header. This is the case only the content scan
-     * can see, and the one the scan exists for.
-     */
     private function polyglot(): string
     {
         return "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
             ."<?php system(\$_GET['c']); ?>\ntrailer<<>>\n%%EOF\n";
     }
 
-    /**
-     * @param  array<string, mixed>  $overrides
-     */
     private function upload(Organization $organization, array $overrides = []): TestResponse
     {
         return $this->post('/api/v1/company/profile/documents', array_merge([
@@ -140,10 +100,6 @@ class OrganizationProfileTest extends TestCase
             'file' => $this->pdf(),
         ], $overrides), ['Accept' => 'application/json']);
     }
-
-    // -----------------------------------------------------------------
-    // 1 — view
-    // -----------------------------------------------------------------
 
     public function test_company_admin_can_view_the_profile(): void
     {
@@ -188,14 +144,8 @@ class OrganizationProfileTest extends TestCase
 
         $legacy->assertOk()->assertJsonPath('data.id', $organization->id);
 
-        // One service, two paths: a screen built on the old endpoint and one
-        // built on the new one cannot disagree about the percentage.
         $this->assertSame($srs->json('data'), $legacy->json('data'));
     }
-
-    // -----------------------------------------------------------------
-    // 2 — update
-    // -----------------------------------------------------------------
 
     public function test_profile_can_be_updated_and_the_change_is_persisted(): void
     {
@@ -214,8 +164,6 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.profile.name', 'Acme Holdings')
             ->assertJsonPath('data.profile.city', 'Aleppo')
-            // A scheme is added on the way in so every stored website can be
-            // rendered as a link without the client guessing.
             ->assertJsonPath('data.profile.website', 'https://acme.com')
             ->assertJsonPath('data.changed', ['name', 'website', 'city']);
 
@@ -239,14 +187,8 @@ class OrganizationProfileTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.changed', []);
 
-        // No write, therefore no "profile updated" audit row: an unchanged
-        // save is not an edit.
         $this->assertDatabaseMissing('audit_events', ['action' => 'organization.profile.updated']);
     }
-
-    // -----------------------------------------------------------------
-    // 3 / 4 / 5 — validation, and what a failed save must NOT do
-    // -----------------------------------------------------------------
 
     public function test_missing_required_field_is_rejected(): void
     {
@@ -269,8 +211,6 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('code', 'PROFILE_VALIDATION_FAILED')
             ->assertJsonStructure(['errors' => ['contact_email']]);
 
-        // A bare host is not a website: the `url` rule used to accept it once
-        // a scheme was prepended, which is why there is a dedicated rule.
         $this->patchJson('/api/v1/profile/me', ['website' => 'acme'])
             ->assertStatus(422)
             ->assertJsonStructure(['errors' => ['website']]);
@@ -286,9 +226,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // A valid field alongside an invalid one: the valid one must NOT be
-        // written, or a user who mistypes their e-mail loses the rest of the
-        // form.
         $this->patchJson('/api/v1/profile/me', [
             'name' => 'Renamed Ltd',
             'city' => 'Damascus',
@@ -316,8 +253,6 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('code', 'PROFILE_CONTACT_REQUIRED')
             ->assertJsonPath('errors.fields', ['contact_email', 'contact_phone']);
 
-        // Clearing the e-mail while a phone remains is fine — the rule is
-        // "reachable", not "e-mail required".
         $this->patchJson('/api/v1/profile/me', ['contact_email' => null, 'contact_phone' => '+963 999 123 456'])
             ->assertOk()
             ->assertJsonPath('data.profile.contact_phone', '+963 999 123 456');
@@ -334,13 +269,10 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('code', 'FIELD_NOT_EDITABLE')
             ->assertJsonPath('errors.fields', ['verification_status']);
 
-        // BR-02 — `type` moves the organization into another role's scope.
         $this->patchJson('/api/v1/profile/me', ['type' => 'university'])
             ->assertStatus(422)
             ->assertJsonPath('code', 'FIELD_NOT_EDITABLE');
 
-        // Echoing the current values back — what a form seeded from the GET
-        // does on every save — must still succeed.
         $this->patchJson('/api/v1/profile/me', [
             'name' => 'Acme',
             'type' => 'company',
@@ -351,10 +283,6 @@ class OrganizationProfileTest extends TestCase
         $this->assertSame('verified', $organization->verification_status);
         $this->assertSame('company', $organization->type);
     }
-
-    // -----------------------------------------------------------------
-    // 6 / 7 — documents
-    // -----------------------------------------------------------------
 
     public function test_document_can_be_uploaded(): void
     {
@@ -397,8 +325,6 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('data.replaced.id', $first)
             ->assertJsonPath('data.profile.documents.business_registration.version', 2);
 
-        // Nothing is deleted and nothing is updated in place: the superseded
-        // row stays, so the audit trail can point at it.
         $this->assertSame(2, UploadedFile::query()->where('type', 'certificate')->count());
 
         $second = UploadedFile::query()->latest('id')->firstOrFail();
@@ -426,7 +352,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // The limit is 5 MB (config/company.php, env-overridable).
         $this->upload($organization, ['file' => $this->pdf('huge.pdf', 6000)])
             ->assertStatus(422)
             ->assertJsonPath('code', 'DOCUMENT_TOO_LARGE');
@@ -447,11 +372,6 @@ class OrganizationProfileTest extends TestCase
             ),
         ]);
 
-        // WHICH code comes back depends on which layer fires first, and over
-        // real HTTP it is the MIME gate: fileinfo reads a plain script as
-        // `text/x-php`, so the upload never reaches the content scan. The scan
-        // is what catches the polyglot below. Both are a refusal, and the
-        // assertion that matters is that nothing was stored.
         $response->assertStatus(422);
 
         $this->assertContains(
@@ -468,8 +388,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // Starts with %PDF, so fileinfo says `application/pdf` and the MIME
-        // gate is satisfied — the payload is only visible to the content scan.
         $this->upload($organization, [
             'file' => HttpUploadedFile::fake()->createWithContent('invoice.pdf', $this->polyglot()),
         ])
@@ -485,9 +403,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // Assembled from halves here for the same reason the service does it:
-        // the whole string is a signature, and a scanner that reads this test
-        // file would quarantine it.
         $eicar = implode('', [
             'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-',
             'STANDARD-ANTIVIRUS-TEST-FILE!$H+H*',
@@ -504,9 +419,6 @@ class OrganizationProfileTest extends TestCase
 
     public function test_an_unreachable_engine_falls_back_to_the_signature_check(): void
     {
-        // BR-06 says "where available". A configured socket that is not there
-        // must not refuse every upload — it falls through to the signature
-        // pass, which still catches the polyglot.
         config(['company.profile.documents.clamav.socket' => 'unix:///nonexistent/clamd.sock']);
 
         $organization = $this->organization('Acme');
@@ -530,8 +442,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // The knob exists for a deployment that screens somewhere else; with
-        // it off the same payload that is rejected above goes through.
         $this->upload($organization, [
             'file' => HttpUploadedFile::fake()->createWithContent('invoice.pdf', $this->polyglot()),
         ])->assertOk();
@@ -551,10 +461,6 @@ class OrganizationProfileTest extends TestCase
         $this->assertStringContainsString('attachment', (string) $response->headers->get('content-disposition'));
     }
 
-    // -----------------------------------------------------------------
-    // 10 / 14 / 15 — who may touch what
-    // -----------------------------------------------------------------
-
     public function test_a_document_of_another_organization_is_not_reachable(): void
     {
         $mine = $this->organization('Acme');
@@ -565,8 +471,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($mine));
 
-        // 404, not 403: for this caller the document does not exist, and a
-        // 403 would confirm that an id belongs to somebody.
         $this->get('/api/v1/company/profile/documents/'.$theirDocument, ['Accept' => 'application/json'])
             ->assertStatus(404)
             ->assertJsonPath('code', 'DOCUMENT_NOT_FOUND');
@@ -579,7 +483,6 @@ class OrganizationProfileTest extends TestCase
 
         $user = $this->companyAdmin($administered);
 
-        // The same user is a plain member of a second organization.
         OrganizationMember::forceCreate([
             'organization_id' => $merelyJoined->id,
             'user_id' => $user->id,
@@ -599,8 +502,6 @@ class OrganizationProfileTest extends TestCase
     {
         $organization = $this->organization('Acme');
 
-        // Has the company role, belongs to the organization — but not as its
-        // admin, so there is nothing here for them to read.
         $member = $this->companyAdmin($organization, 'verified', 'member');
 
         Sanctum::actingAs($member);
@@ -636,14 +537,8 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('code', 'ORGANIZATION_PENDING');
     }
 
-    // -----------------------------------------------------------------
-    // 11 — completeness
-    // -----------------------------------------------------------------
-
     public function test_completeness_counts_the_configured_groups(): void
     {
-        // Filled: info (name + type), contact (e-mail), address (country + city).
-        // Empty: size, website, description. → 3 of 6 groups = 50 %.
         $organization = $this->organization('Acme', 'verified', [
             'contact_email' => 'hello@acme.com',
             'country' => 'Syria',
@@ -664,7 +559,6 @@ class OrganizationProfileTest extends TestCase
                 ['field' => 'description', 'level' => 'recommended'],
             ]);
 
-        // AC-09 — naming the missing fields is what lets the UI link to them.
         $fields = collect($response->json('data.profile_fields'))->keyBy('key');
         $this->assertTrue($fields['contact']['done']);
         $this->assertFalse($fields['website']['done']);
@@ -681,9 +575,6 @@ class OrganizationProfileTest extends TestCase
 
         Sanctum::actingAs($this->companyAdmin($organization));
 
-        // Before: 4 of 6 groups (info, contact, address, size). Adding a
-        // description makes it 5 of 6 — 83 %, and the snapshot records both
-        // the number and the rule set that produced it.
         $this->patchJson('/api/v1/profile/me', ['description' => 'We build learning tools.'])
             ->assertOk()
             ->assertJsonPath('data.profile.completeness.percent', 83);
@@ -692,10 +583,6 @@ class OrganizationProfileTest extends TestCase
         $this->assertSame(83, (int) $organization->profile_completeness);
         $this->assertSame('v1', $organization->completeness_version);
     }
-
-    // -----------------------------------------------------------------
-    // 12 — re-verification policy (BR-09)
-    // -----------------------------------------------------------------
 
     public function test_reverification_flags_the_organization_without_taking_its_access(): void
     {
@@ -714,7 +601,6 @@ class OrganizationProfileTest extends TestCase
         $organization->refresh();
 
         $this->assertNotNull($organization->reverification_required_at);
-        // The default policy never revokes access for a rename.
         $this->assertSame('verified', $organization->verification_status);
     }
 
@@ -779,10 +665,6 @@ class OrganizationProfileTest extends TestCase
         $this->assertSame('verified', $organization->verification_status);
     }
 
-    // -----------------------------------------------------------------
-    // 13 — the audit record
-    // -----------------------------------------------------------------
-
     public function test_profile_update_and_document_upload_are_audited(): void
     {
         $organization = $this->organization('Acme');
@@ -798,8 +680,6 @@ class OrganizationProfileTest extends TestCase
         $this->assertSame($admin->id, (int) $event->actor_id);
         $this->assertSame('organization', $event->entity_type);
         $this->assertSame($organization->id, (int) $event->entity_id);
-        // The audit row has to say what it was before, or it cannot answer
-        // "who changed the company name, and from what".
         $this->assertSame('Acme', $event->before['name']);
         $this->assertSame('Acme Holdings', $event->after['name']);
         $this->assertArrayHasKey('reverification_required', $event->after);

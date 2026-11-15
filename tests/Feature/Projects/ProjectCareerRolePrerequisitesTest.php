@@ -13,20 +13,6 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-MATCH-DATA-03 prerequisites.
- *
- *   Project → Career Role → approved Role → Skill mapping
- *           → Project Required Skills → Minimum Required Level (0–5, decimals)
- *
- * Covers the three backend prerequisites only:
- *   1. a project must be linked to a real career role;
- *   2. every project skill must belong to that career role's approved mapping;
- *   3. every required skill must carry a minimum required level (0–5, decimals).
- *
- * The matching / eligibility / intelligence behaviour is deliberately NOT
- * re-tested here — it is covered by the existing suites and must not change.
- */
 class ProjectCareerRolePrerequisitesTest extends TestCase
 {
     use RefreshDatabase;
@@ -39,10 +25,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function admin(): User
     {
@@ -75,11 +57,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
         ]);
     }
 
-    /**
-     * A career role with an explicit approved skill mapping.
-     *
-     * @param  array<int, Skill>  $skills
-     */
     private function careerRole(string $title, array $skills): CareerRole
     {
         $role = CareerRole::create([
@@ -101,9 +78,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
         return $role;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function payload(CareerRole $role, array $requiredSkills, array $overrides = []): array
     {
         return array_merge([
@@ -117,10 +91,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
             'required_skills' => $requiredSkills,
         ], $overrides);
     }
-
-    // -----------------------------------------------------------------
-    // TASK 1 — Project → Career Role
-    // -----------------------------------------------------------------
 
     public function test_a_project_requires_a_career_role(): void
     {
@@ -175,7 +145,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
 
         $project = Project::find($response->json('data.id'));
 
-        // Foreign key persisted, and both Eloquent sides of the relation work.
         $this->assertSame($role->id, $project->career_role_id);
         $this->assertTrue($project->careerRole->is($role));
         $this->assertTrue($role->fresh()->projects->contains($project));
@@ -200,10 +169,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
 
         $this->assertSame($role->id, Project::find($projectId)->career_role_id);
     }
-
-    // -----------------------------------------------------------------
-    // TASK 2 — Career Role → Skill mapping enforcement
-    // -----------------------------------------------------------------
 
     public function test_valid_role_with_valid_mapped_skills_succeeds(): void
     {
@@ -231,7 +196,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
         $python = $this->skill('Python');
         $role = $this->careerRole('Backend Developer', [$laravel]);
 
-        // Python exists globally but is NOT mapped to Backend Developer.
         $this->postJson('/api/v1/projects', $this->payload(
             $role,
             [['skill_id' => $python->id, 'minimum_required_level' => 3]],
@@ -259,7 +223,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR')
             ->assertJsonValidationErrors(['required_skills.1.skill_id']);
 
-        // Nothing was persisted — the valid skill was not accepted either.
         $this->assertSame(0, Project::count());
         $this->assertSame(0, ProjectRequiredSkill::count());
     }
@@ -286,7 +249,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR')
             ->assertJsonValidationErrors(['required_skills.0.skill_id']);
 
-        // The original skill survived the rejected update.
         $this->assertSame(
             [$laravel->id],
             ProjectRequiredSkill::where('project_id', $projectId)->pluck('skill_id')->all()
@@ -308,18 +270,12 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
             [['skill_id' => $laravel->id, 'minimum_required_level' => 3]],
         ))->assertStatus(201)->json('data.id');
 
-        // Switching the role WITHOUT resubmitting skills must not leave the
-        // project requiring a skill that the new role does not map.
         $this->patchJson("/api/v1/projects/{$projectId}", ['career_role_id' => $pythonDev->id])
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_SKILL_NOT_IN_CAREER_ROLE');
 
         $this->assertSame($backend->id, Project::find($projectId)->career_role_id);
     }
-
-    // -----------------------------------------------------------------
-    // TASK 3 — Minimum Required Level (0–5, decimals)
-    // -----------------------------------------------------------------
 
     public function test_a_required_skill_without_a_minimum_level_is_rejected(): void
     {
@@ -434,10 +390,6 @@ class ProjectCareerRolePrerequisitesTest extends TestCase
         $this->assertSame(3.75, ProjectRequiredSkill::where('project_id', $projectId)->first()->minimum_level);
     }
 
-    /**
-     * Post a project requiring one skill at $level and assert it is accepted
-     * and stored as $expected.
-     */
     private function assertMinimumLevelIsAccepted(float $level, float $expected): void
     {
         Sanctum::actingAs($this->admin());

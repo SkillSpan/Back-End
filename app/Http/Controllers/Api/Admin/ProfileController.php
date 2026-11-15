@@ -21,47 +21,10 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * The panel user's own profile — the one screen every panel account owns.
- *
- * WHY IT IS NOT ADMIN-ONLY
- * ------------------------
- * Mentors open the panel too (see {@see PanelAccess}), and they need a name,
- * an avatar and a password they can change exactly as much as an
- * administrator does. Gating this on `admin` would leave every mentor stuck
- * with whatever the seeder gave them.
- *
- * WHAT THE CALLER MAY TOUCH
- * -------------------------
- * Only their own row. There is no id in any route or payload: every method
- * reads `$request->user()` and passes that to the service, so there is no
- * request shape that edits somebody else's profile. The service holds the
- * same rule from the other side, so neither layer can be the single point of
- * failure.
- *
- * `name` is the exception that proves it: it lives on `users`, which is shared
- * identity rather than presentation. Changing it therefore changes the name
- * every other screen shows. That is intended — it is the person's own name —
- * but it is why the write goes through the service's transaction rather than a
- * bare `update()` here.
- *
- * WHAT IT DELIBERATELY DOES NOT DO
- * --------------------------------
- * It never writes a role, and it never reads one to decide what may be edited.
- * Authorisation is `user_role` and `ProfessionalProfile`; nothing in this
- * controller can widen what an account can reach.
- */
 class ProfileController extends Controller
 {
     public function __construct(private readonly AdminProfileService $profileService) {}
 
-    /**
-     * GET /admin/api/profile
-     *
-     * Everything the profile screen renders, in one round trip: the identity
-     * fields, the panel role, the account timestamps, the presentation fields
-     * and the viewer's own support counters.
-     */
     public function show(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -81,12 +44,6 @@ class ProfileController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * PATCH /admin/api/profile
-     *
-     * Name, display title, bio and age. Only the keys actually sent are
-     * touched, so the UI can save one field without sending the rest.
-     */
     public function updateDetails(UpdateAdminProfileRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -110,13 +67,6 @@ class ProfileController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/profile/avatar
-     *
-     * Multipart upload. The image is decoded, centre-cropped and re-encoded
-     * before it is stored — see AdminProfileService for why the bytes are
-     * processed rather than kept as uploaded.
-     */
     public function uploadAvatar(UpdateAvatarRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -142,12 +92,6 @@ class ProfileController extends Controller
         }
     }
 
-    /**
-     * DELETE /admin/api/profile/avatar
-     *
-     * Back to initials. Idempotent: removing an absent avatar is a success,
-     * because the caller's intent ("I want no photo") is already satisfied.
-     */
     public function deleteAvatar(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -171,12 +115,6 @@ class ProfileController extends Controller
         }
     }
 
-    /**
-     * POST /admin/api/profile/password
-     *
-     * The current password is required even though the caller already holds an
-     * authenticated session — see AdminProfileService::changePassword().
-     */
     public function changePassword(ChangePasswordRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -205,21 +143,6 @@ class ProfileController extends Controller
         }
     }
 
-    /**
-     * GET /admin/profile/avatar
-     *
-     * The image itself, straight from the row.
-     *
-     * Served from its own route rather than inlined into the JSON for one
-     * reason: a stable URL is cacheable by the browser, whereas a base64 field
-     * inside a payload is re-sent on every profile read and defeats caching
-     * entirely. The `?v=` query string the caller is handed changes whenever
-     * the bytes do, so the long `max-age` below can never serve a stale photo.
-     *
-     * A caller with no avatar gets a 404 rather than a placeholder image: the
-     * page renders initials instead, so "no photo" is a miss, not a picture of
-     * a grey person.
-     */
     public function avatar(Request $request): Response
     {
         if (! PanelAccess::allows($request->user())) {
@@ -234,29 +157,13 @@ class ProfileController extends Controller
         }
 
         return response($binary, 200, [
-            // The stored mime is the one *we* produced during re-encoding, not
-            // the one the client claimed, so it is safe to echo back.
             'Content-Type' => (string) $profile->avatar_mime,
             'Content-Length' => (string) strlen($binary),
             'Cache-Control' => 'private, max-age=31536000, immutable',
-            // Belt and braces: even a correctly-typed image must not be sniffed
-            // into something executable.
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
-    // ── Payload ───────────────────────────────────────────────────────────
-
-    /**
-     * The single shape every write method returns.
-     *
-     * Returning the full payload after a write (rather than a bare success)
-     * is what lets the page re-render from the server's values instead of
-     * guessing what the stored result was — which matters for the derived
-     * `display_name` and for the avatar URL's version token.
-     *
-     * @return array<string, mixed>
-     */
     private function payload(Request $request, User $user, AdminProfile $profile): array
     {
         return [
@@ -274,16 +181,12 @@ class ProfileController extends Controller
             'role_slugs' => $user->roles()->pluck('slug')->all(),
             'profile' => [
                 'display_title' => $profile->display_title,
-                // Derived here, not in the browser, so the profile header and
-                // the sidebar can never show two different names.
                 'display_name' => $profile->display_title ?: $this->roleLabel($user),
                 'bio' => $profile->bio,
                 'age' => $profile->age,
                 'has_avatar' => $profile->hasAvatar(),
                 'avatar_url' => $this->avatarUrl($profile),
                 'avatar_updated_at' => $profile->avatar_updated_at?->toIso8601String(),
-                // Lets the panel render its character counters without
-                // hard-coding numbers that would drift from the validation.
                 'limits' => [
                     'display_title' => 60,
                     'bio' => 600,
@@ -296,16 +199,6 @@ class ProfileController extends Controller
         ];
     }
 
-    /**
-     * The viewer's support counters, scoped exactly like the inbox.
-     *
-     * An administrator sees the whole queue; a mentor sees only their own
-     * assignments. Showing a mentor platform-wide totals on their profile
-     * would contradict the inbox one click away, and the number would be
-     * meaningless to them anyway.
-     *
-     * @return array<string, int|string>
-     */
     private function supportStats(User $user): array
     {
         $isAdmin = PanelAccess::isAdministrator($user);
@@ -323,24 +216,11 @@ class ProfileController extends Controller
         ];
     }
 
-    /**
-     * The role a person would name if asked, for display only.
-     *
-     * Delegated to {@see PanelAccess} because the sidebar renders the same
-     * label; two copies of the rule would eventually disagree.
-     */
     private function roleLabel(User $user): string
     {
         return PanelAccess::roleLabel($user);
     }
 
-    /**
-     * Browser-facing URL for the avatar, or null when there is none.
-     *
-     * The version token comes from `avatar_updated_at`, so uploading a new
-     * photo produces a new URL and the browser fetches it immediately despite
-     * the year-long cache on the response.
-     */
     private function avatarUrl(AdminProfile $profile): ?string
     {
         $version = $profile->avatarVersion();
@@ -351,8 +231,6 @@ class ProfileController extends Controller
 
         return route('admin.profile.avatar', ['v' => $version]);
     }
-
-    // ── Guards & envelope ─────────────────────────────────────────────────
 
     private function guard(Request $request): ?JsonResponse
     {

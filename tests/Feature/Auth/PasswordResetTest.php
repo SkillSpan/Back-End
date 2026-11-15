@@ -33,10 +33,6 @@ class PasswordResetTest extends TestCase
         ]);
     }
 
-    /**
-     * The OTP lives in a protected promoted property, so we pull it back
-     * out through the mail payload the notification builds.
-     */
     private function requestPasswordResetAndGetOtp(User $user): string
     {
         $this->postJson('/api/v1/auth/forgot-password', ['email' => self::EMAIL])
@@ -66,13 +62,10 @@ class PasswordResetTest extends TestCase
             ->assertOk();
         Notification::assertSentTo($user, PasswordResetNotification::class);
 
-        // Inside the cooldown window: neutral 200, no second mail.
         $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => self::EMAIL])
             ->assertOk();
         Notification::assertSentToTimes($user, PasswordResetNotification::class, 1);
 
-        // Carbon 3 made diffInSeconds signed — this guard used to stay
-        // blocked FOREVER after the first request (BUG found in live E2E).
         $this->travel(61)->seconds();
 
         $this->postJson('/api/v1/auth/forgot-password/resend', ['email' => self::EMAIL])
@@ -132,8 +125,6 @@ class PasswordResetTest extends TestCase
         $first = $this->postJson('/api/v1/auth/forgot-password', ['email' => self::EMAIL]);
         $first->assertStatus(200)->assertJsonPath('success', true);
 
-        // Both the repeat forgot-password call and the dedicated resend
-        // endpoint must stay inside the cooldown window: same neutral 200.
         $repeat = $this->postJson('/api/v1/auth/forgot-password', ['email' => self::EMAIL]);
         $repeat->assertStatus(200)->assertJsonPath('success', true);
 
@@ -180,7 +171,6 @@ class PasswordResetTest extends TestCase
         $user = $this->createActiveUser('oldpassword123');
         $otp = $this->requestPasswordResetAndGetOtp($user);
 
-        // Pre-check on the frontend screen: verifying the code must NOT burn it.
         $this->postJson('/api/v1/auth/forgot-password/verify', [
             'email' => self::EMAIL,
             'otp' => $otp,
@@ -207,13 +197,11 @@ class PasswordResetTest extends TestCase
             'consumed_at' => null,
         ]);
 
-        // Old credentials are dead...
         $this->postJson('/api/v1/auth/login', [
             'email' => self::EMAIL,
             'password' => 'oldpassword123',
         ])->assertStatus(422);
 
-        // ...and the new password logs in with a token.
         $login = $this->postJson('/api/v1/auth/login', [
             'email' => self::EMAIL,
             'password' => 'newpassword456',
@@ -264,8 +252,6 @@ class PasswordResetTest extends TestCase
         $response->assertJsonValidationErrors(['otp']);
     }
 
-    // =============================================== single use of a token
-
     public function test_a_reset_code_cannot_be_used_twice(): void
     {
         $user = $this->createActiveUser('oldpassword123');
@@ -278,8 +264,6 @@ class PasswordResetTest extends TestCase
             'password_confirmation' => 'firstnew456',
         ])->assertOk()->assertJsonPath('success', true);
 
-        // The same code, replayed, must be refused — and must not overwrite the
-        // password the first request set.
         $this->postJson('/api/v1/auth/reset-password', [
             'email' => self::EMAIL,
             'otp' => $otp,
@@ -290,7 +274,6 @@ class PasswordResetTest extends TestCase
         $this->assertTrue(Hash::check('firstnew456', $user->fresh()->password));
         $this->assertFalse(Hash::check('secondnew789', $user->fresh()->password));
 
-        // Exactly one row was ever consumed for this user.
         $this->assertSame(1, DB::table('password_reset_tokens')
             ->where('user_id', $user->id)
             ->whereNotNull('consumed_at')
@@ -304,16 +287,11 @@ class PasswordResetTest extends TestCase
 
         $id = DB::table('password_reset_tokens')->where('user_id', $user->id)->value('id');
 
-        // The exact statement resetPassword() relies on, in isolation: the first
-        // claim moves the row out of "unconsumed"…
         $first = DB::table('password_reset_tokens')
             ->where('id', $id)
             ->whereNull('consumed_at')
             ->update(['consumed_at' => now()]);
 
-        // …and the second affects nothing. That zero is how a losing concurrent
-        // request is detected, and it is the only thing standing between two
-        // simultaneous resets and two password writes.
         $second = DB::table('password_reset_tokens')
             ->where('id', $id)
             ->whereNull('consumed_at')
@@ -335,13 +313,6 @@ class PasswordResetTest extends TestCase
 
         $this->assertNotNull($tokenId);
 
-        /*
-         * Reproduce the interleaving deterministically instead of racing two
-         * processes: the moment the service has read the token row, a competing
-         * request claims it. The service is already holding the row in memory
-         * and still sees it as unconsumed, so it walks on to the claim step —
-         * and has to lose there rather than write a password.
-         */
         $competingClaim = false;
 
         DB::listen(function ($query) use ($tokenId, &$competingClaim): void {
@@ -374,7 +345,6 @@ class PasswordResetTest extends TestCase
 
         $response->assertStatus(422)->assertJsonValidationErrors(['otp']);
 
-        // The losing request must not have written the password.
         $this->assertTrue(Hash::check('oldpassword123', $user->fresh()->password));
         $this->assertFalse(Hash::check('brandnew789', $user->fresh()->password));
     }

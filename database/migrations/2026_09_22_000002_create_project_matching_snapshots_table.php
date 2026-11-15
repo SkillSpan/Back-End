@@ -4,15 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Task 8 — project matching decision snapshots.
- *
- * One immutable row per validated project-matching input set, captured
- * BEFORE the matching/payload layer (Task 9). Stores a copy of the
- * pre-matching validated state so that historical matching decisions
- * remain reproducible even if the underlying project or learner state
- * changes.
- */
 return new class extends Migration
 {
     public function up(): void

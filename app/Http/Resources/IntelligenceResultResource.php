@@ -2,35 +2,21 @@
 
 namespace App\Http\Resources;
 
-use App\Models\DecisionSnapshot;
-use App\Models\ReadinessResult;
-use App\Models\Roadmap;
 use App\Models\SkillGapResult;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
 
-/**
- * US-INT-01 §28 — exposes only permitted frontend data: the decision
- * identity + versions, readiness, skill gaps, and roadmap. The full
- * internal snapshot (payload, raw FastAPI responses) is NOT exposed.
- *
- * @property array{snapshot: DecisionSnapshot, readiness: ReadinessResult|null, skill_gaps: array<SkillGapResult>, roadmap: Roadmap|null} $resource
- */
 class IntelligenceResultResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        /** @var DecisionSnapshot $snapshot */
         $snapshot = $this->resource['snapshot'];
 
-        /** @var ReadinessResult|null $readiness */
         $readiness = $this->resource['readiness'];
 
-        /** @var list<SkillGapResult> $skillGaps */
         $skillGaps = $this->resource['skill_gaps'];
 
-        /** @var Roadmap|null $roadmap */
         $roadmap = $this->resource['roadmap'];
 
         return [
@@ -82,24 +68,11 @@ class IntelligenceResultResource extends JsonResource
                 'id' => $roadmap->id,
                 'roadmap_version' => $roadmap->version,
                 'status' => $roadmap->status,
-                /*
-                 * The ROADMAP's own algorithm/configuration versions (owned
-                 * by FastAPI and echoed on the roadmap response). These are
-                 * deliberately NOT the top-level readiness/skill-gap
-                 * versions above — the two calculations may report
-                 * different versions, so they must never be mixed.
-                 */
                 'algorithm_version' => $roadmap->algorithm_version,
                 'configuration_version' => $roadmap->configuration_version,
                 'next_best_action_id' => $roadmap->next_best_action_id,
                 'generated_at' => optional($roadmap->generated_at)->toIso8601String(),
                 'explanation' => $roadmap->explanation,
-                /*
-                 * Roadmap-level totals (FastAPI-owned) and the limitations
-                 * list. `estimated_duration_weeks` is an integer or null
-                 * (null when the learner has no weekly availability); the
-                 * limitations are surfaced verbatim, never dropped.
-                 */
                 'estimated_total_hours' => $roadmap->estimated_total_hours === null
                     ? null
                     : (float) $roadmap->estimated_total_hours,
@@ -115,8 +88,6 @@ class IntelligenceResultResource extends JsonResource
                     'objective' => $action->objective,
                     'description' => $action->description,
                     'target_skill_id' => $action->target_skill_id,
-                    // Legacy single prerequisite, kept for backward
-                    // compatibility; `prerequisite_skill_ids` is the full set.
                     'prerequisite_skill_id' => $action->prerequisite_skill_id,
                     'prerequisite_skill_ids' => $action->prerequisites
                         ->pluck('id')
@@ -129,12 +100,8 @@ class IntelligenceResultResource extends JsonResource
                         ? null
                         : (int) $action->estimated_duration_weeks,
                     'order_index' => $action->order_index,
-                    // Roadmap v1: lists of strings, returned as arrays (or
-                    // null for legacy rows) — never imploded into a string.
                     'completion_criteria' => $action->completion_criteria,
                     'explanation' => $action->explanation,
-                    // The skills CURRENTLY blocking the action — distinct
-                    // from prerequisite_skill_ids above.
                     'blocking_prerequisite_skill_ids' => $action->blocking_prerequisite_skill_ids,
                     'status' => $action->status,
                 ])->values()->all(),

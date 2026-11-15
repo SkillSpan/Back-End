@@ -35,19 +35,10 @@ class BaselineAssessmentTest extends TestCase
         Config::set('services.data_science.baseline.enabled', true);
         Config::set('services.data_science.baseline.version', 'v1.0');
 
-        // Deterministic selection keeps variable-count assertions stable.
         Config::set('services.baseline_assessment.deterministic_selection', true);
 
-        // US-INT-01: the service credential is mandatory on every
-        // Laravel -> FastAPI intelligence request, baseline included.
         Config::set('services.data_science.service_token', 'test-service-token');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Authorization & start
-    |--------------------------------------------------------------------------
-    */
 
     public function test_unauthenticated_user_is_rejected(): void
     {
@@ -132,7 +123,6 @@ class BaselineAssessmentTest extends TestCase
 
         $assessmentId = $response->json('data.id');
 
-        // Snapshot rows freeze the role/skill mapping for the picked items.
         $this->assertGreaterThan(0, BaselineQuestionSnapshot::where('baseline_assessment_id', $assessmentId)->count());
 
         $this->assertDatabaseHas('baseline_question_snapshots', [
@@ -141,16 +131,6 @@ class BaselineAssessmentTest extends TestCase
         ]);
     }
 
-    /**
-     * Starting an assessment is the moment the learner states a career goal,
-     * so the role must land on the profile. It used to be written nowhere:
-     * `primary_career_role_id` was only set by `PUT /profile`, so a learner who
-     * assessed and never opened the profile form kept a null goal — and every
-     * later recalculation that falls back to it (`intelligence`, `readiness`,
-     * the assistant context) failed with CAREER_ROLE_REQUIRED. That silent
-     * failure is what left `/readiness/latest` and `/intelligence/latest`
-     * answering 404 after a completed assessment.
-     */
     public function test_start_records_the_primary_career_role(): void
     {
         [$user, $profile] = $this->createLearner();
@@ -202,12 +182,6 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonPath('code', 'ASSESSMENT_ALREADY_EXISTS');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Question selection & coverage
-    |--------------------------------------------------------------------------
-    */
-
     public function test_start_selects_variable_question_counts_per_skill(): void
     {
         [$user] = $this->createLearner();
@@ -215,7 +189,6 @@ class BaselineAssessmentTest extends TestCase
 
         $role = $this->careerRole('Data Analyst', 'approved', ['python', 'sql']);
 
-        // python: 3 active items, sql: 1 active item.
         $python = Skill::where('slug', 'python')->first();
         $sql = Skill::where('slug', 'sql')->first();
 
@@ -230,7 +203,6 @@ class BaselineAssessmentTest extends TestCase
         $coverage = $response->json('data.skill_coverage.skills');
         $bySkill = collect($coverage)->keyBy('skill_slug');
 
-        // Every required skill is covered with at least one question.
         $this->assertCount(2, $coverage);
         $this->assertTrue($bySkill['sql']['covered']);
         $this->assertTrue($bySkill['python']['covered']);
@@ -244,7 +216,6 @@ class BaselineAssessmentTest extends TestCase
         Sanctum::actingAs($user);
 
         $role = $this->careerRole('Data Analyst', 'approved', ['python', 'sql']);
-        // Only SQL has a question; python is uncovered.
         $sql = Skill::where('slug', 'sql')->first();
         $this->item('sql-001', $sql->id, 'single_choice', ['A', 'B', 'C', 'D']);
 
@@ -254,7 +225,6 @@ class BaselineAssessmentTest extends TestCase
 
         $this->assertNotEmpty($response->json('details.uncovered_skills'));
 
-        // Nothing persisted.
         $this->assertDatabaseCount('baseline_assessments', 0);
     }
 
@@ -288,8 +258,6 @@ class BaselineAssessmentTest extends TestCase
         $this->assertSame('Original prompt?', $created->json('data.questions.0.question_text'));
         $this->assertSame(['A', 'B', 'C', 'D'], $created->json('data.questions.0.options'));
 
-        // Mutate the LIVE item: change text, options and type, then
-        // deactivate it. None of this may affect the frozen snapshot.
         BaselineAssessmentItem::where('assessment_version', 'v1.0')
             ->where('item_id', 'sql-001')
             ->update([
@@ -322,12 +290,10 @@ class BaselineAssessmentTest extends TestCase
         $assessmentId = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])
             ->json('data.id');
 
-        // Narrow the live option list AFTER the snapshot was taken.
         BaselineAssessmentItem::where('assessment_version', 'v1.0')
             ->where('item_id', 'sql-001')
             ->update(['options' => ['A']]);
 
-        // 'C' was valid at snapshot time and must still be accepted.
         Http::fake([
             '*/api/v1/baseline' => Http::response([
                 'algorithm_version' => 'baseline-v1.0',
@@ -351,8 +317,6 @@ class BaselineAssessmentTest extends TestCase
 
         $role = $this->careerRole('Data Analyst', 'approved', ['sql']);
         $sql = Skill::firstOrCreate(['slug' => 'sql'], ['name' => 'SQL', 'status' => 'active']);
-        // No question text supplied — the API must not invent one, and
-        // must not ship a question the learner cannot read.
         BaselineAssessmentItem::updateOrCreate(
             ['assessment_version' => 'v1.0', 'item_id' => 'sql-001'],
             [
@@ -387,7 +351,6 @@ class BaselineAssessmentTest extends TestCase
         $assessmentId = $created->json('data.id');
         $originalItemIds = collect($created->json('data.questions'))->pluck('item_id')->sort()->values()->all();
 
-        // Mutate the live bank: deactivate the selected item and add a new one.
         $sql = Skill::where('slug', 'sql')->first();
         BaselineAssessmentItem::where('assessment_version', 'v1.0')->update(['is_active' => false]);
         $this->item('sql-new', $sql->id, 'single_choice', ['X', 'Y']);
@@ -400,12 +363,6 @@ class BaselineAssessmentTest extends TestCase
         $this->assertSame($originalItemIds, $reloadedItemIds);
         $this->assertNotContains('sql-new', $reloadedItemIds);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Multiple career roles
-    |--------------------------------------------------------------------------
-    */
 
     public function test_learner_can_take_assessments_for_multiple_career_roles(): void
     {
@@ -446,12 +403,6 @@ class BaselineAssessmentTest extends TestCase
 
         $this->assertDatabaseCount('baseline_assessments', 1);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Retrieval
-    |--------------------------------------------------------------------------
-    */
 
     public function test_show_returns_questions_without_correct_answers(): void
     {
@@ -551,12 +502,6 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonPath('code', 'ASSESSMENT_ALREADY_COMPLETED');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Submission validation
-    |--------------------------------------------------------------------------
-    */
-
     public function test_submit_rejects_incomplete_responses(): void
     {
         [$user] = $this->createLearner();
@@ -638,7 +583,6 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Two required skills -> at least two questions; only answer one.
         [$assessment] = $this->startDynamicAssessment($user, ['python', 'sql']);
 
         $this->postJson("/api/v1/baseline-assessments/{$assessment->id}/submit", [
@@ -654,12 +598,6 @@ class BaselineAssessmentTest extends TestCase
             'status' => 'in_progress',
         ]);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Intelligence integration & persistence
-    |--------------------------------------------------------------------------
-    */
 
     public function test_submit_uses_intelligence_service_result(): void
     {
@@ -790,9 +728,6 @@ class BaselineAssessmentTest extends TestCase
         Http::assertSent(function ($request) use ($itemId) {
             $payload = $request->data();
 
-            // The outbound identifier is the numeric assessment item id. The
-            // public `item_id` string ("sql-001") is a frontend identifier and
-            // must never be sent upstream.
             $questionIds = collect($payload['questions'] ?? [])->pluck('question_id')->all();
             $responseIds = collect($payload['responses'] ?? [])->pluck('question_id')->all();
 
@@ -812,7 +747,6 @@ class BaselineAssessmentTest extends TestCase
         [$assessment] = $this->startDynamicAssessment($user, ['sql']);
         $sql = Skill::where('slug', 'sql')->first();
 
-        // Same slug, wrong numeric id.
         Http::fake([
             '*/api/v1/baseline' => Http::response([
                 'algorithm_version' => 'baseline-v1.0',
@@ -833,7 +767,6 @@ class BaselineAssessmentTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_SKILL_MISMATCH');
 
-        // Rollback: nothing persisted.
         $this->assertDatabaseCount('skill_evaluations', 0);
         $this->assertDatabaseHas('baseline_assessments', [
             'id' => $assessment->id,
@@ -878,7 +811,6 @@ class BaselineAssessmentTest extends TestCase
 
         Http::fake([
             '*/api/v1/baseline' => Http::response([
-                // algorithm_version deliberately omitted.
                 'skills' => [
                     ['slug' => $sql->slug, 'level' => 3.0, 'confidence' => 0.8],
                 ],
@@ -914,7 +846,6 @@ class BaselineAssessmentTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
 
-        // No SkillEvidence / SkillEvaluation may be invented to fill the gap.
         $this->assertDatabaseCount('skill_evidences', 0);
         $this->assertDatabaseCount('skill_evaluations', 0);
         $this->assertDatabaseHas('baseline_assessments', [
@@ -928,7 +859,6 @@ class BaselineAssessmentTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Two required skills; the service only evaluates one of them.
         [$assessment] = $this->startDynamicAssessment($user, ['python', 'sql']);
         $sql = Skill::where('slug', 'sql')->first();
         $python = Skill::where('slug', 'python')->first();
@@ -946,7 +876,6 @@ class BaselineAssessmentTest extends TestCase
             'responses' => $this->responsesFor($assessment),
         ])->assertStatus(200);
 
-        // Exactly what the service returned — no fabricated python row.
         $this->assertDatabaseCount('skill_evaluations', 1);
         $this->assertDatabaseHas('skill_evaluations', ['skill_id' => $sql->id]);
         $this->assertDatabaseMissing('skill_evaluations', ['skill_id' => $python->id]);
@@ -958,7 +887,6 @@ class BaselineAssessmentTest extends TestCase
         Sanctum::actingAs($user);
 
         [$assessment] = $this->startDynamicAssessment($user, ['sql']);
-        // A skill that exists but is NOT part of the role's snapshot.
         $outOfScope = Skill::forceCreate(['name' => 'Gardening', 'slug' => 'gardening', 'status' => 'active']);
 
         Http::fake([
@@ -976,7 +904,6 @@ class BaselineAssessmentTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_SKILL_OUT_OF_SCOPE');
 
-        // Rollback: nothing persisted, assessment still resumable.
         $this->assertDatabaseMissing('skill_evaluations', ['skill_id' => $outOfScope->id]);
         $this->assertDatabaseHas('baseline_assessments', [
             'id' => $assessment->id,
@@ -1106,16 +1033,9 @@ class BaselineAssessmentTest extends TestCase
             ->assertStatus(409)
             ->assertJsonPath('code', 'ASSESSMENT_ALREADY_COMPLETED');
 
-        // Exactly one evidence/evaluation row despite two submits.
         $this->assertDatabaseCount('skill_evidences', 1);
         $this->assertDatabaseCount('skill_evaluations', 1);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Readiness regression
-    |--------------------------------------------------------------------------
-    */
 
     public function test_completed_baseline_produces_evaluations_for_readiness(): void
     {
@@ -1144,8 +1064,6 @@ class BaselineAssessmentTest extends TestCase
             'responses' => $this->responsesFor($assessment),
         ])->assertStatus(200);
 
-        // The role's single required skill now has an evaluation, so
-        // readiness completeness (ASSESSMENT_INCOMPLETE) is satisfied.
         $this->assertDatabaseHas('skill_evaluations', [
             'student_profile_id' => $profile->id,
             'skill_id' => $sql->id,
@@ -1153,18 +1071,6 @@ class BaselineAssessmentTest extends TestCase
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Create a learner, an approved role with the given skills, seed the
-     * question bank, then start a dynamic assessment.
-     *
-     * @param  array<int, string>  $skillSlugs
-     */
     private function startDynamicAssessment(User $user, array $skillSlugs): array
     {
         $role = $this->careerRole('Data Analyst', 'approved', $skillSlugs);
@@ -1177,9 +1083,6 @@ class BaselineAssessmentTest extends TestCase
         return [BaselineAssessment::with('questionSnapshots.item')->findOrFail($assessmentId), $role];
     }
 
-    /**
-     * Valid answers for every snapshot question of an assessment.
-     */
     private function responsesFor(BaselineAssessment $assessment): array
     {
         $assessment->loadMissing('questionSnapshots.item');
@@ -1205,11 +1108,6 @@ class BaselineAssessmentTest extends TestCase
             ->all();
     }
 
-    /**
-     * Role with the named (already-seeded) skills attached.
-     *
-     * @param  array<int, string>  $skillSlugs
-     */
     private function careerRole(string $title, string $status, array $skillSlugs): CareerRole
     {
         $role = CareerRole::create([
@@ -1257,9 +1155,6 @@ class BaselineAssessmentTest extends TestCase
             ['assessment_version' => 'v1.0', 'item_id' => $itemId],
             [
                 'item_type' => $type,
-                // Content validity is enforced at selection time, so the
-                // default fixture authors a real prompt. Tests that
-                // deliberately exercise invalid content pass null.
                 'question_text' => $questionText ?? "Baseline prompt for {$itemId}.",
                 'skill_id' => $skillId,
                 'options' => $options,

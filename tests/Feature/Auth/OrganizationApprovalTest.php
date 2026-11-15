@@ -10,13 +10,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Covers the security gap reported this morning: a pending/rejected
- * organization account must never obtain authenticated access, whether
- * through /api/auth/login, /api/auth/login/organization, or directly
- * against a protected organization API using a token obtained some
- * other way.
- */
 class OrganizationApprovalTest extends TestCase
 {
     use RefreshDatabase;
@@ -120,9 +113,6 @@ class OrganizationApprovalTest extends TestCase
     {
         $user = $this->createOrgUser('pending');
 
-        // Simulates a token obtained through any means (not necessarily the
-        // login endpoint), to prove the middleware is an independent line
-        // of defense and not just a login-time check.
         Sanctum::actingAs($user);
 
         $response = $this->getJson('/api/v1/organization/profile');

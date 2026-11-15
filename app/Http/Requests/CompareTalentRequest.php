@@ -4,14 +4,6 @@ namespace App\Http\Requests;
 
 use App\Services\Talent\TalentEngagementService;
 
-/**
- * Compare candidates side by side.
- *
- * The bounds are the product decision, not a technical limit: two is the
- * minimum that makes a comparison a comparison, and five is as many columns as
- * a table can show before it stops being readable. The service enforces the
- * same ceiling for direct callers.
- */
 class CompareTalentRequest extends ApiFormRequest
 {
     public function rules(): array

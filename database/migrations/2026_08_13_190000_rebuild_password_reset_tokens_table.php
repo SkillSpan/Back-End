@@ -6,14 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * ملاحظة: هاي الـ migration بتعمل drop كامل لجدول password_reset_tokens
-     * وتعيد بناءه بالبنية الصح (id, user_id, token_hash, expires_at, consumed_at).
-     * تم التأكد من المستخدم إنه لا توجد بيانات مهمة بالجدول حاليًا على الإنتاج
-     * (لسا ما جربها أي مستخدم فعلي).
-     */
     public function up(): void
     {
         Schema::dropIfExists('password_reset_tokens');
@@ -32,9 +24,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('password_reset_tokens');

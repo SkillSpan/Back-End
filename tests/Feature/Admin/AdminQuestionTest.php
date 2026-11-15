@@ -16,15 +16,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
-/**
- * The admin "Questions" page and its session-authenticated endpoints.
- *
- * Covers the Dynamic Assessment chain the page manages
- * (specialization -> career role -> skill -> question): the dependent
- * dropdowns, the list filter, create / edit / delete, the server-side
- * cross-checks, and the guarantee that the learner-facing assessment still
- * never sees a grading key.
- */
 class AdminQuestionTest extends TestCase
 {
     use RefreshDatabase;
@@ -43,8 +34,6 @@ class AdminQuestionTest extends TestCase
         Config::set('services.data_science.baseline.version', 'v1.0');
         Config::set('services.baseline_assessment.deterministic_selection', true);
     }
-
-    // ------------------------------------------------ authorization
 
     public function test_a_guest_cannot_open_the_questions_page(): void
     {
@@ -72,8 +61,6 @@ class AdminQuestionTest extends TestCase
             ->assertOk()
             ->assertSee('Questions');
     }
-
-    // ------------------------------------------------ dynamic dropdowns
 
     public function test_specializations_endpoint_returns_active_specializations(): void
     {
@@ -109,9 +96,6 @@ class AdminQuestionTest extends TestCase
             'title',
         );
 
-        // The chosen specialization ORDERS the list, it does not filter it:
-        // its own role is first, every other active role still follows so an
-        // operator can author a question for any of them.
         $this->assertSame('Frontend Developer', $titles[0]);
         $this->assertContains('Backend Developer', $titles);
         $this->assertContains('Security Analyst', $titles);
@@ -151,8 +135,6 @@ class AdminQuestionTest extends TestCase
             ->assertJsonValidationErrors('specialization_id');
     }
 
-    // ------------------------------------------------ listing
-
     public function test_questions_endpoint_filters_by_skill(): void
     {
         $this->actingAs($this->admin());
@@ -170,8 +152,6 @@ class AdminQuestionTest extends TestCase
         $this->assertSame([$restQuestion->item_id], $itemIds);
         $this->assertSame(1, $response->json('data.total'));
     }
-
-    // ------------------------------------------------ create
 
     public function test_an_admin_can_create_a_multiple_choice_question(): void
     {
@@ -194,7 +174,6 @@ class AdminQuestionTest extends TestCase
             ->assertJsonPath('data.is_active', true)
             ->assertJsonPath('data.correct_answer', 'GET retrieves data, POST submits data');
 
-        // The item id is generated from the skill slug, in the bank's style.
         $this->assertSame('rest-apis-001', $response->json('data.item_id'));
 
         $this->assertDatabaseHas('baseline_assessment_items', [
@@ -221,11 +200,8 @@ class AdminQuestionTest extends TestCase
             ->assertJsonPath('data.item_type', 'text')
             ->assertJsonPath('data.correct_answer', 'An interface that lets systems exchange data over HTTP.');
 
-        // A text question carries no options.
         $this->assertSame([], $response->json('data.options'));
     }
-
-    // ------------------------------------------------ validation
 
     public function test_creating_a_question_requires_the_whole_chain(): void
     {
@@ -257,7 +233,6 @@ class AdminQuestionTest extends TestCase
         $skill = $this->skill('HTML', 'html');
         $this->requireSkill($frontend, $skill);
 
-        // Cybersecurity does not contain Frontend Developer.
         $this->postJson('/admin/api/questions', [
             'specialization_id' => $cyber->id,
             'career_role_id' => $frontend->id,
@@ -334,8 +309,6 @@ class AdminQuestionTest extends TestCase
             ->assertJsonValidationErrors('correct_answer');
     }
 
-    // ------------------------------------------------ update / delete
-
     public function test_an_admin_can_update_a_question(): void
     {
         $this->actingAs($this->admin());
@@ -386,7 +359,6 @@ class AdminQuestionTest extends TestCase
         $this->requireSkill($role, $skill);
         $question = $this->makeQuestion($skill, ['item_id' => 'rest-apis-001']);
 
-        // Simulate a question already frozen into an assessment.
         $profile = StudentProfile::forceCreate(['user_id' => $this->learner()->id]);
         $assessment = BaselineAssessment::forceCreate([
             'student_profile_id' => $profile->id,
@@ -423,8 +395,6 @@ class AdminQuestionTest extends TestCase
             ->assertJsonPath('data.specialization_id', $specialization->id);
     }
 
-    // ------------------------------------------------ learner-facing safety
-
     public function test_the_admin_endpoint_exposes_the_answer_but_the_learner_api_does_not(): void
     {
         $admin = $this->admin();
@@ -439,12 +409,10 @@ class AdminQuestionTest extends TestCase
             'correct_answer' => 'An interface',
         ]);
 
-        // Admin sees the grading key...
         $this->actingAs($admin);
         $adminBody = $this->getJson('/admin/api/questions?skill_id='.$skill->id)->assertOk();
         $this->assertSame('An interface', $adminBody->json('data.data.0.correct_answer'));
 
-        // ...the learner does not.
         $this->actingAs($learner);
         $learnerBody = $this->postJson('/api/v1/baseline-assessments', [
             'career_role_id' => $role->id,
@@ -472,7 +440,6 @@ class AdminQuestionTest extends TestCase
             'correct_answer' => 'An interface that lets systems exchange data.',
         ])->assertStatus(201);
 
-        // The text question must not break coverage or content validation.
         $this->actingAs($learner);
         $response = $this->postJson('/api/v1/baseline-assessments', [
             'career_role_id' => $role->id,
@@ -483,11 +450,6 @@ class AdminQuestionTest extends TestCase
         $this->assertContains('rest-apis-001', $itemIds);
     }
 
-    // ------------------------------------------------ helpers
-
-    /**
-     * @return array{0: Specialization, 1: CareerRole, 2: Skill}
-     */
     private function chain(): array
     {
         $specialization = $this->specialization('Software Engineering');
@@ -560,9 +522,6 @@ class AdminQuestionTest extends TestCase
         ]);
     }
 
-    /**
-     * @param  array<string, mixed>  $attributes
-     */
     private function makeQuestion(Skill $skill, array $attributes = []): BaselineAssessmentItem
     {
         return BaselineAssessmentItem::create(array_merge([

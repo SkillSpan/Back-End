@@ -9,14 +9,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-/**
- * Session-authenticated twin of the admin projects API.
- *
- * Project CRUD and lifecycle behavior stay inherited from the canonical
- * Admin API controller. The reference endpoints below exist only so the
- * browser session can populate the Career Role -> Skills chain without a
- * Sanctum bearer token.
- */
 class AdminProjectController extends ApiProjectController
 {
     public function careerRoles(Request $request): JsonResponse

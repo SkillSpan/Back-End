@@ -19,11 +19,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-INT-01 §24 — recalculation hooks: approved data changes fire
- * SkillDataChanged; the queued listener recalculates intelligence; a
- * career-role change is tracked in CareerGoalHistory.
- */
 class RecalculationHooksTest extends TestCase
 {
     use RefreshDatabase;
@@ -36,8 +31,6 @@ class RecalculationHooksTest extends TestCase
 
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
 
-        // US-INT-01: the service credential is mandatory on every
-        // Laravel -> FastAPI intelligence request.
         config(['services.data_science.service_token' => 'test-service-token']);
 
         AlgorithmConfiguration::create([
@@ -106,7 +99,6 @@ class RecalculationHooksTest extends TestCase
 
         config(['services.data_science.baseline.enabled' => true]);
         config(['services.data_science.baseline.version' => 'v1.0']);
-        // Deterministic selection so the snapshot question set is stable.
         config(['services.baseline_assessment.deterministic_selection' => true]);
 
         $user = $this->createLearner();
@@ -114,8 +106,6 @@ class RecalculationHooksTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        // Dynamic flow: an approved role with a required skill that has an
-        // active question.
         $skill = Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid(), 'status' => 'active']);
         $role = CareerRole::create([
             'title' => 'Data Analyst',
@@ -177,7 +167,6 @@ class RecalculationHooksTest extends TestCase
 
     public function test_listener_calculates_intelligence_for_primary_role(): void
     {
-        // End-to-end through the real listener + real service.
         $user = $this->createLearner();
         $role = $this->approvedRole('Data Analyst');
         $profile = StudentProfile::forceCreate([
@@ -203,10 +192,6 @@ class RecalculationHooksTest extends TestCase
             'calculated_at' => now(),
         ]);
 
-        // ONE response: the deployed contract returns the per-skill gaps
-        // AND the readiness block from POST /api/v1/skill-gap together,
-        // so a calculation is a single round-trip. (A fakeSequence would
-        // leave the second queued response unconsumed.)
         Http::fake([
             '*/api/v1/skill-gap' => Http::response([
                 'student_profile_id' => $profile->id,
@@ -234,7 +219,6 @@ class RecalculationHooksTest extends TestCase
             ], 200),
         ]);
 
-        // QUEUE_CONNECTION=sync in tests: the listener runs inline.
         SkillDataChanged::dispatch($profile->fresh(), 'career_role_change');
 
         $this->assertDatabaseHas('decision_snapshots', [
@@ -257,8 +241,6 @@ class RecalculationHooksTest extends TestCase
             'primary_career_role_id' => $role->id,
         ]);
 
-        // No skill evaluations at all → calculation throws inside the
-        // listener. The dispatch itself must not blow up the caller.
         SkillDataChanged::dispatch($profile->fresh(), 'career_role_change');
 
         $this->assertTrue(true, 'listener failures are logged and swallowed');

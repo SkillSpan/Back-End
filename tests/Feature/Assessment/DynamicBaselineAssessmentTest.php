@@ -17,20 +17,6 @@ use Illuminate\Support\Facades\Config;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * End-to-end proof of the dynamic assessment prototype:
- *
- *   specialization -> career roles -> required skills -> baseline questions
- *
- * Runs the real prototype seeders (specializations, skills, career roles,
- * the specialization<->role pivot and the question bank) and drives the
- * actual HTTP endpoints, so it fails if the seeded data and the runtime
- * selection logic ever drift apart.
- *
- * It deliberately seeds only the seeders this feature needs — not the whole
- * DatabaseSeeder — so the test never depends on the university import or
- * any other unrelated data.
- */
 class DynamicBaselineAssessmentTest extends TestCase
 {
     use RefreshDatabase;
@@ -82,8 +68,6 @@ class DynamicBaselineAssessmentTest extends TestCase
 
         $titles = $software->careerRoles()->pluck('title')->all();
 
-        // The pivot is the source of truth; the taxonomy grows, so assert
-        // membership rather than a frozen snapshot of the whole list.
         $this->assertContains('Backend Developer', $titles);
         $this->assertContains('Frontend Developer', $titles);
         $this->assertContains('Mobile Developer', $titles);
@@ -100,13 +84,10 @@ class DynamicBaselineAssessmentTest extends TestCase
         $softwarePage = $this->getJson('/api/v1/career-roles?specialization_id='.$software->id)->assertOk();
         $cyberPage = $this->getJson('/api/v1/career-roles?specialization_id='.$cyber->id)->assertOk();
 
-        // MVP policy: a specialization orders the list, it does not filter it,
-        // so both tracks expose the same number of roles…
         $this->assertSame($softwarePage->json('data.total'), $cyberPage->json('data.total'));
 
         $softwareTitles = array_column($softwarePage->json('data.data'), 'title');
 
-        // …and the page itself contains roles curated under BOTH tracks.
         $this->assertContains('Backend Developer', $softwareTitles);
         $this->assertContains('Automation Specialist', $softwareTitles);
     }
@@ -134,8 +115,6 @@ class DynamicBaselineAssessmentTest extends TestCase
                 "Career role [{$role->title}] produced no questions — a required skill has no question.",
             );
 
-            // Every selected question must belong to a skill the role
-            // actually requires — the mapping is via skills, not chance.
             $requiredSkillIds = $role->roleSkills()->pluck('skill_id')->all();
 
             foreach ($questions as $question) {
@@ -160,8 +139,6 @@ class DynamicBaselineAssessmentTest extends TestCase
         $this->assertNotEmpty($backendItems);
         $this->assertNotEmpty($dataScienceItems);
 
-        // The two roles share no required skills in the prototype, so the
-        // question sets must be disjoint.
         $this->assertSame(
             [],
             array_intersect($backendItems, $dataScienceItems),
@@ -177,15 +154,12 @@ class DynamicBaselineAssessmentTest extends TestCase
         $user = $this->learnerWithProfile();
         Sanctum::actingAs($user);
 
-        // Step 1 — the specialization lists the mobile developer role.
         $titles = array_column(
             $this->getJson('/api/v1/career-roles?specialization_id='.$software->id)->json('data.data'),
             'title',
         );
         $this->assertContains('Mobile Developer', $titles);
 
-        // Step 2 — starting the assessment with the matching specialization
-        // succeeds and returns mobile-development questions.
         $response = $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $software->id,
             'career_role_id' => $mobile->id,
@@ -217,12 +191,10 @@ class DynamicBaselineAssessmentTest extends TestCase
         $returnedSkillIds = array_column($response->json('data.questions'), 'skill_id');
         $securitySkillIds = $security->roleSkills()->pluck('skill_id')->all();
 
-        // Every question belongs to a skill the security analyst requires.
         foreach ($returnedSkillIds as $skillId) {
             $this->assertContains($skillId, $securitySkillIds);
         }
 
-        // ...and none of them is a frontend / mobile skill.
         $frontendSkillIds = CareerRole::where('slug', 'frontend-developer')->firstOrFail()
             ->roleSkills()->pluck('skill_id')->all();
         $mobileSkillIds = CareerRole::where('slug', 'mobile-developer')->firstOrFail()
@@ -240,8 +212,6 @@ class DynamicBaselineAssessmentTest extends TestCase
         $user = $this->learnerWithProfile();
         Sanctum::actingAs($user);
 
-        // MVP policy: the specialization no longer vetoes the role. Starting an
-        // assessment for a role curated under another track is legitimate.
         $this->postJson('/api/v1/baseline-assessments', [
             'specialization_id' => $cyber->id,
             'career_role_id' => $frontend->id,
@@ -250,11 +220,6 @@ class DynamicBaselineAssessmentTest extends TestCase
             ->assertJsonPath('data.career_role_id', $frontend->id);
     }
 
-    // ------------------------------------------------ helpers
-
-    /**
-     * @return array<int, string>
-     */
     private function startAndGetItemIds(CareerRole $role): array
     {
         $user = $this->learnerWithProfile();

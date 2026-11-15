@@ -45,25 +45,16 @@ class MentorStudentConnection extends Model
         return $this->hasMany(Conversation::class);
     }
 
-    /**
-     * Scope to only connections where the mentor is a specific user.
-     */
     public function scopeForMentor($query, int $mentorId)
     {
         return $query->where('mentor_id', $mentorId);
     }
 
-    /**
-     * Scope to only connections where the student is a specific user.
-     */
     public function scopeForStudent($query, int $studentId)
     {
         return $query->where('student_id', $studentId);
     }
 
-    /**
-     * Scope to only active connections.
-     */
     public function scopeActive($query)
     {
         return $query->whereIn('status', ['pending', 'active']);

@@ -8,26 +8,11 @@ use Illuminate\Http\Request;
 
 class BaselineItemsController extends Controller
 {
-    /**
-     * GET /api/v1/internal/baseline-items?version=v1.0
-     *
-     * Server-to-server endpoint for the Data Science FastAPI service.
-     * Backend is the source of truth for assessment content — FastAPI
-     * must not invent item-to-skill mapping or correct answers itself.
-     *
-     * Auth: shared secret via X-Internal-Secret header (not Sanctum —
-     * this isn't called on behalf of a logged-in user).
-     */
     public function index(Request $request)
     {
         $expectedSecret = config('services.internal.baseline_items_secret');
         $providedSecret = (string) $request->header('X-Internal-Secret');
 
-        // hash_equals(), not !==: a short-circuiting string comparison leaks
-        // the length of the matching prefix through response timing. This
-        // endpoint returns `correct_answer` for every item, so it is worth
-        // the constant-time check. Same pattern as
-        // SetupController::createAdmin() for ADMIN_SETUP_SECRET.
         if (blank($expectedSecret) || ! hash_equals($expectedSecret, $providedSecret)) {
             return response()->json([
                 'success' => false,

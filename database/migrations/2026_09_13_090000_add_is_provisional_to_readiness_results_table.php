@@ -4,13 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Missing-component policy (agreed with Data Science): an unavailable
- * component (practical_experience / assessment_reliability) is excluded
- * and the remaining component weights are renormalized, instead of
- * blocking the whole calculation. `is_provisional` flags results
- * computed with at least one component excluded this way.
- */
 return new class extends Migration
 {
     public function up(): void

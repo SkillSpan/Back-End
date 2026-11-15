@@ -24,17 +24,6 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
-/**
- * US-REC-01 follow-up — the learner side of the human handoff.
- *
- * A learner who asks for a person (or accepts the offer after the assistant
- * answered `insufficient_context`) gets a support request here, and can keep
- * talking in it. Replies from the support person arrive on the same thread via
- * the admin panel.
- *
- * Thin controller, like {@see AssistantController}: validation in FormRequests,
- * orchestration in SupportRequestService, presentation in the resources.
- */
 class SupportRequestController extends Controller
 {
     public function __construct(
@@ -42,13 +31,6 @@ class SupportRequestController extends Controller
         private readonly AdminProfileService $profileService,
     ) {}
 
-    /**
-     * Ask for a human.
-     *
-     * 201 with the request. If the learner already has an open request this
-     * returns that one instead of creating a second — see
-     * SupportRequestService::requestHandoff().
-     */
     public function store(RequestSupportHandoffRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -95,7 +77,6 @@ class SupportRequestController extends Controller
         }
     }
 
-    /** The caller's own support requests, newest first. */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -113,7 +94,6 @@ class SupportRequestController extends Controller
         );
     }
 
-    /** One of the caller's own requests, with the thread. */
     public function show(Request $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -124,8 +104,6 @@ class SupportRequestController extends Controller
             ->find($supportRequest);
 
         if ($found === null) {
-            // Same response whether the id is missing or belongs to someone
-            // else — a learner must not be able to probe for valid ids.
             return $this->errorResponse(
                 'SUPPORT_REQUEST_NOT_FOUND',
                 'The support request is not available.',
@@ -142,7 +120,6 @@ class SupportRequestController extends Controller
         );
     }
 
-    /** Add a message to the caller's own open request. */
     public function message(SendSupportMessageRequest $request, int $supportRequest): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -179,22 +156,6 @@ class SupportRequestController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/support/avatar/{user}
-     *
-     * The face of whoever answered the caller in one of their own requests.
-     *
-     * WHY IT IS NOT A FIELD ON THE MESSAGE PAYLOAD
-     * --------------------------------------------
-     * `avatar_data` is a blob, and the project deliberately keeps it out of
-     * JSON (see the `admin_profiles` migration): a thread with ten replies would
-     * re-send the same photo ten times. The message payload already carries
-     * `sender_id`, so the client builds this URL from it.
-     *
-     * SCOPED, and 404 for every miss — a stranger, a learner's own id, a person
-     * with no photo, a user that does not exist. The endpoint therefore cannot
-     * be walked to collect staff photos or to confirm which ids are real.
-     */
     public function avatar(Request $request, User $user): Response
     {
         $learner = $request->user();
@@ -224,20 +185,11 @@ class SupportRequestController extends Controller
         return response($binary, 200, [
             'Content-Type' => (string) $profile->avatar_mime,
             'Content-Length' => (string) strlen($binary),
-            // Private: a learner's browser may cache the face of the person
-            // helping them, but no shared proxy may.
             'Cache-Control' => 'private, max-age=300',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
-    /**
-     * The interaction the handoff came from, if the caller owns it.
-     *
-     * Scoped through the caller's own student profile on purpose: passing
-     * someone else's id yields null rather than a 403, so the endpoint never
-     * confirms that another learner's interaction exists (BR-11).
-     */
     private function resolveOwnedInteraction(Request $request, int $userId): ?AssistantInteraction
     {
         $interactionId = $request->input('source_interaction_id');
@@ -260,7 +212,6 @@ class SupportRequestController extends Controller
 
     private function perPage(Request $request): int
     {
-        // Clamp, per the project's list-endpoint convention.
         return max(1, min(100, (int) $request->integer('per_page', 15)));
     }
 
@@ -269,19 +220,6 @@ class SupportRequestController extends Controller
         return (string) ($request->header('X-Request-ID') ?: Str::uuid());
     }
 
-    /**
-     * Put a resource response into the envelope the rest of the API uses.
-     *
-     * Every other learner endpoint answers `{success, message, data}`, while a
-     * bare `JsonResource::response()` answers `{data}` — so a client written
-     * against the common shape read `success` as `undefined` on support and
-     * treated a perfectly good reply as a failure.
-     *
-     * The merge is deliberately *additive*: `data`, `links` and `meta` stay
-     * exactly where they were, so a client that already reads `body.data`
-     * (or `body.data.data` through axios) keeps working unchanged. Only the
-     * two missing keys are added.
-     */
     private function envelope(JsonResponse $response, string $message): JsonResponse
     {
         $payload = $response->getData(true);

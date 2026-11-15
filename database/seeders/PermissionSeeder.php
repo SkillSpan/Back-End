@@ -5,13 +5,6 @@ namespace Database\Seeders;
 use App\Models\Permission;
 use Illuminate\Database\Seeder;
 
-/**
- * Seeds the foundational permission catalogue so the RBAC subsystem has
- * data to work with. No permission is attached to any role here, and no
- * authorization logic depends on these rows yet — this only defines the
- * vocabulary for future fine-grained checks, kept idempotent so it is safe
- * to re-run.
- */
 class PermissionSeeder extends Seeder
 {
     public function run(): void

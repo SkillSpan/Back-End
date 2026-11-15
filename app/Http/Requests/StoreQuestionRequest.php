@@ -9,28 +9,13 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
-/**
- * Validates a question created from the admin "Questions" page.
- *
- * Beyond the per-field rules, it re-checks the Dynamic Assessment chain on
- * the SERVER — the career role must belong to the chosen specialization and
- * the skill must be required by that career role — so the panel's dynamic
- * dropdowns are a convenience, never the source of truth. A request that
- * pairs, say, Cybersecurity with Frontend Developer is rejected even if the
- * client posts it directly.
- */
 class StoreQuestionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // The route carries the `admin` middleware; authorization is not
-        // re-decided here.
         return true;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     public function rules(): array
     {
         return [
@@ -39,9 +24,6 @@ class StoreQuestionRequest extends FormRequest
             'skill_id' => ['required', 'integer', 'exists:skills,id'],
             'item_type' => ['required', 'string', Rule::in(QuestionBankService::ANSWER_TYPES)],
             'question_text' => ['required', 'string', 'max:2000'],
-            // Present only for multiple-choice questions; the shape rules
-            // live in withValidator() so the conditional logic stays in one
-            // readable place.
             'options' => ['sometimes', 'array', 'max:10'],
             'options.*' => ['nullable', 'string', 'max:255'],
             'correct_answer' => ['required', 'string', 'max:255'],
@@ -56,9 +38,6 @@ class StoreQuestionRequest extends FormRequest
         });
     }
 
-    /**
-     * specialization -> career role -> skill must be a real, connected chain.
-     */
     private function validateChain(Validator $validator): void
     {
         $specializationId = (int) $this->input('specialization_id');
@@ -98,11 +77,6 @@ class StoreQuestionRequest extends FormRequest
         }
     }
 
-    /**
-     * The answer must match the declared type: a multiple-choice question
-     * needs at least two distinct options and a correct answer drawn from
-     * them; a text question needs only the model answer.
-     */
     private function validateAnswerShape(Validator $validator): void
     {
         if ($validator->errors()->has('item_type')) {
@@ -113,7 +87,7 @@ class StoreQuestionRequest extends FormRequest
         $correct = trim((string) $this->input('correct_answer'));
 
         if ($type !== QuestionBankService::TYPE_MULTIPLE_CHOICE) {
-            return; // text: correct_answer is the model answer, nothing more to check
+            return;
         }
 
         $options = collect(is_array($this->input('options')) ? $this->input('options') : [])
@@ -142,9 +116,6 @@ class StoreQuestionRequest extends FormRequest
         }
     }
 
-    /**
-     * @return array<string, string>
-     */
     public function messages(): array
     {
         return [

@@ -4,13 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Restores the composite (user_id, consumed_at) lookup index on
- * password_reset_tokens — it existed on the first user_id-shaped version
- * of the table and was silently dropped by the later full rebuild — plus
- * name-based lookup indexes used by seeders/lookups that match on the
- * human-readable label rather than the unique slug.
- */
 return new class extends Migration
 {
     public function up(): void

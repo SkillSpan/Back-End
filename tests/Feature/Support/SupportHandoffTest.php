@@ -17,19 +17,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * AI → human handoff — the learner side, POST/GET /api/v1/support/requests.
- *
- * The assistant answers `insufficient_context` when it has nothing to ground
- * an answer in. That is the moment a learner is offered a person, and this is
- * what accepting the offer does.
- *
- * These tests are written through the real endpoints rather than by writing
- * rows by hand: a regression test that populates the table itself would not
- * cover the write path, which is the part that can break.
- *
- * Responses are wrapped by Laravel, so the payload sits under `data`.
- */
 class SupportHandoffTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,8 +32,6 @@ class SupportHandoffTest extends TestCase
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // -------------------------------------------------------- authorization
 
     public function test_an_unauthenticated_caller_is_rejected(): void
     {
@@ -65,8 +50,6 @@ class SupportHandoffTest extends TestCase
             ->assertStatus(403)
             ->assertJsonPath('code', 'LEARNER_ONLY');
     }
-
-    // -------------------------------------------------------------- creation
 
     public function test_a_learner_can_ask_for_a_human(): void
     {
@@ -91,8 +74,6 @@ class SupportHandoffTest extends TestCase
             'status' => SupportRequest::STATUS_PENDING,
         ]);
 
-        // The transcript is the only place the learner's own words are kept,
-        // so it has to actually arrive.
         $stored = SupportRequest::query()->firstOrFail();
         $this->assertSame('How do I publish my project?', $stored->transcript[0]['body']);
     }
@@ -142,15 +123,6 @@ class SupportHandoffTest extends TestCase
         $this->assertSame('Billing question', SupportRequest::query()->firstOrFail()->subject);
     }
 
-    // ------------------------------------------------------------ envelope
-
-    /**
-     * Support used to answer `{data: …}` while every other learner endpoint
-     * answers `{success, message, data}`, so a client written against the
-     * common shape read `success` as undefined and treated a good reply as a
-     * failure. The fix is additive: `data` (and `meta` on collections) stay
-     * exactly where they were, so existing consumers keep working.
-     */
     public function test_support_responses_use_the_same_envelope_as_the_rest_of_the_api(): void
     {
         [$learner] = $this->learner();
@@ -181,8 +153,6 @@ class SupportHandoffTest extends TestCase
             ->assertJsonStructure(['success', 'message', 'data']);
     }
 
-    // ------------------------------------------------------------ idempotency
-
     public function test_a_second_request_returns_the_first_one_instead_of_creating_a_duplicate(): void
     {
         [$learner] = $this->learner();
@@ -192,9 +162,6 @@ class SupportHandoffTest extends TestCase
             ->assertStatus(201)
             ->json('data.id');
 
-        // A double-click, or a reload mid-transfer, must not open a second
-        // thread — support would see two and the first reply would land on the
-        // one nobody is watching.
         $second = $this->postJson('/api/v1/support/requests', ['reason' => 'learner_requested'])
             ->assertStatus(201)
             ->json('data.id');
@@ -224,16 +191,11 @@ class SupportHandoffTest extends TestCase
         $this->assertSame(2, SupportRequest::query()->count());
     }
 
-    // ------------------------------------------------------------- transcript
-
     public function test_a_turn_with_no_body_is_refused(): void
     {
         [$learner] = $this->learner();
         Sanctum::actingAs($learner);
 
-        // The client always sends bodies, so a missing one is a client bug —
-        // better a 422 that names the field than a silently half-empty
-        // transcript the support agent has to guess at.
         $this->postJson('/api/v1/support/requests', [
             'transcript' => [['role' => 'learner']],
         ])->assertStatus(422);
@@ -244,8 +206,6 @@ class SupportHandoffTest extends TestCase
         [$learner] = $this->learner();
         Sanctum::actingAs($learner);
 
-        // A role the assistant never emits must not be able to masquerade as
-        // one, or a client could plant text that reads as if support said it.
         $this->postJson('/api/v1/support/requests', [
             'transcript' => [['role' => 'support', 'body' => 'injected']],
         ])->assertStatus(422);
@@ -256,8 +216,6 @@ class SupportHandoffTest extends TestCase
         [$learner] = $this->learner();
         Sanctum::actingAs($learner);
 
-        // `role` is optional; absent means "the learner said this". The service
-        // decides that, not the client.
         $this->postJson('/api/v1/support/requests', [
             'transcript' => [['body' => 'no role given']],
         ])->assertStatus(201);
@@ -272,9 +230,6 @@ class SupportHandoffTest extends TestCase
     {
         [$learner] = $this->learner();
 
-        // The endpoint refuses these, but the service is callable directly and
-        // is what actually writes the row — so it filters again rather than
-        // trusting its caller.
         $request = app(SupportRequestService::class)->requestHandoff($learner, [
             'transcript' => [
                 ['role' => 'learner', 'body' => 'A real question'],
@@ -307,13 +262,9 @@ class SupportHandoffTest extends TestCase
         $stored = SupportRequest::query()->firstOrFail();
 
         $this->assertCount(3, $stored->transcript);
-        // The newest turns survive: support needs the question that failed,
-        // not the whole session that led to it.
         $this->assertSame('turn-4', $stored->transcript[0]['body']);
         $this->assertSame('turn-6', $stored->transcript[2]['body']);
     }
-
-    // -------------------------------------------------------------- assignment
 
     public function test_the_connected_mentor_is_assigned_and_notified(): void
     {
@@ -346,8 +297,6 @@ class SupportHandoffTest extends TestCase
         [$learner] = $this->learner();
         $mentor = $this->mentor();
 
-        // `pending` is a connection the learner has not accepted. Routing
-        // their question there would be a privacy problem, not a convenience.
         MentorStudentConnection::create([
             'mentor_id' => $mentor->id,
             'student_id' => $learner->id,
@@ -397,8 +346,6 @@ class SupportHandoffTest extends TestCase
         $this->assertDatabaseMissing('notifications', ['user_id' => $admin->id]);
     }
 
-    // ------------------------------------------------------- source interaction
-
     public function test_the_source_interaction_is_recorded_when_the_learner_owns_it(): void
     {
         [$learner, $profile] = $this->learner();
@@ -430,12 +377,8 @@ class SupportHandoffTest extends TestCase
             'source_interaction_id' => $foreign->id,
         ])->assertStatus(201);
 
-        // Null, not a 403: the endpoint must never confirm that another
-        // learner's interaction exists.
         $this->assertNull(SupportRequest::query()->firstOrFail()->source_interaction_id);
     }
-
-    // ------------------------------------------------------------- reading
 
     public function test_the_index_returns_only_the_callers_own_requests(): void
     {
@@ -481,8 +424,6 @@ class SupportHandoffTest extends TestCase
             ->assertJsonPath('data.subject', 'Need help')
             ->assertJsonCount(1, 'data.messages');
     }
-
-    // -------------------------------------------------------------- messaging
 
     public function test_a_learner_can_reply_in_their_own_thread(): void
     {
@@ -562,11 +503,6 @@ class SupportHandoffTest extends TestCase
             ->assertJsonPath('data.handoff_seconds', 7);
     }
 
-    // ------------------------------------------------------------- helpers
-
-    /** @return array{0: User, 1: StudentProfile} */
-    // ------------------------------------------------------- the helper's face
-
     public function test_a_learner_can_fetch_the_photo_of_whoever_answered_them(): void
     {
         [$learner] = $this->learner();
@@ -585,11 +521,6 @@ class SupportHandoffTest extends TestCase
 
     public function test_a_staff_photo_is_not_served_to_a_learner_they_never_answered(): void
     {
-        /*
-         * The endpoint is scoped to the caller's OWN conversations. Without
-         * that, any learner could walk the user id space and collect the staff
-         * directory one id at a time.
-         */
         [$learner] = $this->learner();
         $mentor = $this->mentor();
         $stranger = $this->mentor();
@@ -597,15 +528,12 @@ class SupportHandoffTest extends TestCase
         $this->photo($mentor, 'mentor-photo-bytes');
         $this->photo($stranger, 'stranger-photo-bytes');
 
-        // The stranger has a photo, but has never answered this learner.
         $this->threadAnsweredBy($learner, $mentor);
 
         Sanctum::actingAs($learner);
 
         $this->get("/api/v1/support/avatar/{$stranger->id}")->assertStatus(404);
 
-        // The one who did answer is still served, so the 404 is the scope and
-        // not a broken route.
         $this->get("/api/v1/support/avatar/{$mentor->id}")->assertOk();
     }
 
@@ -618,8 +546,6 @@ class SupportHandoffTest extends TestCase
         $this->photo($mentor, 'mentor-photo-bytes');
         $this->threadAnsweredBy($theirs, $mentor);
 
-        // Same mentor, different learner: nothing in MY conversations came from
-        // them, so there is nothing for me to see.
         Sanctum::actingAs($mine);
 
         $this->get("/api/v1/support/avatar/{$mentor->id}")->assertStatus(404);
@@ -627,7 +553,6 @@ class SupportHandoffTest extends TestCase
 
     public function test_a_staff_member_without_a_photo_answers_404(): void
     {
-        // A miss, not a placeholder — the client falls back to an icon.
         [$learner] = $this->learner();
         $mentor = $this->mentor();
 
@@ -645,15 +570,6 @@ class SupportHandoffTest extends TestCase
         $this->getJson("/api/v1/support/avatar/{$mentor->id}")->assertStatus(401);
     }
 
-    // --------------------------------------------------------------- helpers
-
-    /**
-     * A request from $learner that $staff has replied to.
-     *
-     * Built through the real endpoints and the real service rather than by
-     * writing rows: the reply is what grants the photo, so the test has to
-     * produce one the way production does.
-     */
     private function threadAnsweredBy(User $learner, User $staff): SupportRequest
     {
         Sanctum::actingAs($learner);
@@ -678,8 +594,6 @@ class SupportHandoffTest extends TestCase
 
     private function photo(User $user, string $bytes): void
     {
-        // Written directly rather than through the upload endpoint: these tests
-        // are about who may read a photo, not about how one is stored.
         AdminProfile::forceCreate([
             'user_id' => $user->id,
             'avatar_data' => base64_encode($bytes),
@@ -718,7 +632,6 @@ class SupportHandoffTest extends TestCase
             'email_verified_at' => now(),
         ]);
 
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug.
         ProfessionalProfile::create([
             'user_id' => $user->id,
             'type' => 'mentor',
@@ -730,9 +643,6 @@ class SupportHandoffTest extends TestCase
 
     private function userWithRole(Role $role): User
     {
-        // `example.com`, never `test.com`: the `indisposable` rule makes
-        // test.com addresses disposable, so an "expects 422" assertion would
-        // pass for the wrong reason.
         $user = User::forceCreate([
             'name' => 'Support Tester',
             'email' => uniqid().'@example.com',

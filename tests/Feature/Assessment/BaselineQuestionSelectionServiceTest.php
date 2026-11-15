@@ -10,11 +10,6 @@ use App\Services\Baseline\BaselineQuestionSelectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * Direct unit coverage for the role-based question selection contract:
- * required-skill retrieval, weights/critical flags/prerequisites,
- * variable counts, coverage errors and the total cap.
- */
 class BaselineQuestionSelectionServiceTest extends TestCase
 {
     use RefreshDatabase;
@@ -27,7 +22,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
 
         $this->service = new BaselineQuestionSelectionService;
 
-        // Deterministic ordering keeps variable-count assertions exact.
         config(['services.baseline_assessment.deterministic_selection' => true]);
         config(['services.baseline_assessment.min_questions_per_skill' => 1]);
         config(['services.baseline_assessment.max_questions_per_skill' => 3]);
@@ -64,7 +58,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             [$python, ['importance_weight' => 0.5, 'is_critical' => false]],
         ]);
 
-        // Only SQL gets a question; python is uncovered.
         $this->item('sql-001', $sql, 'single_choice', ['A', 'B']);
 
         try {
@@ -168,8 +161,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
 
     public function test_total_cap_never_drops_required_skill_coverage(): void
     {
-        // Cap (2) equals the number of required skills, so only the
-        // coverage floor fits — the point is that BOTH skills survive.
         config(['services.baseline_assessment.max_total_questions' => 2]);
         config(['services.baseline_assessment.max_questions_per_skill' => 3]);
 
@@ -188,8 +179,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
         $selected = $this->service->select($role, 'v1.0');
 
         $this->assertCount(2, $selected);
-        // Neither required skill may be dropped: coverage wins over the
-        // "prefer heavier skills" preference.
         $this->assertEqualsCanonicalizing(
             ['critical-skill', 'minor-skill'],
             $selected->pluck('skill_slug')->unique()->values()->all()
@@ -198,8 +187,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
 
     public function test_total_cap_spends_extra_budget_on_heavier_skills(): void
     {
-        // Cap 3, two skills each with 2 items -> floor takes 1 each and
-        // the one spare question goes to the critical/heavier skill.
         config(['services.baseline_assessment.max_total_questions' => 3]);
         config(['services.baseline_assessment.max_questions_per_skill' => 3]);
 
@@ -222,14 +209,12 @@ class BaselineQuestionSelectionServiceTest extends TestCase
 
         $countBySkill = $selected->groupBy('skill_slug')->map->count();
 
-        // Coverage floor held for both, spare question went to the critical skill.
         $this->assertSame(2, $countBySkill['critical-skill']);
         $this->assertSame(1, $countBySkill['minor-skill']);
     }
 
     public function test_total_cap_below_skill_count_is_a_configuration_error(): void
     {
-        // 3 required skills cannot all be covered with a cap of 2.
         config(['services.baseline_assessment.max_total_questions' => 2]);
 
         $a = $this->skill('skill-a');
@@ -316,9 +301,6 @@ class BaselineQuestionSelectionServiceTest extends TestCase
             'assessment_version' => 'v1.0',
             'item_id' => $itemId,
             'item_type' => $type,
-            // Content validity is enforced at selection time, so the
-            // fixture authors a real prompt (see
-            // BaselineQuestionSelectionService::assertQuestionContentIsValid).
             'question_text' => "Baseline prompt for {$itemId}.",
             'skill_id' => $skill->id,
             'options' => $options,

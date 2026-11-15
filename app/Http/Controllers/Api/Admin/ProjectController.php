@@ -17,42 +17,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Admin project management — the platform-administrator side of the project
- * workflow.
- *
- * WHY THIS EXISTS
- * ---------------
- * ProjectManagementController serves the OWNER side and is deliberately
- * owner-scoped: `assertMayManage` refuses anything the actor does not own, so
- * there is no endpoint that can list the projects still sitting in `draft`,
- * `submitted` or `rejected`. The learner-facing ProjectController is not a
- * substitute either — it requires a student profile and only ever returns the
- * projects a learner is eligible to see. Neither can back an admin review
- * screen, so this controller adds the read + moderation surface without
- * duplicating a single line of lifecycle logic.
- *
- * WHAT IT DOES NOT DO
- * -------------------
- * Every state change goes through ProjectLifecycleService, which stays the
- * only writer: it re-checks the actor, the allowed transition, completeness
- * and date ordering. This class never touches `status` directly, never bumps
- * `version`, and never re-implements an authorization rule — it is a thin
- * adapter exactly like Admin\OrganizationController.
- *
- * Responses reuse ProjectResource, so the project contract does not fork
- * between the owner API, the learner API and the admin panel.
- */
 class ProjectController extends Controller
 {
-    /**
-     * Relations the admin screen reads on both list and detail responses.
-     *
-     * `organization:id,name` uses `name` because that is the real column —
-     * an eager load naming a column that does not exist is skipped silently
-     * by Laravel, which would surface as a missing organization in the UI
-     * rather than an error.
-     */
     private const PROJECT_WITH = [
         'organization:id,name',
         'owner:id,name,email',
@@ -66,13 +32,6 @@ class ProjectController extends Controller
         private readonly ProjectLifecycleService $lifecycleService,
     ) {}
 
-    /**
-     * GET /api/v1/admin/projects
-     *
-     * Every project in the system, newest first, with optional search and
-     * filters. Server-side pagination so the panel never pulls the whole
-     * table.
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -98,19 +57,8 @@ class ProjectController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * Counts for the panel's summary cards.
-     *
-     * Computed over the whole table rather than the current page, because a
-     * card reading "Draft: 2" while fifty drafts exist is worse than no card
-     * at all. Deliberately independent of the active filters, so the totals
-     * stay a stable reference point while an operator narrows the list.
-     *
-     * @return array<string, int>
-     */
     private function stats(): array
     {
-        // One grouped query rather than four counts.
         $byStatus = Project::query()
             ->selectRaw('status, COUNT(*) as aggregate')
             ->groupBy('status')
@@ -132,11 +80,6 @@ class ProjectController extends Controller
         ];
     }
 
-    /**
-     * GET /api/v1/admin/projects/{project}
-     *
-     * One project with the relations the detail screen renders.
-     */
     public function show(Request $request, int $project): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -158,19 +101,6 @@ class ProjectController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/admin/projects
-     *
-     * Create a project from the admin panel.
-     *
-     * The form request and the lifecycle service are the SAME ones the owner
-     * API uses (`POST /api/v1/projects`), deliberately: validation rules,
-     * ownership resolution and the "starts as draft" rule must not fork just
-     * because the form that submitted them was rendered by an administrator.
-     * The service re-checks `assertMayCreate`, and a platform administrator
-     * passes it, so an administrator creating here is authorized the same way
-     * an administrator creating through the owner API would be.
-     */
     public function store(StoreProjectRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -197,18 +127,6 @@ class ProjectController extends Controller
         }
     }
 
-    /**
-     * PATCH /api/v1/admin/projects/{project}
-     *
-     * Edit a project from the admin panel.
-     *
-     * `UpdateProjectRequest` makes every top-level field optional, so this is
-     * a partial update. Two rules are NOT relaxed and remain the service's:
-     * the actor must be allowed to manage the project, and the project must be
-     * in an editable status (`draft` or `changes_requested`). An approved or
-     * open project is therefore refused with PROJECT_NOT_EDITABLE rather than
-     * edited behind the review that approved it.
-     */
     public function update(UpdateProjectRequest $request, int $project): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -245,29 +163,11 @@ class ProjectController extends Controller
         }
     }
 
-    /**
-     * POST /api/v1/admin/projects/{project}/cancel
-     *
-     * The soft delete. `Project::TRANSITIONS` gives no state an edge into
-     * `cancelled`, and the lifecycle deliberately exposes no delete endpoint,
-     * because a project is referenced by applications, recommendations and a
-     * versioned matching snapshot — removing the row would orphan all of it.
-     * Retiring a project therefore means marking it `cancelled`, which
-     * preserves the audit trail and every historical decision.
-     *
-     * This is intentionally NOT a general status editor: it accepts no target
-     * status from the client, so the only reachable transition is the one
-     * defined here. A project that has already been cancelled or archived is
-     * reported as such rather than silently re-cancelled.
-     */
     public function cancel(Project $project, Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
 
         try {
-            // The service owns the rules: authorized actor, and refuse a
-            // project that has already reached a final state. Not duplicated
-            // here so there is exactly one place that decides cancellability.
             $cancelled = $this->lifecycleService->cancel(
                 $project,
                 $request->user(),
@@ -288,18 +188,6 @@ class ProjectController extends Controller
         }
     }
 
-    // -----------------------------------------------------------------
-    // Filters
-    // -----------------------------------------------------------------
-
-    /**
-     * Search + filters a platform administrator needs when reviewing.
-     *
-     * `q` searches the fields an administrator actually identifies a project
-     * by (title, domain, role) and accepts a numeric id so pasting an id from
-     * a report works. Title matching is case-insensitive through LIKE, which
-     * behaves identically on SQLite and MySQL/MariaDB for these collations.
-     */
     private function applyFilters(Builder $query, Request $request): void
     {
         $search = trim((string) $request->query('q', ''));
@@ -310,10 +198,6 @@ class ProjectController extends Controller
                     ->orWhere('domain', 'like', "%{$search}%")
                     ->orWhere('role', 'like', "%{$search}%");
 
-                // There is no orWhereKey() on the query builder - only the
-                // non-negated whereKey() - so the primary key is matched
-                // explicitly. Guarded by ctype_digit so the column is never
-                // compared against a non-numeric string.
                 if (ctype_digit($search)) {
                     $inner->orWhere('id', (int) $search);
                 }
@@ -328,8 +212,6 @@ class ProjectController extends Controller
 
         $status = $request->query('status');
 
-        // `closed` is accepted here purely so a legacy row stays findable; it
-        // has no transition of its own, per Project::STATUS_CLOSED.
         $allowedStatuses = array_merge(Project::STATUSES, [Project::STATUS_CLOSED]);
 
         if (is_string($status) && in_array($status, $allowedStatuses, true)) {
@@ -349,10 +231,6 @@ class ProjectController extends Controller
         }
     }
 
-    /**
-     * The filters that were actually applied, echoed back so the panel can
-     * keep its controls in sync with the response it is rendering.
-     */
     private function appliedFilters(Request $request): array
     {
         return array_filter([
@@ -371,14 +249,8 @@ class ProjectController extends Controller
         return max(1, min($perPage, 100));
     }
 
-    // -----------------------------------------------------------------
-    // Response helpers — same envelope as ProjectManagementController
-    // -----------------------------------------------------------------
-
     private function projectResponse(Project $project, string $message, int $status, string $requestId): JsonResponse
     {
-        // Same shape as `show`, so a create/update response is immediately
-        // usable by the panel without a follow-up fetch.
         $project->loadMissing(self::PROJECT_WITH);
 
         $payload = $this->withAdminFields(
@@ -394,30 +266,6 @@ class ProjectController extends Controller
         ]), $status, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * Add the fields only the admin panel needs, per response.
-     *
-     * `ProjectResource` is shared by the learner catalog, the recommendation
-     * payload and the owner API, so nothing operator-specific belongs in it.
-     * These three are added here instead, which keeps every existing contract
-     * byte-identical while still giving the panel what it needs:
-     *
-     *   - `is_editable` — read from Project::EDITABLE_STATUSES via the model,
-     *     so the Edit button can never disagree with what `update` accepts.
-     *   - `project_roles` — EVERY role, including deactivated ones.
-     *     `available_project_roles` is the learner-facing list and correctly
-     *     hides inactive roles; an editor must see what is stored, or an
-     *     inactive role would vanish from the form and be dropped on save.
-     *   - `eligibility_constraints` — the STORED rows, as opposed to
-     *     `eligibility`, which is the per-learner verdict and is null here.
-     *
-     * The models are passed alongside the payload so the fields can be read
-     * from Eloquent rather than re-derived from the JSON.
-     *
-     * @param  array<string, mixed>  $payload  the `getData(true)` array of a ProjectResource
-     * @param  Project|iterable<Project>  $models
-     * @return array<string, mixed>
-     */
     private function withAdminFields(array $payload, Project|iterable $models): array
     {
         $byId = [];
@@ -430,8 +278,6 @@ class ProjectController extends Controller
             return $payload;
         }
 
-        // A collection's `data` is a list; a single resource's `data` is the
-        // row itself. Both wrap each row as {data: {...}}.
         $payload['data'] = array_is_list($payload['data'])
             ? array_map(fn ($row) => $this->decorate($row, $byId), $payload['data'])
             : $this->decorate($payload['data'], $byId);
@@ -439,11 +285,6 @@ class ProjectController extends Controller
         return $payload;
     }
 
-    /**
-     * @param  array<int, Project>  $byId
-     * @param  mixed  $row
-     * @return mixed
-     */
     private function decorate($row, array $byId)
     {
         $target = null;

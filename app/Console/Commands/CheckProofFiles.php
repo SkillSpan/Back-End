@@ -6,19 +6,6 @@ use App\Models\Organization;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
-/**
- * Answers one question: are the organization proof documents actually
- * reachable right now?
- *
- * It runs exactly the check Admin\OrganizationController::downloadProofFile
- * performs before serving a file — a row in the database plus a file on the
- * configured disk — so "PRESENT" here means the panel's download link will
- * work, and "MISSING" means it will 404.
- *
- * Worth running after every deploy: a container filesystem without a
- * persistent volume silently discards uploads, and the database rows stay
- * behind, so the failure is invisible until someone opens a proof.
- */
 class CheckProofFiles extends Command
 {
     protected $signature = 'admin:check-proofs {--missing-only : Only list the documents that are missing}';
@@ -39,10 +26,6 @@ class CheckProofFiles extends Command
         $this->line('  Set by FILESYSTEM_DISK.');
         $this->newLine();
 
-        // Deliberately uses the model's own proofFile() rather than re-deriving
-        // the rule here: if the resolution logic ever changes, this check has
-        // to change with it or it starts lying about the download route.
-        // One query per organization is fine at this scale.
         $organizations = Organization::all();
 
         $rows = [];
@@ -59,7 +42,6 @@ class CheckProofFiles extends Command
                 continue;
             }
 
-            // The same test the download route runs.
             $exists = Storage::exists($file->path);
 
             $exists ? $present++ : $missing++;

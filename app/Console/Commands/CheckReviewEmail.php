@@ -10,22 +10,6 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
 
-/**
- * Answers one question: if an admin approves this organization right now,
- * would the approval email actually go out — and to which address?
- *
- * The review workflow resolves its recipients from the organization's own
- * admin memberships and refuses to approve an organization with no proof
- * document, so "no approval email arrived" can mean any of three very
- * different things: the approval was refused before any mail was attempted,
- * there was no active admin account to send to, or the mail was dispatched
- * and the problem is downstream (transport, spam filtering, wrong mailbox).
- * Those are indistinguishable from the outside and each needs a different
- * fix, so this command prints the whole decision path and then optionally
- * fires a real email so delivery can be confirmed end to end.
- *
- * It is deliberately read-only apart from --send-to.
- */
 class CheckReviewEmail extends Command
 {
     protected $signature = 'admin:check-review-email
@@ -95,11 +79,6 @@ class CheckReviewEmail extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * The pre-check approve() runs before it touches anything. It looks at the
-     * database row only — a proof whose bytes are gone from the disk still
-     * passes here and is reported separately by `admin:check-proofs`.
-     */
     private function reportProofDocument(Organization $organization): bool
     {
         $proof = $organization->proofFile();
@@ -119,9 +98,6 @@ class CheckReviewEmail extends Command
         return false;
     }
 
-    /**
-     * @return array<int, string> the addresses that would actually be notified
-     */
     private function reportRecipients(Organization $organization): array
     {
         $members = $organization->members()->wherePivot('role_in_org', 'admin')->get();
@@ -173,20 +149,11 @@ class CheckReviewEmail extends Command
         }
     }
 
-    /**
-     * Rendering is what Notification::fake() hides in the test suite, so a
-     * template that throws would only ever surface in production. Render both
-     * here to rule that out.
-     *
-     * @param  array<int, string>  $recipients
-     */
     private function reportTemplates(Organization $organization, array $recipients): void
     {
         $this->newLine();
         $this->line('  Templates:');
 
-        // A real User when there is one, so `$name` in the view is populated
-        // the same way it would be in production.
         $notifiable = $organization->members()->wherePivot('role_in_org', 'admin')->first()
             ?? new User(['name' => 'SkillSpan Admin', 'email' => $recipients[0] ?? 'noreply@example.com']);
 

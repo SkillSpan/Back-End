@@ -21,11 +21,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Roadmap v1 integration — the Laravel side of the FastAPI Roadmap v1
- * contract: multiple prerequisites (payload + persistence), the persisted
- * Next Best Action, version ownership, and weekly availability hours.
- */
 class RoadmapV1IntegrationTest extends TestCase
 {
     use RefreshDatabase;
@@ -49,13 +44,10 @@ class RoadmapV1IntegrationTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------ TEST A
-
     public function test_payload_carries_all_prerequisite_skill_ids(): void
     {
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
 
-        // SQL (target) depends on Python, Power BI and Statistics.
         $sql = $roleSkills[0];
         $sql->prerequisites()->sync([
             $skills[1]->id,
@@ -72,7 +64,6 @@ class RoadmapV1IntegrationTest extends TestCase
             $sqlPayload['prerequisite_skill_ids'],
         );
 
-        // A skill without prerequisites yields an EMPTY array, never null.
         $pythonPayload = collect($payload['skills'])->firstWhere('skill_id', (int) $roleSkills[1]->skill_id);
         $this->assertSame([], $pythonPayload['prerequisite_skill_ids']);
     }
@@ -81,8 +72,6 @@ class RoadmapV1IntegrationTest extends TestCase
     {
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
 
-        // A duplicate dependency row is impossible (unique pair), but the
-        // legacy fallback must never double up with the relation either.
         $roleSkills[0]->prerequisites()->sync([$skills[1]->id]);
 
         $payload = $this->buildPayload($profile, $role, $roleSkills);
@@ -99,7 +88,6 @@ class RoadmapV1IntegrationTest extends TestCase
     {
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
 
-        // Legacy data: only the single column is populated.
         $roleSkills[0]->forceFill(['prerequisite_skill_id' => $skills[3]->id])->save();
 
         $payload = $this->buildPayload($profile, $role, $roleSkills);
@@ -107,8 +95,6 @@ class RoadmapV1IntegrationTest extends TestCase
 
         $this->assertSame([$skills[3]->id], $sqlPayload['prerequisite_skill_ids']);
     }
-
-    // ------------------------------------------------ TEST B
 
     public function test_roadmap_action_persists_every_prerequisite_skill(): void
     {
@@ -133,13 +119,10 @@ class RoadmapV1IntegrationTest extends TestCase
             $pythonAction->prerequisites->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all(),
         );
 
-        // The legacy single column keeps the FIRST prerequisite only.
         $this->assertSame($prerequisiteIds[0], (int) $pythonAction->prerequisite_skill_id);
 
-        // Every prerequisite is stored relationally, none lost.
         $this->assertSame(3, RoadmapActionPrerequisite::where('roadmap_action_id', $pythonAction->id)->count());
 
-        // And the API exposes the full set.
         $response = $this->getJson('/api/v1/intelligence/latest?career_role_id='.$role->id)->assertOk();
         $actions = collect($response->json('data.roadmap.actions'));
         $pythonPayload = $actions->firstWhere('title', 'Practice Python');
@@ -149,8 +132,6 @@ class RoadmapV1IntegrationTest extends TestCase
         );
     }
 
-    // ------------------------------------------------ TEST C
-
     public function test_next_best_action_id_is_persisted_and_points_inside_the_same_roadmap(): void
     {
         config(['services.data_science.roadmap_enabled' => true]);
@@ -158,7 +139,6 @@ class RoadmapV1IntegrationTest extends TestCase
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        // FastAPI nominates A2 (the SECOND action), not the first one.
         $this->fakeCalculation($profile, $role, $roleSkills, $skills, [
             'next_best_action_id' => 'A2',
         ]);
@@ -172,7 +152,6 @@ class RoadmapV1IntegrationTest extends TestCase
 
         $this->assertNotNull($roadmap->next_best_action_id);
         $this->assertSame((int) $pythonAction->id, (int) $roadmap->next_best_action_id);
-        // The action belongs to the SAME roadmap.
         $this->assertSame((int) $roadmap->id, (int) $pythonAction->roadmap_id);
 
         $this->getJson('/api/v1/intelligence/latest?career_role_id='.$role->id)
@@ -199,8 +178,6 @@ class RoadmapV1IntegrationTest extends TestCase
         $this->assertSame(0, RoadmapAction::count());
     }
 
-    // ------------------------------------------------ TEST D
-
     public function test_roadmap_stores_the_roadmaps_own_algorithm_and_configuration_versions(): void
     {
         config(['services.data_science.roadmap_enabled' => true]);
@@ -208,9 +185,6 @@ class RoadmapV1IntegrationTest extends TestCase
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        // The skill-gap response reports 'intelligence-v1' / 'config-v1';
-        // the ROADMAP reports different, roadmap-specific versions. The
-        // roadmap must keep its OWN values.
         $this->fakeCalculation($profile, $role, $roleSkills, $skills, []);
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
@@ -222,8 +196,6 @@ class RoadmapV1IntegrationTest extends TestCase
         $this->assertSame('roadmap-config-v1', $roadmap->configuration_version);
     }
 
-    // ------------------------------------------------ TEST E
-
     public function test_roadmap_version_and_status_are_laravel_owned(): void
     {
         config(['services.data_science.roadmap_enabled' => true]);
@@ -231,7 +203,6 @@ class RoadmapV1IntegrationTest extends TestCase
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
         Sanctum::actingAs($user);
 
-        // FastAPI echoes the SAME roadmap_version=1 on both calls.
         $this->fakeCalculation($profile, $role, $roleSkills, $skills, []);
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])->assertStatus(201);
 
@@ -249,8 +220,6 @@ class RoadmapV1IntegrationTest extends TestCase
         $this->assertSame(2, (int) $roadmaps[1]->version);
         $this->assertSame(Roadmap::STATUS_ACTIVE, $roadmaps[1]->status);
     }
-
-    // ------------------------------------------------ TEST F / G
 
     public function test_weekly_availability_hours_is_exposed_in_the_intelligence_snapshot(): void
     {
@@ -271,14 +240,12 @@ class RoadmapV1IntegrationTest extends TestCase
         $this->assertIsNumeric($weeklyHours);
         $this->assertEqualsWithDelta(15.0, (float) $weeklyHours, 0.0001);
 
-        // availability is untouched and still present alongside it.
         $this->assertSame($profile->availability, $snapshot->snapshot['learner']['availability']);
     }
 
     public function test_null_weekly_availability_hours_does_not_break_the_payload(): void
     {
         [$user, $profile, $role, $roleSkills, $skills] = $this->createScenario();
-        // Explicitly null.
         $profile->forceFill(['weekly_availability_hours' => null])->save();
         Sanctum::actingAs($user);
 
@@ -291,12 +258,9 @@ class RoadmapV1IntegrationTest extends TestCase
 
         $snapshot = DecisionSnapshot::where('student_profile_id', $profile->id)->firstOrFail();
 
-        // Null is preserved — never coerced to 0.
         $this->assertArrayHasKey('weekly_availability_hours', $snapshot->snapshot['learner']);
         $this->assertNull($snapshot->snapshot['learner']['weekly_availability_hours']);
     }
-
-    // ------------------------------------------------ helpers
 
     private function buildPayload(StudentProfile $profile, CareerRole $role, Collection $roleSkills): array
     {
@@ -317,9 +281,6 @@ class RoadmapV1IntegrationTest extends TestCase
         );
     }
 
-    /**
-     * @param  array<string, mixed>  $roadmapOverrides
-     */
     private function fakeCalculation($profile, $role, $roleSkills, $skills, array $roadmapOverrides): void
     {
         $nextBestActionId = $roadmapOverrides['next_best_action_id'] ?? 'A1';
@@ -376,8 +337,6 @@ class RoadmapV1IntegrationTest extends TestCase
             'student_profile_id' => (int) $profile->id,
             'career_role_id' => (int) $role->id,
             'career_role_version' => (int) $role->version,
-            // Skill-gap reports its OWN versions; the roadmap reports
-            // different ones (see roadmapResponse).
             'algorithm_version' => 'intelligence-v1',
             'configuration_version' => 'config-v1',
             'skill_results' => $skillResults,
@@ -392,9 +351,6 @@ class RoadmapV1IntegrationTest extends TestCase
         ];
     }
 
-    /**
-     * @param  list<int>  $pythonPrerequisites
-     */
     private function roadmapResponse($profile, $role, $roleSkills, $skills, string $nextBestActionId, array $pythonPrerequisites): array
     {
         return [
@@ -405,8 +361,6 @@ class RoadmapV1IntegrationTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
-            // Roadmap v1 totals + limitations. This learner has NO weekly
-            // availability, so a null calendar duration is valid.
             'estimated_total_hours' => 10.0,
             'estimated_duration_weeks' => null,
             'limitations' => ['market_demand_factor_unavailable_neutral_1_0'],
@@ -449,9 +403,6 @@ class RoadmapV1IntegrationTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>, 4: list<Skill>}
-     */
     private function createScenario(): array
     {
         $user = User::forceCreate([

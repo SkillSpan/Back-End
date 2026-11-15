@@ -17,9 +17,6 @@ class Roadmap extends Model
 
     protected $casts = [
         'generated_at' => 'datetime',
-        // Roadmap-level totals (FastAPI-owned): total effort is a float,
-        // the calendar duration is an integer or null (Roadmap v1), and the
-        // limitations are a JSON list of machine-readable codes.
         'estimated_total_hours' => 'float',
         'estimated_duration_weeks' => 'integer',
         'limitations' => 'array',
@@ -45,10 +42,6 @@ class Roadmap extends Model
         return $this->hasMany(RoadmapAction::class)->orderBy('order_index');
     }
 
-    /**
-     * The action FastAPI nominated as the learner's Next Best Action,
-     * resolved to the persisted action of THIS roadmap (nullable).
-     */
     public function nextBestAction()
     {
         return $this->belongsTo(RoadmapAction::class, 'next_best_action_id');

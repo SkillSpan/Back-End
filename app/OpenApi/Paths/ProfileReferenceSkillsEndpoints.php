@@ -4,15 +4,6 @@ namespace App\OpenApi\Paths;
 
 use OpenApi\Attributes as OA;
 
-/**
- * OpenAPI documentation for:
- *  - App\Http\Controllers\Api\ProfileController
- *  - App\Http\Controllers\Api\ReferenceController
- *  - App\Http\Controllers\Api\SkillsController
- *
- * Paths are relative to the `/api` server, so they carry the `/v1` prefix
- * exactly as registered in routes/api.php.
- */
 class ProfileReferenceSkillsEndpoints
 {
     #[OA\Post(

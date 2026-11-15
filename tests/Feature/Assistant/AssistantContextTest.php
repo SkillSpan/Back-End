@@ -20,18 +20,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-/**
- * US-REC-01 — the approved learner context snapshot.
- *
- * These are the guarantees that hold regardless of what FastAPI returns,
- * and the ones the SRS is strictest about:
- *
- *  - REC-07 / §12.5: nothing is fabricated. A source with no row for this
- *    learner is reported as unavailable, never defaulted and never omitted.
- *  - BR-REC-02 / BR-06: nothing is recomputed. Stored values are read back
- *    verbatim.
- *  - BR-11: no query can reach another learner's data.
- */
 class AssistantContextTest extends TestCase
 {
     use RefreshDatabase;
@@ -47,8 +35,6 @@ class AssistantContextTest extends TestCase
         $this->builder = app(AssistantContextBuilder::class);
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // ------------------------------------------- no fabrication (REC-07)
 
     public function test_every_section_is_explicitly_unavailable_for_a_bare_learner(): void
     {
@@ -68,8 +54,6 @@ class AssistantContextTest extends TestCase
         foreach ($sections as $section) {
             $this->assertArrayHasKey($section, $snapshot, "Section [{$section}] was silently omitted.");
 
-            // Present, but explicitly marked unknown — not zero, not null,
-            // not a plausible default.
             $this->assertFalse(
                 $snapshot[$section]['available'],
                 "Section [{$section}] should be marked unavailable for a learner with no stored data.",
@@ -90,8 +74,6 @@ class AssistantContextTest extends TestCase
         $this->assertFalse($careerRole['available']);
     }
 
-    // ---------------------------------------- no recomputation (BR-06)
-
     public function test_readiness_is_read_back_exactly_as_stored(): void
     {
         [, $profile, $role] = $this->createLearner(withRole: true);
@@ -111,7 +93,6 @@ class AssistantContextTest extends TestCase
         $readiness = $this->builder->build($profile)['snapshot']['readiness'];
 
         $this->assertTrue($readiness['available']);
-        // Exactly the stored value — the builder does not recalculate.
         $this->assertSame(72.5, $readiness['score']);
         $this->assertSame('near_ready', $readiness['band']);
         $this->assertSame('config-v3', $readiness['configuration_version']);
@@ -156,8 +137,6 @@ class AssistantContextTest extends TestCase
         $this->assertSame('Stored explanation.', $gaps['gaps'][0]['explanation']);
     }
 
-    // ------------------------------------- authorization scoping (BR-11)
-
     public function test_another_learners_readiness_is_never_included(): void
     {
         [, $mine] = $this->createLearner();
@@ -175,8 +154,6 @@ class AssistantContextTest extends TestCase
 
         $readiness = $this->builder->build($mine)['snapshot']['readiness'];
 
-        // The other learner has readiness; I do not. I must see "unknown",
-        // not their score.
         $this->assertFalse($readiness['available']);
     }
 
@@ -259,8 +236,6 @@ class AssistantContextTest extends TestCase
         $this->assertNull($this->builder->findAccessibleProject($profile, $project->id));
     }
 
-    // ------------------------------------------------------ roadmap / NBA
-
     public function test_the_next_best_action_skips_completed_actions(): void
     {
         [, $profile, $role] = $this->createLearner(withRole: true);
@@ -296,7 +271,6 @@ class AssistantContextTest extends TestCase
 
         $this->assertTrue($nba['available']);
         $this->assertSame('Do this next', $nba['title']);
-        // The selection basis is declared, not implied.
         $this->assertNotEmpty($nba['selection_basis']);
     }
 
@@ -327,8 +301,6 @@ class AssistantContextTest extends TestCase
         $this->assertFalse($nba['available']);
     }
 
-    // -------------------------------------------------------- hygiene
-
     public function test_the_snapshot_carries_no_personal_data(): void
     {
         [$user, $profile] = $this->createLearner();
@@ -336,7 +308,6 @@ class AssistantContextTest extends TestCase
         $snapshot = $this->builder->build($profile)['snapshot'];
         $serialised = (string) json_encode($snapshot);
 
-        // §12.5 / §8.6: validated decision data only — no PII.
         $this->assertStringNotContainsString((string) $user->email, $serialised);
         $this->assertStringNotContainsString((string) $user->name, $serialised);
     }
@@ -371,11 +342,6 @@ class AssistantContextTest extends TestCase
         $this->assertNotSame($before, $this->builder->build($profile)['reference']);
     }
 
-    // ------------------------------------------------------------ helpers
-
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: ?CareerRole}
-     */
     private function createLearner(bool $withRole = false): array
     {
         $user = User::forceCreate([

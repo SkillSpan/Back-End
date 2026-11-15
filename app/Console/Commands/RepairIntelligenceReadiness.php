@@ -12,32 +12,6 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 use Throwable;
 
-/**
- * Repair learners whose intelligence recalculation never landed.
- *
- * The symptom reported from the live server was `GET /readiness/latest` and
- * `GET /intelligence/latest` answering 404 for a learner who had already
- * finished an assessment. Both endpoints read persisted rows — `readiness_results`
- * and a SUCCEEDED intelligence `decision_snapshots` row — and neither existed.
- *
- * Cause: the post-assessment recalculation runs in a queued listener
- * (`RecalculateIntelligence`) that deliberately swallows its own failures, and
- * the intelligence flow refuses to run without a career role
- * (`CAREER_ROLE_REQUIRED`). `student_profiles.primary_career_role_id` was never
- * written, so every recalculation aborted at the first guard, logged one
- * warning, and left nothing behind. The assessment itself succeeded, which is
- * why the 404 looked like a broken endpoint rather than a missing input.
- *
- * New assessments now record the primary role at `start()` (see
- * BaselineAssessmentService), but that does nothing for learners who already
- * assessed. This command is that backfill: it recovers the role from the
- * learner's newest completed assessment and runs the recalculation once,
- * synchronously, so the failure is reported here instead of disappearing into
- * a log line.
- *
- * Read-only unless `--force` is passed. On a shared production database that
- * distinction is the whole point.
- */
 class RepairIntelligenceReadiness extends Command
 {
     protected $signature = 'app:repair-intelligence-readiness
@@ -149,13 +123,6 @@ class RepairIntelligenceReadiness extends Command
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }
 
-    /**
-     * The role the learner was last assessed against.
-     *
-     * The primary role is preferred when it is already set; otherwise the
-     * newest completed assessment supplies it. `career_role_id` is nullable on
-     * that table, hence the explicit filter.
-     */
     private function resolveCareerRoleId(StudentProfile $profile): ?int
     {
         if ($profile->primary_career_role_id) {

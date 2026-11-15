@@ -14,30 +14,10 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
-/**
- * Sign-in for the browser-based admin review panel.
- *
- * The panel used to ask the operator to paste a Sanctum Bearer token into a
- * text box, which meant every reviewer needed a token minted out of band and
- * the page could only ever answer "ما قدرنا نجيب الطلبات: Unauthenticated."
- * when it was missing. This establishes a normal session instead, so the
- * panel is reachable by signing in with an email and password.
- *
- * The credential check deliberately mirrors Api\AuthController::attemptLogin
- * step for step — same email normalisation, same lookup, same Hash::check.
- * Anything the API accepts must be accepted here, otherwise the same
- * credentials "work on the API but not in the panel".
- */
 class AdminAuthController extends Controller
 {
-    /**
-     * Maximum failed attempts per email+IP before the form locks out.
-     */
     private const MAX_ATTEMPTS = 5;
 
-    /**
-     * Lockout window, in seconds.
-     */
     private const DECAY_SECONDS = 60;
 
     public function showLoginForm(): View
@@ -52,9 +32,6 @@ class AdminAuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        // Same normalisation as the API (strtolower + trim) and the same shape
-        // the model stores (User::setEmailAttribute). Without it the panel and
-        // the API can disagree on identical input.
         $email = mb_strtolower(trim($validated['email']));
         $password = $validated['password'];
 
@@ -67,12 +44,6 @@ class AdminAuthController extends Controller
             ]);
         }
 
-        // The account lookup and password check are written out rather than
-        // collapsed into Auth::attempt(), for two reasons: it guarantees the
-        // exact behaviour of the API login, and it lets a rejected attempt be
-        // logged with the reason. `Auth::attempt() === false` cannot tell
-        // "no such account" apart from "wrong password", which makes a report
-        // like "it says the credentials do not match" impossible to diagnose.
         $user = User::where('email', $email)->first();
 
         if (! $user) {
@@ -96,19 +67,6 @@ class AdminAuthController extends Controller
             ]);
         }
 
-        // A correct password is not sufficient: the panel is for platform
-        // administrators and mentors, and a suspended account must not be able
-        // to use it. The two refusals are reported separately, and the role one
-        // names the role the account actually holds, so an organisation admin
-        // signing in with perfectly valid credentials does not read it as a
-        // wrong password.
-        //
-        // Mentors are admitted because the support inbox lives in this panel and
-        // the person who answers an escalated learner is the mentor already
-        // connected to them — not an administrator. Admitting them here grants
-        // nothing on its own: the review and project pages still sit behind the
-        // `admin` middleware, and the two pages a mentor can reach scope them to
-        // their own work ({@see PanelAccess}).
         $roles = $user->roles()->pluck('slug');
 
         $refusal = match (true) {
@@ -132,21 +90,10 @@ class AdminAuthController extends Controller
 
         RateLimiter::clear($throttleKey);
 
-        // Reached only after the password and the authorization checks both
-        // passed, so no session exists that has to be torn down again.
         Auth::login($user, $request->boolean('remember'));
 
-        // New session id on privilege change, to defeat session fixation.
         $request->session()->regenerate();
 
-        // Land each audience on a page it can actually open. Sending a mentor to
-        // `admin.organizations` would meet the `admin` middleware and answer 403
-        // immediately after a successful sign-in, which reads as "my credentials
-        // are wrong" rather than "that page is not mine". The inbox is the
-        // mentor's actual job, so it is the honest landing page for them.
-        //
-        // `intended()` still wins when there is one, so a mentor who was heading
-        // for a specific page before signing in is taken there.
         return redirect()->intended(
             PanelAccess::isAdministrator($user)
                 ? route('admin.organizations')
@@ -164,14 +111,6 @@ class AdminAuthController extends Controller
         return redirect()->route('login');
     }
 
-    /**
-     * Record a refused sign-in attempt.
-     *
-     * Failed admin sign-ins are worth keeping for security monitoring anyway;
-     * they are also the only way to tell which step turned an operator away.
-     * The caller still returns a deliberately vague message, so nothing here
-     * leaks whether an address is registered.
-     */
     private function reject(Request $request, string $throttleKey, string $reason, array $context): void
     {
         RateLimiter::hit($throttleKey, self::DECAY_SECONDS);

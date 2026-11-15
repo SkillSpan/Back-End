@@ -7,22 +7,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Read-only audit for the "deployment fails because a table already exists"
- * class of problem.
- *
- * `php artisan migrate --force` fails with SQLSTATE[42S01] when a migration
- * file that is still unrecorded in the `migrations` table tries to CREATE a
- * table that the database already holds. That happens when the bookkeeping
- * table and the real schema have drifted apart, and the only correct fix is
- * to reconcile the bookkeeping — never to drop the table.
- *
- * This command performs no migration, no INSERT, no UPDATE and no DELETE. It
- * reports the drift and prints the reconciliation SQL for a human to review
- * and run deliberately. It exists because production (Clever Cloud) is only
- * reachable through the app's own environment, so a read-only Artisan command
- * is the least invasive way to look at it.
- */
 class MigrationDoctor extends Command
 {
     protected $signature = 'db:migration-doctor';
@@ -101,9 +85,6 @@ class MigrationDoctor extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * @return Collection<int, string>
-     */
     private function migrationFiles(): Collection
     {
         return collect((array) glob(database_path('migrations/*.php')))
@@ -112,21 +93,12 @@ class MigrationDoctor extends Command
             ->values();
     }
 
-    /**
-     * @param  Collection<int, string>  $files
-     * @param  Collection<int, object>  $recorded
-     * @param  Collection<int, string>  $recordedNames
-     */
     private function reportTableCounts(Collection $files, Collection $recorded, Collection $recordedNames): void
     {
         $this->line("  migration files : {$files->count()}");
         $this->line("  recorded rows   : {$recorded->count()}");
         $this->line('  batches         : '.$recorded->pluck('batch')->unique()->sort()->implode(', '));
 
-        // A recorded value that carries a path or an extension can never match
-        // a file name stem, so every migration looks pending and the deploy
-        // replays the whole suite. This is a bookkeeping-format problem, not a
-        // schema problem, and it is fixed by normalising those values.
         $malformed = $recordedNames
             ->filter(static fn (string $name): bool => str_contains($name, '/') || str_contains($name, '.php'))
             ->values();
@@ -138,8 +110,6 @@ class MigrationDoctor extends Command
             $this->line('  Every file is treated as pending while these rows stay in that shape.');
         }
 
-        // Rows whose file no longer exists: a renamed or deleted migration.
-        // Harmless for `migrate`, but it is the signature of history drift.
         $orphans = $recordedNames->diff($files)->values();
 
         if ($orphans->isNotEmpty()) {
@@ -149,16 +119,6 @@ class MigrationDoctor extends Command
         }
     }
 
-    /**
-     * Table operations declared by a migration's `up()` method.
-     *
-     * Comments are stripped first: a doc block that merely mentions
-     * "Schema::create('users', ...)" must not be read as a real operation.
-     * Only `up()` is scanned, because `down()` never runs during `migrate`
-     * and its dropIfExists() calls are not a deployment hazard.
-     *
-     * @return array{creates: array<int, string>, alters: array<int, string>, drops: array<int, string>}
-     */
     private function targetsOf(string $path): array
     {
         if (! is_file($path)) {
@@ -214,10 +174,6 @@ class MigrationDoctor extends Command
         return $code;
     }
 
-    /**
-     * @param  array{creates: array<int, string>, alters: array<int, string>, drops: array<int, string>}  $targets
-     * @return array{present: array<int, string>, missing: array<int, string>}
-     */
     private function targetStatus(array $targets): array
     {
         $present = [];
@@ -234,10 +190,6 @@ class MigrationDoctor extends Command
         return ['present' => $present, 'missing' => $missing];
     }
 
-    /**
-     * @param  array<int, string>  $alreadyApplied
-     * @param  array<int, string>  $genuinelyNew
-     */
     private function printVerdict(array $alreadyApplied, array $genuinelyNew): void
     {
         if ($alreadyApplied !== []) {
@@ -267,9 +219,6 @@ class MigrationDoctor extends Command
         return ((int) DB::table('migrations')->max('batch')) + 1;
     }
 
-    /**
-     * @param  Collection<int, string>  $names
-     */
     private function printBaselineSql(Collection $names, int $batch): void
     {
         $this->newLine();

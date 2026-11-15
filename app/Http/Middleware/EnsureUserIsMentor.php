@@ -8,15 +8,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
-/**
- * Gates routes to verified mentors only. A "mentor" is a user whose
- * ProfessionalProfile has type='mentor' and verification_status='verified'.
- * Unlike the role-based EnsureUserHasRole, this checks the professional
- * profile directly because mentor status is not a role slug — it is a
- * professional profile attribute with its own verification lifecycle.
- *
- * Must run after 'auth:sanctum' so $request->user() is resolved.
- */
 class EnsureUserIsMentor
 {
     public function handle(Request $request, Closure $next): Response

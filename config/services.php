@@ -2,18 +2,6 @@
 
 return [
 
-    /*
-    |--------------------------------------------------------------------------
-    | Third Party Services
-    |--------------------------------------------------------------------------
-    |
-    | This file is for storing the credentials for third party services such
-    | as Mailgun, Postmark, AWS and more. This file provides the de facto
-    | location for this type of information, allowing packages to have
-    | a conventional file to locate the various service credentials.
-    |
-    */
-
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
@@ -42,114 +30,44 @@ return [
     'data_science' => [
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
 
-        /*
-         * The fallback is 60, not 10. The Data Science service runs on Render's
-         * free tier, which idles the instance out after ~15 minutes, and a cold
-         * start measures 24.7-33.8 s. A 20 s timeout therefore made the first
-         * call after every idle period fail with DATA_SCIENCE_UNAVAILABLE even
-         * though the service was healthy — a false outage that disappears on
-         * retry and is easy to misread as a network or credentials problem.
-         */
         'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 60),
 
-        // Service-to-service credential (US-INT-01 §4). Never a learner
-        // Sanctum token, never exposed to the frontend.
         'service_token' => env('DATA_SCIENCE_SERVICE_TOKEN'),
 
         'api_version' => env('DATA_SCIENCE_API_VERSION', 'v1'),
 
-        // Versioned contract paths (US-INT-01 §26). These defaults were
-        // verified against the deployed service's own OpenAPI document,
-        // NOT against the SRS text: the live "SkillSpan Intelligence
-        // Service" exposes unprefixed paths and has no /api/v1/intelligence/*
-        // namespace at all.
-        //
-        // There is deliberately no `readiness_path`: the deployed service
-        // has no standalone readiness endpoint. /api/v1/skill-gap returns
-        // the readiness block (readiness_score, base_readiness_score,
-        // critical_skill_cap_applied, met_skills, …) in the SAME response
-        // as the per-skill gaps, so a second call would be a duplicate.
         'skill_gap_path' => env(
             'DATA_SCIENCE_SKILL_GAP_PATH',
             '/api/v1/skill-gap',
         ),
 
-        // Roadmap v1 — published and available at POST /api/v1/roadmap.
-        // Requests are transformed by
-        // IntelligenceClient::toRoadmapRequest() before they are sent, so
-        // the service receives the RoadmapRequest contract (`learner` /
-        // `role` / `skills`) rather than Laravel's internal payload.
-        // Generation stays inert while `roadmap_enabled` is false.
         'roadmap_path' => env(
             'DATA_SCIENCE_ROADMAP_PATH',
             '/api/v1/roadmap',
         ),
 
-        // Skill Match v1 contract confirmed by Data Science — used by the
-        // legacy ReadinessService (POST /api/v1/readiness/calculate).
-        // Independent of the intelligence/* paths above.
         'skill_match_path' => env(
             'DATA_SCIENCE_SKILL_MATCH_PATH',
             '/api/v1/skill-match',
         ),
 
-        // Project Matching v1 contract — verified on 2026-09-27 against the
-        // deployed "SkillSpan Intelligence Service" OpenAPI at
-        // https://skillspan-intelligence.onrender.com/openapi.json
-        // POST /api/v1/project-matching → ProjectMatchingRequest → ProjectMatchingResponse
         'project_matching_path' => env(
             'DATA_SCIENCE_PROJECT_MATCHING_PATH',
             '/api/v1/project-matching',
         ),
 
-        // Whether project matching is enabled. Defaults to false so the
-        // service returns 503 INTELLIGENCE_NOT_CONFIGURED when disabled —
-        // never a fabricated result.
         'project_matching_enabled' => (bool) env('DATA_SCIENCE_PROJECT_MATCHING_ENABLED', false),
 
-        // Payload hint / pending-snapshot placeholder ONLY — never the value
-        // persisted with a result. The stored `algorithm_version` always comes
-        // from the validated service response, and both flows *require* it
-        // (ReadinessService::validateDataScienceResult(),
-        // IntelligenceResponseValidator::validateAlgorithmVersion()), so a
-        // response that dropped the field fails loudly instead of silently
-        // inheriting this constant (ADR-001 §5.3, note on the fallback).
-        //
-        // It names the INTELLIGENCE (skill-gap) flow's algorithm. The Composite
-        // Readiness flow deliberately does NOT read this key — it uses its own
-        // component hint, `readiness.skill_match.algorithm_version`, because
-        // `skill-gap-v1` is a different, independently versioned algorithm that
-        // the composite never calls (ADR-001 §3.1).
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
 
-        // Which intelligence endpoints are enabled. Roadmap generation is
-        // gated behind this flag (false by default) so enabling the
-        // published Roadmap v1 flow is an explicit, per-environment
-        // decision; while disabled the flow throws 503
-        // INTELLIGENCE_NOT_CONFIGURED instead of fabricating a result.
         'roadmap_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ENABLED', false),
 
         'baseline' => [
-            // The client normalises the leading slash, so both forms work;
-            // the documented/production value is the absolute path.
             'path' => env('DATA_SCIENCE_BASELINE_PATH', '/api/v1/baseline'),
             'version' => env('DATA_SCIENCE_BASELINE_VERSION', 'v1.0'),
             'enabled' => (bool) env('DATA_SCIENCE_BASELINE_ENABLED', false),
         ],
 
-        /*
-         * US-INT-01 — dynamic baseline assessment question selection.
-         *
-         * Configurability principle (SRS "Configurability"): question
-         * counts per required skill are tunable without a code change.
-         * min_questions_per_skill is the floor we must be able to serve
-         * for every required skill (1 = coverage exists); the selection
-         * service still enforces real coverage and raises
-         * INSUFFICIENT_QUESTION_COVERAGE when the bank is too thin.
-         * max_questions_per_skill caps how many items a single skill can
-         * contribute so one large question bank cannot dominate the
-         * assessment.
-         */
         'baseline_assessment' => [
             'min_questions_per_skill' => (int) env('BASELINE_MIN_QUESTIONS_PER_SKILL', 1),
             'max_questions_per_skill' => (int) env('BASELINE_MAX_QUESTIONS_PER_SKILL', 3),
@@ -158,144 +76,39 @@ return [
         ],
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | US-REC-01 — Intelligent Assistant (§12.5 governance gate)
-    |--------------------------------------------------------------------------
-    |
-    | SRS v1.1 §12.5: "Sensitive data shall not be inserted into external AI
-    | services without explicit technical and governance approval."
-    |
-    | This gate FAILS CLOSED. The assistant stays disabled unless it is both
-    | explicitly enabled AND a reference to the recorded approval is present,
-    | mirroring the approved pattern already used for collaborative signals
-    | (REC-06 / BR-REC-07): off by default, and not enableable without
-    | approval metadata.
-    |
-    | Laravel is the ONLY permitted caller of the assistant service. The
-    | service requires a bearer token on every /chat and allows no browser
-    | origins, so the frontend cannot reach it directly — which is what makes
-    | the gate above meaningful rather than one door of two.
-    |
-    */
     'assistant' => [
         'enabled' => (bool) env('ASSISTANT_ENABLED', false),
 
-        // Free-text reference to the recorded §12.5 approval (ticket id,
-        // email thread, governance record). Must be non-empty before any
-        // learner context may leave the platform.
         'approval_reference' => env('ASSISTANT_APPROVAL_REFERENCE'),
 
-        // FastAPI chatbot service (POST /chat). Default port 8010 matches the
-        // service's README; 8000 is frequently already taken locally.
         'url' => env('ASSISTANT_SERVICE_URL', 'http://127.0.0.1:8010'),
         'path' => env('ASSISTANT_SERVICE_PATH', '/chat'),
 
-        // Service-to-service credential (US-INT-01 §4 pattern). Never a
-        // learner Sanctum token, never exposed to the frontend. Must match
-        // SERVICE_TOKEN in the assistant service's environment.
         'service_token' => env('ASSISTANT_SERVICE_TOKEN'),
 
-        // The service fails over across three providers with a 30s cap each,
-        // so its worst case is ~90s. A ceiling below that can cut off a
-        // request the service would eventually have answered; lowering the
-        // service's own per-provider timeout is the better fix.
         'timeout' => (int) env('ASSISTANT_SERVICE_TIMEOUT', 60),
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Support handoff — AI conversation escalated to a human
-    |--------------------------------------------------------------------------
-    |
-    | When the assistant answers `insufficient_context` it could not ground an
-    | answer in its documentation, and the learner is offered a human instead.
-    | The countdown lives here rather than in the frontend so the wait is one
-    | number in one place: the API returns it, and the UI counts down from it.
-    |
-    | `max_transcript_messages` caps how much of the conversation is snapshotted
-    | onto the support request. A support person needs the recent exchange, not
-    | the entire session, and an unbounded copy would grow the only place
-    | learner-authored text is stored.
-    |
-    */
     'support' => [
-        // Seconds the UI counts down before completing the transfer. 0 means
-        // transfer immediately (the UI then shows no countdown).
         'handoff_seconds' => (int) env('SUPPORT_HANDOFF_SECONDS', 5),
 
-        // How many of the most recent transcript turns to snapshot.
         'max_transcript_messages' => (int) env('SUPPORT_HANDOFF_MAX_TRANSCRIPT', 20),
 
-        // Notify platform administrators as well as the learner's mentor.
-        // The mentor is the support person; admins get visibility.
         'notify_admins' => (bool) env('SUPPORT_NOTIFY_ADMINS', true),
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Admin / mentor panel profile
-    |--------------------------------------------------------------------------
-    |
-    | The avatar is stored as a base64 blob inside the profile row rather than
-    | as a file path, because the deployed container's filesystem is ephemeral
-    | (no `storage:link`, `FILESYSTEM_DISK` unset) and a runtime-written file
-    | disappears on the next deploy. That trade-off only stays cheap while the
-    | image is small, so the size is a configuration value rather than a
-    | constant buried in the service.
-    |
-    */
-
     'profile' => [
-        // The stored avatar is always a square of this many pixels. 256 keeps
-        // the blob in the tens of kilobytes while still looking sharp at the
-        // sizes the panel renders it (sidebar 36px, profile header 96px, and
-        // 2x/3x device pixel ratios).
         'avatar_size' => (int) env('PROFILE_AVATAR_SIZE', 256),
 
-        // Upload ceiling, checked before the bytes are decoded. Generous for a
-        // phone photo (which is then downscaled) and small enough that a
-        // deliberate oversized upload cannot exhaust memory.
         'avatar_max_upload_kb' => (int) env('PROFILE_AVATAR_MAX_KB', 4096),
 
-        // Decompression-bomb ceilings, checked after the header is read but
-        // before any bitmap is allocated.
-        //
-        // `avatar_max_upload_kb` bounds the bytes on the wire, which is a
-        // different thing from the memory the decode needs: an image header can
-        // declare 40000x40000 pixels in ~30 bytes, and `imagecreatefromstring`
-        // then allocates width * height * 4 bytes for the bitmap (~6 GB for
-        // that file). Both numbers below are deliberately generous so that
-        // every normal avatar or phone photo still passes.
-        //
-        // Largest single side, in pixels. 8000 covers a phone photo and a
-        // panorama; a side beyond that is not an avatar.
         'avatar_max_dimension' => (int) env('PROFILE_AVATAR_MAX_DIMENSION', 8000),
 
-        // Largest total pixel count. 25 MP is ~100 MB of GD memory, which
-        // stays inside PHP's default 128 MB memory_limit while still accepting
-        // a 24 MP camera photo. Raise it on a host with more headroom.
         'avatar_max_pixels' => (int) env('PROFILE_AVATAR_MAX_PIXELS', 25000000),
     ],
 
-    // SRS v1.1, Section 10.3 (Tables 48-50) — skill level & confidence
-    // calculation from evidence. Configurable and versioned per the
-    // "Configurability" algorithm design principle (Table 46).
     'evidence' => [
 
-        /*
-     * Skill-confidence-v1
-     *
-     * Approved by Data Science:
-     *
-     * self_assessment      = 0.10
-     * assessment_test      = 0.30
-     * project_performance  = 0.35
-     * expert_evaluation    = 0.20
-     * certificate          = 0.05
-     *
-     * Total = 1.00
-     */
         'source_weights' => [
             'self_assessment' => (float) env(
                 'EVIDENCE_WEIGHT_SELF_ASSESSMENT',
@@ -323,30 +136,11 @@ return [
             ),
         ],
 
-        /*
-     * Pending verification factor.
-     *
-     * Approved by Data Science:
-     * pending = 0.50
-     */
         'pending_verified_factor' => (float) env(
             'EVIDENCE_PENDING_VERIFIED_FACTOR',
             0.50
         ),
 
-        /*
-     * Evidence recency.
-     *
-     * Version:
-     * evidence-recency-v1
-     *
-     * Calendar-month thresholds:
-     *
-     * 0-6 months       = 1.00
-     * >6-12 months     = 0.90
-     * >12-24 months    = 0.75
-     * >24 months       = 0.60
-     */
         'recency' => [
 
             'six_months' => (float) env(
@@ -374,25 +168,15 @@ return [
     'admin_setup' => [
         'secret' => env('ADMIN_SETUP_SECRET', ''),
 
-        // Kill switch for the bootstrap endpoint. Defaults to enabled so an
-        // existing deployment is unaffected; set ADMIN_SETUP_ENABLED=false once
-        // the admin account exists to close the route entirely — a stronger
-        // position than relying on the secret staying secret forever.
         'enabled' => (bool) env('ADMIN_SETUP_ENABLED', true),
     ],
 
     'mentor_setup' => [
         'secret' => env('MENTOR_SETUP_SECRET', ''),
 
-        // Same kill switch for the mentor bootstrap. Set
-        // MENTOR_SETUP_ENABLED=false when mentors are onboarded through
-        // another path and this route should stop accepting the secret.
         'enabled' => (bool) env('MENTOR_SETUP_ENABLED', true),
     ],
 
-    // Shared secret for server-to-server calls from the Data Science
-    // FastAPI service (GET /api/v1/internal/baseline-items). Not a user
-    // token — Sanctum auth doesn't apply to this route.
     'internal' => [
         'baseline_items_secret' => env('INTERNAL_BASELINE_ITEMS_SECRET', ''),
     ],

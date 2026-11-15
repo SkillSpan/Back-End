@@ -8,20 +8,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
-/**
- * Admin specialization writes must be visible on the public reference list
- * immediately.
- *
- * `GET /api/v1/reference/specializations` is cached for twelve hours — the
- * database is remote, so the round trip dominates the endpoint. The cache is
- * only correct as long as every write invalidates it; without that, an operator
- * creates / renames / activates / deactivates a track and the learner-facing
- * dropdown keeps serving the previous list for the rest of the TTL.
- *
- * Each test therefore PRIMES the cache with a real request first, mutates
- * through the admin API, and then asserts the next public request already shows
- * the change — which can only pass if the write flushed the cache.
- */
 class AdminSpecializationCacheTest extends TestCase
 {
     use RefreshDatabase;
@@ -114,15 +100,13 @@ class AdminSpecializationCacheTest extends TestCase
             ])
             ->assertOk();
 
-        // The list is rebuilt from the database rather than served from the
-        // copy primed above.
         $this->assertContains('Data Track', $this->publicNames());
         $this->assertSame('Updated description.', $specialization->fresh()->description);
     }
 
     public function test_the_admin_list_is_never_served_from_the_public_cache(): void
     {
-        $this->publicNames(); // prime
+        $this->publicNames();
 
         $this->actingAs($this->admin());
         $this->specialization('Hidden Track', isActive: false);
@@ -136,14 +120,6 @@ class AdminSpecializationCacheTest extends TestCase
         $this->assertNotContains('Hidden Track', $this->publicNames());
     }
 
-    // ------------------------------------------------ helpers
-
-    /**
-     * The public (cached) specialization list, read exactly as a learner's
-     * browser would.
-     *
-     * @return list<string>
-     */
     private function publicNames(): array
     {
         return array_column(

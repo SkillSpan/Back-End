@@ -12,20 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Projects with a dead date are invisible to every learner.
- *
- * `GET /api/v1/projects` filters on `application_deadline >= today` and
- * `end_date >= today` (ProjectAccessService), so a project whose status reads
- * `open` can still be missing from the learner feed. That is correct filtering
- * — but it used to be UNFIXABLE, because editing is only allowed in `draft` /
- * `changes_requested`, so once such a project was opened nothing could repair
- * it. This suite pins the two guards that stop the trap from forming:
- *
- *   1. the request rejects a date before today, and
- *   2. the completeness check refuses to submit / open a project that holds a
- *      past date anyway (cloned rows, direct DB edits, older data).
- */
 class ProjectDateGuardTest extends TestCase
 {
     use RefreshDatabase;
@@ -100,9 +86,6 @@ class ProjectDateGuardTest extends TestCase
         return $role;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function payload(array $overrides = []): array
     {
         $role = $this->careerRole();
@@ -127,10 +110,6 @@ class ProjectDateGuardTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * Persist a project straight into `open` with a deadline in the past,
-     * bypassing the workflow — the state real data was left in.
-     */
     private function expiredOpenProject(): Project
     {
         $owner = $this->company();
@@ -234,8 +213,6 @@ class ProjectDateGuardTest extends TestCase
         $project = $this->expiredOpenProject();
         $owner = $project->owner;
 
-        // `submitted → changes_requested` then `→ submitted → approved` is how
-        // real data reached this state; forcing it keeps the test on the guard.
         $project->forceFill([
             'status' => Project::STATUS_APPROVED,
             'application_deadline' => now()->subDay()->toDateString(),
@@ -299,7 +276,6 @@ class ProjectDateGuardTest extends TestCase
             ->pluck('id')
             ->all();
 
-        // The row really is `open` and public — only the date hides it.
         $this->assertSame(Project::STATUS_OPEN, $project->status);
         $this->assertNotContains($project->id, $ids);
     }

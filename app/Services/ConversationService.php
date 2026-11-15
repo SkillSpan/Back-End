@@ -20,10 +20,6 @@ class ConversationService
         private readonly NotificationService $notifications,
     ) {}
 
-    /**
-     * Create a conversation for a mentor-student connection.
-     * Idempotent: if an active conversation already exists, returns it.
-     */
     public function createConversation(int $connectionId, int $userId, ?Request $request = null): Conversation
     {
         $connection = MentorStudentConnection::findOrFail($connectionId);
@@ -80,9 +76,6 @@ class ConversationService
         return $conversation;
     }
 
-    /**
-     * Get conversations for a user (mentor or student).
-     */
     public function getConversations(int $userId)
     {
         $perPage = (int) config('communication.conversations_per_page', 20);
@@ -91,18 +84,12 @@ class ConversationService
             $q->where('mentor_id', $userId)->orWhere('student_id', $userId);
         })
             ->where('status', 'active')
-            // A conversation the caller removed from their own list stays hidden
-            // until someone writes in it again (see sendMessage). The other
-            // participant is unaffected.
             ->whereDoesntHave('hiddenFor', fn ($q) => $q->where('conversation_user_hides.user_id', $userId))
             ->with(['connection.mentor', 'connection.student'])
             ->latest('last_message_at')
             ->paginate($perPage);
     }
 
-    /**
-     * Get a conversation with authorization check.
-     */
     public function getConversation(int $conversationId, int $userId): Conversation
     {
         $conversation = Conversation::with('connection')->findOrFail($conversationId);
@@ -118,18 +105,8 @@ class ConversationService
         return $conversation;
     }
 
-    /**
-     * Remove a conversation from the caller's own list.
-     *
-     * NOT a delete. The thread, its messages and the audit records stay intact
-     * for the other participant — the UI states that communication is recorded
-     * for audit purposes, so erasing it for both sides would be wrong. The row
-     * is cleared when a new message arrives (see sendMessage), so a conversation
-     * can never be lost silently.
-     */
     public function hideConversation(int $conversationId, int $userId): void
     {
-        // Reuses the participant check, so a caller can only hide their own.
         $conversation = $this->getConversation($conversationId, $userId);
 
         $conversation->hiddenFor()->syncWithoutDetaching([
@@ -137,9 +114,6 @@ class ConversationService
         ]);
     }
 
-    /**
-     * Send a message in a conversation.
-     */
     public function sendMessage(
         int $conversationId,
         int $senderId,
@@ -183,9 +157,6 @@ class ConversationService
 
             $conversation->update(['last_message_at' => now()]);
 
-            // A new message brings the conversation back for anyone who removed
-            // it from their list — the same behaviour every chat app has, and it
-            // guarantees a hidden thread can never swallow a reply.
             $conversation->hiddenFor()->detach();
 
             $this->audit(
@@ -204,8 +175,6 @@ class ConversationService
                 userAgent: $request?->userAgent(),
             );
 
-            // In-app notification to the other participant, honouring
-            // their per-category notification preferences.
             $connection = $conversation->connection;
             $recipientId = $senderId === $connection->mentor_id
                 ? $connection->student_id
@@ -231,12 +200,6 @@ class ConversationService
         }
     }
 
-    /**
-     * Post a chatbot message into a conversation. Same authorization and
-     * state rules as sendMessage, but the message type is forced to
-     * 'chatbot' and the audit action is distinct so automated traffic is
-     * separable from human messages in the audit trail.
-     */
     public function sendChatbotMessage(
         int $conversationId,
         int $actorId,
@@ -299,7 +262,6 @@ class ConversationService
                 userAgent: $request?->userAgent(),
             );
 
-            // Notify the other participant, honouring their preferences.
             $connection = $conversation->connection;
             $recipientId = $actorId === $connection->mentor_id
                 ? $connection->student_id
@@ -323,9 +285,6 @@ class ConversationService
         }
     }
 
-    /**
-     * List only the chatbot messages in a conversation (participants only).
-     */
     public function getChatbotMessages(int $conversationId, int $userId, int $perPage = 50)
     {
         $conversation = $this->getConversation($conversationId, $userId);
@@ -338,9 +297,6 @@ class ConversationService
             ->paginate($perPage);
     }
 
-    /**
-     * Get messages for a conversation (paginated, latest first).
-     */
     public function getMessages(int $conversationId, int $userId, int $perPage = 50)
     {
         $conversation = $this->getConversation($conversationId, $userId);
@@ -352,9 +308,6 @@ class ConversationService
             ->paginate($perPage);
     }
 
-    /**
-     * Mark unread messages as read.
-     */
     public function markAsRead(int $conversationId, int $userId): int
     {
         $this->getConversation($conversationId, $userId);
@@ -368,9 +321,6 @@ class ConversationService
             ]);
     }
 
-    /**
-     * Get communication status for a conversation.
-     */
     public function getCommunicationStatus(int $conversationId, int $userId): array
     {
         $conversation = $this->getConversation($conversationId, $userId);
@@ -394,9 +344,6 @@ class ConversationService
         ];
     }
 
-    /**
-     * Check if a user is a participant in a conversation's connection.
-     */
     public function isParticipant(Conversation $conversation, int $userId): bool
     {
         $connection = $conversation->connection;

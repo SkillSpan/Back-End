@@ -411,8 +411,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $this->assertFalse($this->service->isEligible($project, $learner));
     }
 
-    // --------------------------------------------------- schedule constraint
-
     public function test_schedule_constraint_is_enforced(): void
     {
         $learner = $this->createLearnerWithProfile();
@@ -452,10 +450,6 @@ class ProjectEligibilityServiceTest extends TestCase
 
     public function test_missing_schedule_preference_makes_the_learner_ineligible(): void
     {
-        // createLearnerWithProfile() leaves availability null — the learner has
-        // not stated a preference, so the project's requirement cannot be
-        // satisfied and the learner is treated as ineligible rather than
-        // silently passed.
         $learner = $this->createLearnerWithProfile();
         $project = $this->createProject();
 
@@ -475,11 +469,6 @@ class ProjectEligibilityServiceTest extends TestCase
 
     public function test_location_constraint_is_not_enforced_by_the_current_business_rule(): void
     {
-        // Documented existing behaviour: constraint_type allows 'location' and
-        // 'language', but student_profiles stores no comparable field, so the
-        // service deliberately skips them instead of inventing a comparison.
-        // A location-restricted project is therefore currently eligible for
-        // every learner.
         $learner = $this->createLearnerWithProfile();
         $project = $this->createProject();
 
@@ -494,8 +483,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $this->assertTrue($result->eligible);
         $this->assertSame([], $result->reasons);
     }
-
-    // ------------------------------------------------- reasons consistency
 
     public function test_reasons_are_accurate_when_multiple_rules_fail_together(): void
     {
@@ -513,7 +500,6 @@ class ProjectEligibilityServiceTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // Learner has the skill but below the required level.
         $this->addSkillEvaluation($learner, $criticalSkill, 2.0);
 
         ProjectEligibilityConstraint::create([
@@ -533,7 +519,6 @@ class ProjectEligibilityServiceTest extends TestCase
         );
         $this->assertStringContainsString('work_mode', implode(' | ', $result->reasons));
 
-        // The skill failure detail matches the persisted project requirement.
         $this->assertCount(1, $result->skill_failures);
         $this->assertSame($criticalSkill->id, $result->skill_failures[0]['skill_id']);
         $this->assertSame(4.0, $result->skill_failures[0]['required_level']);
@@ -563,8 +548,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $this->assertSame([], $result->skill_failures);
     }
 
-    // ------------------------------------------------------ no side effects
-
     public function test_eligibility_check_does_not_modify_learner_or_project_data(): void
     {
         $learner = $this->createLearnerWithProfile();
@@ -584,7 +567,6 @@ class ProjectEligibilityServiceTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // Deliberately failing on every rule.
         $this->addSkillEvaluation($learner, $skill, 1.0);
 
         ProjectEligibilityConstraint::create([
@@ -620,7 +602,6 @@ class ProjectEligibilityServiceTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // No evaluation at all — not even a low one.
         $result = $this->service->check($project, $learner);
 
         $this->assertFalse($result->eligible);
@@ -628,8 +609,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $this->assertNull($result->skill_failures[0]['learner_level']);
         $this->assertStringContainsString('not found', $result->skill_failures[0]['reason']);
     }
-
-    // ------------------------------------- skill-level source resolution (§4)
 
     private function createProjectRequiringLevel(Skill $skill, float $minimumLevel): Project
     {
@@ -673,7 +652,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-projection', 'category' => 'backend']);
         $project = $this->createProjectRequiringLevel($skill, 3.0);
 
-        // No SkillEvaluation exists — only the read projection.
         LearnerSkill::create([
             'learner_id' => $learner->id,
             'skill_id' => $skill->id,
@@ -686,9 +664,6 @@ class ProjectEligibilityServiceTest extends TestCase
 
     public function test_skill_evaluation_takes_priority_over_the_projection(): void
     {
-        // Documented source priority: skill_evaluations first, then the
-        // learner_skills projection. The evaluation passes; the projection
-        // alone would have failed.
         $learner = $this->createLearnerWithProfile();
         $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-priority', 'category' => 'backend']);
         $project = $this->createProjectRequiringLevel($skill, 3.0);
@@ -711,7 +686,6 @@ class ProjectEligibilityServiceTest extends TestCase
         $skill = Skill::create(['name' => 'PHP', 'slug' => 'php-none', 'category' => 'backend']);
         $project = $this->createProjectRequiringLevel($skill, 1.0);
 
-        // Neither an evaluation nor a projection row exists.
         $this->assertDatabaseCount('skill_evaluations', 0);
         $this->assertDatabaseCount('learner_skills', 0);
 
@@ -723,9 +697,6 @@ class ProjectEligibilityServiceTest extends TestCase
 
     public function test_learner_without_a_student_profile_does_not_crash_the_eligibility_check(): void
     {
-        // REGRESSION: getLearnerSkillLevel() fell through to
-        // `$studentProfile->id` on a null profile, raising
-        // "Attempt to read property 'id' on null" instead of returning null.
         $user = User::forceCreate([
             'name' => 'No Profile Learner',
             'email' => 'no-profile-eligibility@test.com',

@@ -13,26 +13,11 @@ use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Roadmap v1 contract — the pieces added on top of the effort/duration
- * contract:
- *
- *  - `estimated_duration_weeks` is an INTEGER | null, and null is only
- *    legitimate when the learner has no weekly availability (null or 0);
- *  - the roadmap-level totals (`estimated_total_hours`,
- *    `estimated_duration_weeks`) are REQUIRED and persisted VERBATIM;
- *  - `limitations` is validated, persisted and exposed — never dropped;
- *  - every Roadmap action field is REQUIRED and validated by type.
- *
- * Every negative case must fail with 502 INTELLIGENCE_INVALID_RESPONSE and
- * persist NOTHING (no roadmap, no action).
- */
 class RoadmapTotalsAndLimitationsTest extends TestCase
 {
     use RefreshDatabase;
@@ -57,57 +42,45 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------ estimated_duration_weeks (action)
-
     public function test_action_duration_null_is_valid_without_weekly_availability(): void
     {
-        // CASE A: weekly_availability_hours = null + estimated_duration_weeks = null.
         $this->assertActionDuration(null, null, 201);
     }
 
     public function test_action_duration_null_is_valid_with_zero_weekly_availability(): void
     {
-        // CASE B: weekly_availability_hours = 0 + estimated_duration_weeks = null.
         $this->assertActionDuration(0, null, 201);
     }
 
     public function test_action_duration_integer_is_valid_without_weekly_availability(): void
     {
-        // CASE C: null availability but a positive integer duration is fine.
         $this->assertActionDuration(null, 3, 201);
     }
 
     public function test_action_duration_null_is_rejected_with_weekly_availability(): void
     {
-        // CASE D: availability > 0 but a null duration is a contract violation.
         $this->assertActionDuration(20, null, 502);
     }
 
     public function test_action_duration_zero_is_rejected_with_weekly_availability(): void
     {
-        // CASE E.
         $this->assertActionDuration(20, 0, 502);
     }
 
     public function test_action_duration_negative_is_rejected(): void
     {
-        // CASE F.
         $this->assertActionDuration(20, -1, 502);
     }
 
     public function test_action_duration_float_is_rejected(): void
     {
-        // CASE G: the contract is integer | null — 1.5 is never rounded.
         $this->assertActionDuration(20, 1.5, 502);
     }
 
     public function test_action_duration_numeric_string_is_rejected(): void
     {
-        // CASE H: "3" is NOT coerced to 3.
         $this->assertActionDuration(20, '3', 502);
     }
-
-    // ------------------------------------------------ roadmap-level duration
 
     public function test_roadmap_duration_null_is_valid_without_weekly_availability(): void
     {
@@ -124,8 +97,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertRoadmapDuration(20, null, 502);
     }
 
-    // ------------------------------------------------ action duration serialization
-
     public function test_resource_serializes_action_duration_weeks_as_integer(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
@@ -140,7 +111,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
         $weeks = $response->json('data.roadmap.actions.0.estimated_duration_weeks');
 
-        // integer | null — a whole number of weeks, never a float.
         $this->assertIsInt($weeks);
         $this->assertSame(4, $weeks);
     }
@@ -159,29 +129,22 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
         $weeks = $response->json('data.roadmap.actions.0.estimated_duration_weeks');
 
-        // null must stay null — never coerced to 0.
         $this->assertNull($weeks);
         $this->assertNotSame(0, $weeks);
     }
 
     public function test_roadmap_actions_duration_weeks_column_is_an_integer_type(): void
     {
-        // The column must be INTEGER NULL, not DECIMAL (Roadmap v1).
         $type = Schema::getColumnType('roadmap_actions', 'estimated_duration_weeks');
 
         $this->assertStringContainsString('int', strtolower($type));
     }
-
-    // ------------------------------------------------ roadmap totals
 
     public function test_roadmap_totals_are_persisted_and_exposed(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
-        // FastAPI reports 40 total hours / 4 weeks; the single action only
-        // accounts for 12 hours, proving the total is NOT re-derived by
-        // summing the actions.
         $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, null);
         $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
 
@@ -217,8 +180,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
 
-    // ------------------------------------------------ limitations
-
     public function test_limitations_are_persisted_and_exposed(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
@@ -242,8 +203,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
     public function test_limitations_and_totals_are_returned_by_the_latest_endpoint(): void
     {
-        // End-to-end: FastAPI fake response -> validator -> persistence ->
-        // read model -> resource, without relying on the calculate response.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -265,7 +224,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
-        // An object where a list of codes is expected is a contract violation.
         $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, ['reason' => 'x']);
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
@@ -278,8 +236,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, 4, [123]);
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
-
-    // ------------------------------------------------ required action fields
 
     public function test_missing_objective_is_rejected(): void
     {
@@ -343,11 +299,8 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
 
-    // ------------------------------------------------ completion_criteria / explanation (string[])
-
     public function test_action_completion_criteria_and_explanation_accept_string_lists(): void
     {
-        // A + B: both fields are lists of non-empty strings.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -363,7 +316,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
-        // The API returns ARRAYS, never an imploded string.
         $this->assertIsArray($response->json('data.roadmap.actions.0.completion_criteria'));
         $this->assertIsArray($response->json('data.roadmap.actions.0.explanation'));
         $this->assertSame($criteria, $response->json('data.roadmap.actions.0.completion_criteria'));
@@ -376,37 +328,31 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
     public function test_action_completion_criteria_as_string_is_rejected(): void
     {
-        // C: a plain string is not accepted.
         $this->assertActionFieldRejected('completion_criteria', 'Complete task');
     }
 
     public function test_action_explanation_as_string_is_rejected(): void
     {
-        // D.
         $this->assertActionFieldRejected('explanation', 'Explanation');
     }
 
     public function test_action_completion_criteria_empty_list_is_rejected(): void
     {
-        // E.
         $this->assertActionFieldRejected('completion_criteria', []);
     }
 
     public function test_action_explanation_empty_list_is_rejected(): void
     {
-        // F.
         $this->assertActionFieldRejected('explanation', []);
     }
 
     public function test_action_completion_criteria_blank_element_is_rejected(): void
     {
-        // G.
         $this->assertActionFieldRejected('completion_criteria', ['valid', '']);
     }
 
     public function test_action_explanation_blank_element_is_rejected(): void
     {
-        // H.
         $this->assertActionFieldRejected('explanation', ['valid', '']);
     }
 
@@ -420,11 +366,8 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertActionFieldRejected('explanation', ['   ']);
     }
 
-    // ------------------------------------------------ roadmap zero duration
-
     public function test_zero_effort_roadmap_with_zero_duration_is_valid(): void
     {
-        // I: total = 0 and duration = 0 is a valid roadmap.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -434,7 +377,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $response = $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
-        // 0 stays integer 0 in the API output.
         $duration = $response->json('data.roadmap.estimated_duration_weeks');
         $this->assertIsInt($duration);
         $this->assertSame(0, $duration);
@@ -446,7 +388,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
     public function test_roadmap_zero_duration_is_rejected_when_effort_and_availability_exist(): void
     {
-        // J: effort > 0 AND weekly availability > 0 => duration must be > 0.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -456,7 +397,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
     public function test_zero_effort_roadmap_zero_duration_is_valid_without_availability(): void
     {
-        // The cross-field rule needs availability too: total = 0 => 0 is fine.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(null);
         Sanctum::actingAs($user);
 
@@ -467,11 +407,8 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             ->assertStatus(201);
     }
 
-    // ------------------------------------------------ blocking_prerequisite_skill_ids
-
     public function test_blocking_prerequisite_skill_ids_survive_validation_persistence_and_resource(): void
     {
-        // M.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -489,13 +426,11 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $action = RoadmapAction::query()->firstOrFail();
         $this->assertSame($blocking, $action->blocking_prerequisite_skill_ids);
 
-        // It must NOT leak into the declared prerequisite relation.
         $this->assertSame([], $action->prerequisites->pluck('id')->all());
     }
 
     public function test_unknown_blocking_prerequisite_skill_id_is_rejected(): void
     {
-        // N.
         $this->assertActionFieldRejected('blocking_prerequisite_skill_ids', [999999]);
     }
 
@@ -536,11 +471,8 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             ->assertJsonPath('data.roadmap.actions.0.blocking_prerequisite_skill_ids', []);
     }
 
-    // ------------------------------------------------ target_skill_name consistency
-
     public function test_target_skill_name_matching_the_payload_skill_is_accepted(): void
     {
-        // O: the fixture uses the canonical payload skill name.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -557,7 +489,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
     public function test_target_skill_name_mismatch_is_rejected(): void
     {
-        // P: the id and the name must refer to the SAME skill.
         [$user, $profile, $role, $roleSkills] = $this->createScenario(20);
         Sanctum::actingAs($user);
 
@@ -577,8 +508,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
 
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
-
-    // ------------------------------------------------ helpers
 
     private function assertActionFieldRejected(string $field, mixed $value): void
     {
@@ -617,8 +546,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         [$user, $profile, $role, $roleSkills] = $this->createScenario($weeklyHours);
         Sanctum::actingAs($user);
 
-        // Keep the ACTION duration valid for the availability so the roadmap
-        // level is the only thing under test.
         $actionWeeks = $weeklyHours !== null && $weeklyHours > 0 ? 3 : null;
 
         $roadmap = $this->roadmapResponse($profile, $role, $roleSkills, 40.0, $roadmapWeeks, null);
@@ -647,9 +574,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         $this->assertInvalidRoadmap($roadmap, $profile, $role, $roleSkills);
     }
 
-    /**
-     * @param  array<string, mixed>  $roadmap
-     */
     private function assertInvalidRoadmap(array $roadmap, $profile, $role, $roleSkills): void
     {
         $this->fakeCalculation($profile, $role, $roleSkills, $roadmap);
@@ -658,7 +582,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
 
-        // A rejected response must persist NOTHING.
         $this->assertSame(0, Roadmap::count());
         $this->assertSame(0, RoadmapAction::count());
     }
@@ -674,9 +597,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         });
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function roadmapResponse($profile, $role, $roleSkills, mixed $totalHours, mixed $durationWeeks, ?array $limitations): array
     {
         return [
@@ -703,9 +623,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function action(string $id, string $type, int $targetSkillId, string $targetSkillName): array
     {
         return [
@@ -718,7 +635,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
             'priority_score' => 0.5,
             'estimated_hours' => 12.0,
             'estimated_duration_weeks' => 3,
-            // Roadmap v1: lists of strings, never a plain string.
             'completion_criteria' => ['Completion criteria '.$id],
             'explanation' => ['Explanation '.$id],
         ];
@@ -773,9 +689,6 @@ class RoadmapTotalsAndLimitationsTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>}
-     */
     private function createScenario(?float $weeklyAvailabilityHours = null): array
     {
         $user = User::forceCreate([

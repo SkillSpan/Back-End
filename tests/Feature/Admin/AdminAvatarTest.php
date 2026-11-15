@@ -10,25 +10,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
-/**
- * The panel avatar — upload, processing, storage, serving and removal.
- *
- * Kept apart from AdminProfileTest because almost none of this is about the
- * profile *form*. The subject here is a pipeline: bytes arrive from a browser,
- * are decoded, centre-cropped, re-encoded at a fixed size and written into the
- * row as a base64 blob, then come back out through their own cacheable route.
- *
- * The properties worth pinning are the ones a naive implementation gets wrong:
- *
- *   - the crop is CENTRED, not a squash — a 3:1 source must not arrive distorted;
- *   - the stored format is the one WE produced, never the one the client claimed;
- *   - the row cannot be bloated, whatever is uploaded;
- *   - the bytes never travel in a JSON payload;
- *   - and a refused upload changes nothing at all.
- *
- * Every fixture is built with GD rather than downloaded, so the tests describe
- * the exact pixels they expect back.
- */
 class AdminAvatarTest extends TestCase
 {
     use RefreshDatabase;
@@ -44,8 +25,6 @@ class AdminAvatarTest extends TestCase
         $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
     }
-
-    // =================================================== which formats we take
 
     public function test_a_png_is_stored_as_a_png(): void
     {
@@ -65,8 +44,6 @@ class AdminAvatarTest extends TestCase
 
         $this->uploadBytes($admin, 'photo.jpg', $this->jpeg(400, 400))->assertOk();
 
-        // A photograph re-encoded as PNG would be several times the size for no
-        // visible gain, so the lossless branch is reserved for alpha formats.
         $this->assertSame('image/jpeg', $this->stored($admin)->avatar_mime);
     }
 
@@ -76,9 +53,6 @@ class AdminAvatarTest extends TestCase
 
         $this->uploadBytes($admin, 'shot.webp', $this->webp(400, 400))->assertOk();
 
-        // The client said WebP and we stored PNG. That mismatch is the proof
-        // that the stored mime is the one *we* produced, not the one the upload
-        // claimed — which is what makes echoing it back on the image route safe.
         $this->assertSame('image/png', $this->stored($admin)->avatar_mime);
     }
 
@@ -93,9 +67,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_a_format_gd_can_read_but_we_do_not_accept_is_refused(): void
     {
-        // AVIF decodes fine on this build of GD, so "GD can read it" is not the
-        // rule — the accepted list is. A format that slipped in because the
-        // library happened to support it would be an unbudgeted storage cost.
         $image = imagecreatetruecolor(400, 400);
         ob_start();
         imageavif($image, null);
@@ -110,13 +81,10 @@ class AdminAvatarTest extends TestCase
             ->assertJsonValidationErrors('avatar');
     }
 
-    // ============================================================ the geometry
-
     public function test_a_wide_image_is_centre_cropped_not_squashed(): void
     {
         $admin = $this->administrator();
 
-        // Three vertical bands: red | green | blue, 100px each.
         $bytes = $this->png(300, 100, function ($image): void {
             imagefilledrectangle($image, 0, 0, 99, 99, imagecolorallocate($image, 255, 0, 0));
             imagefilledrectangle($image, 100, 0, 199, 99, imagecolorallocate($image, 0, 255, 0));
@@ -127,10 +95,6 @@ class AdminAvatarTest extends TestCase
 
         $stored = $this->storedBytes($admin);
 
-        // A centre crop keeps only the middle 100x100, so the whole result is
-        // green. Squashing the 3:1 source instead would leave red at the left
-        // edge and blue at the right — which is exactly the distortion this
-        // asserts against.
         [$leftR, $leftG, $leftB] = $this->pixel($stored, 8, 128);
         $this->assertGreaterThan(200, $leftG, 'the left edge should still be the centre band');
         $this->assertLessThan(40, $leftR);
@@ -146,7 +110,6 @@ class AdminAvatarTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // Same idea, rotated: the middle band is the one that must survive.
         $bytes = $this->png(100, 300, function ($image): void {
             imagefilledrectangle($image, 0, 0, 99, 99, imagecolorallocate($image, 255, 0, 0));
             imagefilledrectangle($image, 0, 100, 99, 199, imagecolorallocate($image, 0, 255, 0));
@@ -171,8 +134,6 @@ class AdminAvatarTest extends TestCase
 
         $this->uploadBytes($admin, 'square.png', $this->png(640, 640))->assertOk();
 
-        // Already square, but not the stored size — every avatar has to come out
-        // the same dimensions or the layout shifts per person.
         $this->assertSame(256, $this->storedInfo($admin)[0]);
         $this->assertSame(256, $this->storedInfo($admin)[1]);
     }
@@ -181,8 +142,6 @@ class AdminAvatarTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // 40x40 clears the `dimensions` floor, so it must be accepted — and then
-        // normalised like everything else rather than stored at 40x40.
         $this->uploadBytes($admin, 'small.png', $this->png(40, 40))->assertOk();
 
         $this->assertSame(256, $this->storedInfo($admin)[0]);
@@ -199,8 +158,6 @@ class AdminAvatarTest extends TestCase
 
         $stored = $this->storedBytes($admin);
 
-        // The bytes live in the row, so their size is a database cost that every
-        // read pays. Re-encoding at a fixed size is what caps it.
         $this->assertSame(256, $this->storedInfo($admin)[0]);
         $this->assertLessThan(strlen($bytes), strlen($stored));
         $this->assertLessThan(400 * 1024, strlen($stored));
@@ -210,15 +167,10 @@ class AdminAvatarTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // No paint at all: the whole fixture is transparent.
         $this->uploadBytes($admin, 'clear.png', $this->png(200, 200))->assertOk();
 
-        // A logo on a transparent background must not come back on a black
-        // square, which is what happens if alpha is dropped through the resample.
         $this->assertGreaterThan(120, $this->alphaAt($this->storedBytes($admin), 128, 128));
     }
-
-    // ============================================================== the storage
 
     public function test_uploading_creates_the_row_when_there_is_none(): void
     {
@@ -226,8 +178,6 @@ class AdminAvatarTest extends TestCase
 
         $this->assertDatabaseMissing('admin_profiles', ['user_id' => $admin->id]);
 
-        // The photo may be the very first thing the person does, so the service
-        // cannot assume the profile row already exists.
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
 
         $this->assertDatabaseHas('admin_profiles', [
@@ -259,12 +209,8 @@ class AdminAvatarTest extends TestCase
 
         $response = $this->actingAs($admin)->getJson('/admin/api/profile')->assertOk();
 
-        // A blob of tens of kilobytes inside every profile read — and every log
-        // line that dumps the model — is a cost with no benefit: the image has
-        // its own cacheable URL.
         $this->assertArrayNotHasKey('avatar_data', $response->json('data.profile'));
 
-        // Also absent from the model's own serialisation, not just this payload.
         $this->assertArrayNotHasKey('avatar_data', $this->stored($admin)->toArray());
     }
 
@@ -280,15 +226,11 @@ class AdminAvatarTest extends TestCase
 
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
 
-        // The photo write is a different code path from the details write; it
-        // must not blank the row it is filling in.
         $profile = $this->stored($admin);
         $this->assertSame('Operations Lead', $profile->display_title);
         $this->assertSame('Still here afterwards.', $profile->bio);
         $this->assertSame(34, $profile->age);
     }
-
-    // ====================================================== refused uploads
 
     public function test_a_file_that_is_not_an_image_is_refused(): void
     {
@@ -302,9 +244,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_an_svg_is_refused_because_it_is_a_script_container(): void
     {
-        // SVG passes Laravel's `image` rule — it is a valid image mime — so the
-        // accepted-extension list is the only thing stopping it. Rendering a
-        // user-supplied SVG is an XSS vector, not a picture.
         $svg = UploadedFile::fake()->createWithContent(
             'logo.svg',
             '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
@@ -336,8 +275,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_an_image_over_the_configured_size_limit_is_refused(): void
     {
-        // Lowered rather than uploaded around: the rule has to read the config,
-        // and a 4 MB fixture would only prove that it does not read it.
         config(['services.profile.avatar_max_upload_kb' => 1]);
 
         $bytes = $this->noisePng(300);
@@ -353,10 +290,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_a_truncated_image_is_refused_with_the_project_envelope(): void
     {
-        // The header survives, so `getimagesizefromstring` reads a size and the
-        // validation rules pass — but there are no pixels left to decode. This
-        // is the path that reaches the service's own refusal rather than
-        // Laravel's validator, so it has to answer in the project envelope.
         $truncated = substr($this->png(200, 200), 0, 60);
 
         $this->actingAs($this->administrator())
@@ -380,25 +313,17 @@ class AdminAvatarTest extends TestCase
             ], ['Accept' => 'application/json'])
             ->assertStatus(422);
 
-        // A rejected replacement must not destroy the photo that was already
-        // there — the person still has a face on the panel.
         $this->assertEquals($before, $this->stored($admin)->only(['avatar_data', 'avatar_mime', 'avatar_updated_at']));
     }
-
-    // ================================================== decompression bombs
 
     public function test_a_decompression_bomb_is_refused_before_it_is_decoded(): void
     {
         $bomb = $this->pngDeclaringSize(40000, 40000);
 
-        // Precondition: the header really does declare 40000x40000, so the
-        // refusal below comes from the size guard and not from the "not an
-        // image" path — otherwise the test would pass for the wrong reason.
         $declared = getimagesizefromstring($bomb);
         $this->assertSame(40000, $declared[0]);
         $this->assertSame(40000, $declared[1]);
 
-        // A few dozen bytes on the wire; ~6 GB once decoded.
         $this->assertLessThan(1024, strlen($bomb));
 
         $admin = $this->administrator();
@@ -407,7 +332,6 @@ class AdminAvatarTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
 
-        // Nothing was stored: the guard ran before `profileFor()` was reached.
         $this->assertNull(
             AdminProfile::where('user_id', $admin->id)->first()?->avatar_data
         );
@@ -429,8 +353,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_an_image_wider_than_the_dimension_ceiling_is_refused(): void
     {
-        // 9000 x 100 is only 900 000 pixels — well under the pixel ceiling — so
-        // this isolates the per-side rule.
         $this->uploadBytes($this->administrator(), 'wide.png', $this->pngDeclaringSize(9000, 100))
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
@@ -445,19 +367,13 @@ class AdminAvatarTest extends TestCase
 
     public function test_an_image_over_the_pixel_ceiling_is_refused(): void
     {
-        // 6000 x 6000 = 36 MP: each side is inside the 8000 ceiling, so this
-        // isolates the total-pixel rule.
         $this->uploadBytes($this->administrator(), 'dense.png', $this->pngDeclaringSize(6000, 6000))
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
     }
 
-    // ============================================ the ceilings stay usable
-
     public function test_a_large_but_normal_photo_is_still_accepted(): void
     {
-        // 2000 x 2000 = 4 MP, a perfectly ordinary phone photo. The guard must
-        // not be so tight that real uploads start failing.
         $this->uploadBytes($this->administrator(), 'photo.png', $this->png(2000, 2000))
             ->assertOk();
     }
@@ -468,10 +384,8 @@ class AdminAvatarTest extends TestCase
 
         $admin = $this->administrator();
 
-        // 100 x 100 = exactly 10 000 pixels: at the ceiling, accepted.
         $this->uploadBytes($admin, 'at-limit.png', $this->png(100, 100))->assertOk();
 
-        // 101 x 101 = 10 201 pixels: one row over, refused.
         $this->uploadBytes($admin, 'over-limit.png', $this->png(101, 101))
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
@@ -490,8 +404,6 @@ class AdminAvatarTest extends TestCase
             ->assertJsonPath('code', 'PROFILE_AVATAR_INVALID');
     }
 
-    // ============================================================== the serving
-
     public function test_the_avatar_route_serves_the_stored_bytes_verbatim(): void
     {
         $admin = $this->administrator();
@@ -501,8 +413,6 @@ class AdminAvatarTest extends TestCase
 
         $response = $this->actingAs($admin)->get('/admin/profile/avatar')->assertOk();
 
-        // Byte-for-byte: the route must not re-encode, resize or re-wrap what is
-        // already in the row.
         $this->assertSame($stored, $response->getContent());
         $this->assertSame((string) strlen($stored), $response->headers->get('Content-Length'));
     }
@@ -514,9 +424,6 @@ class AdminAvatarTest extends TestCase
 
         $response = $this->actingAs($admin)->get('/admin/profile/avatar')->assertOk();
 
-        // A stable URL is the whole reason the image is not inlined into the
-        // payload, so it has to actually be cacheable — and private, because it
-        // is one person's photo.
         $cache = (string) $response->headers->get('Cache-Control');
         $this->assertStringContainsString('private', $cache);
         $this->assertStringContainsString('immutable', $cache);
@@ -545,8 +452,6 @@ class AdminAvatarTest extends TestCase
 
     public function test_the_avatar_route_is_a_miss_when_there_is_no_photo(): void
     {
-        // The page renders initials instead, so "no photo" is a miss rather than
-        // a picture of a grey person.
         $this->actingAs($this->administrator())
             ->get('/admin/profile/avatar')
             ->assertStatus(404);
@@ -577,8 +482,6 @@ class AdminAvatarTest extends TestCase
             imagefilledrectangle($image, 0, 0, 399, 399, imagecolorallocate($image, 0, 0, 255));
         }))->assertOk();
 
-        // There is no id in the route, so the only thing it can possibly serve
-        // is the caller's own row. This pins that from the outside.
         $mine = $this->actingAs($admin)->get('/admin/profile/avatar')->assertOk()->getContent();
 
         [$r, , $b] = $this->pixel($mine, 128, 128);
@@ -594,8 +497,6 @@ class AdminAvatarTest extends TestCase
         $this->assertNotSame($mine, $theirs);
     }
 
-    // ======================================================== replace & remove
-
     public function test_replacing_an_avatar_overwrites_it_without_orphan_rows(): void
     {
         $admin = $this->administrator();
@@ -605,8 +506,6 @@ class AdminAvatarTest extends TestCase
 
         $this->uploadBytes($admin, 'second.jpg', $this->jpeg(500, 500))->assertOk();
 
-        // One row per person, always: the table is keyed on user_id, so a second
-        // upload replaces rather than accumulates.
         $this->assertSame(1, AdminProfile::where('user_id', $admin->id)->count());
 
         $profile = $this->stored($admin);
@@ -621,13 +520,8 @@ class AdminAvatarTest extends TestCase
         $first = $this->uploadBytes($admin, 'first.png', $this->png(400, 400))
             ->json('data.profile.avatar_url');
 
-        // The stored URL is cached for a year, so the token is the only thing
-        // that can make a browser fetch the new bytes.
         $this->travel(2)->seconds();
 
-        // The payload hands the client a URL rather than bytes, so that URL has
-        // to be the route that actually serves them — and it has to carry a
-        // token, because the response is cached for a year.
         $this->assertIsString($first);
         $this->assertStringContainsString('/admin/profile/avatar', $first);
         $this->assertStringContainsString('?v=', $first);
@@ -649,8 +543,6 @@ class AdminAvatarTest extends TestCase
             ->assertJsonPath('data.profile.has_avatar', false)
             ->assertJsonPath('data.profile.avatar_url', null);
 
-        // All three move together. Leaving `avatar_mime` behind would make a
-        // later read claim a format for bytes that are no longer there.
         $profile = $this->stored($admin);
         $this->assertNull($profile->avatar_data);
         $this->assertNull($profile->avatar_mime);
@@ -661,8 +553,6 @@ class AdminAvatarTest extends TestCase
     {
         $admin = $this->administrator();
 
-        // The caller's intent ("I want no photo") is already satisfied, so this
-        // is a success rather than a 404.
         $this->actingAs($admin)->deleteJson('/admin/api/profile/avatar')->assertOk();
 
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
@@ -680,8 +570,6 @@ class AdminAvatarTest extends TestCase
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
         $this->actingAs($admin)->deleteJson('/admin/api/profile/avatar')->assertOk();
 
-        // Removal must clear the bytes without leaving the row in a state the
-        // next upload cannot fill.
         $this->uploadBytes($admin, 'again.png', $this->png(400, 400))
             ->assertOk()
             ->assertJsonPath('data.profile.has_avatar', true);
@@ -689,8 +577,6 @@ class AdminAvatarTest extends TestCase
         $this->assertSame('image/png', $this->stored($admin)->avatar_mime);
         $this->assertGreaterThan(0, strlen($this->storedBytes($admin)));
     }
-
-    // ============================================================== the scoping
 
     public function test_one_users_upload_does_not_touch_anothers_row(): void
     {
@@ -713,8 +599,6 @@ class AdminAvatarTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.profile.has_avatar', true);
 
-        // A mentor has no role slug, so a role-based gate would have refused
-        // every one of these requests.
         $this->actingAs($mentor)
             ->get('/admin/profile/avatar')
             ->assertOk()
@@ -723,15 +607,11 @@ class AdminAvatarTest extends TestCase
         $this->actingAs($mentor)->deleteJson('/admin/api/profile/avatar')->assertOk();
     }
 
-    // ============================================================== the sidebar
-
     public function test_the_sidebar_shows_the_photo_on_the_other_panel_pages(): void
     {
         $admin = $this->administrator();
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
 
-        // The sidebar footer is a shared partial, so the photo has to appear on
-        // every panel page without each one being changed.
         foreach (['/admin/support', '/admin/projects', '/admin/organizations', '/admin/profile'] as $page) {
             $this->visitPanel($admin, $page)
                 ->assertOk()
@@ -749,7 +629,6 @@ class AdminAvatarTest extends TestCase
             ->assertSee('nav-avatar', false)
             ->assertDontSee('nav-avatar-img', false);
 
-        // And it goes back to initials once the photo is removed.
         $this->uploadBytes($admin, 'me.png', $this->png(400, 400))->assertOk();
 
         $this->visitPanel($admin, '/admin/support')->assertSee('nav-avatar-img', false);
@@ -759,14 +638,6 @@ class AdminAvatarTest extends TestCase
         $this->visitPanel($admin, '/admin/support')->assertDontSee('nav-avatar-img', false);
     }
 
-    // ================================================================ fixtures
-
-    /**
-     * A PNG built in memory, optionally painted by the callback.
-     *
-     * Starts fully transparent with alpha saved, so a fixture with no paint at
-     * all is a clean transparency probe.
-     */
     private function png(int $width, int $height, ?callable $paint = null): string
     {
         $image = imagecreatetruecolor($width, $height);
@@ -788,20 +659,8 @@ class AdminAvatarTest extends TestCase
         return $bytes;
     }
 
-    /**
-     * A PNG that is only a header: the 8 byte signature plus an IHDR chunk
-     * declaring the given dimensions, with no pixel data at all.
-     *
-     * This is a decompression bomb in its purest form. The file is a few dozen
-     * bytes, yet `getimagesizefromstring` — and Laravel's own `dimensions`
-     * rule — read the declared size straight out of the header, so nothing
-     * upstream of the decode notices. Only a check sitting between the header
-     * read and `imagecreatefromstring` can stop it, which is what these
-     * fixtures exist to prove.
-     */
     private function pngDeclaringSize(int $width, int $height): string
     {
-        // 4 + 4 + (1 bit depth + 1 colour type + 3 reserved) = 13 byte payload.
         $ihdr = pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0);
 
         return "\x89PNG\r\n\x1a\n"
@@ -849,32 +708,10 @@ class AdminAvatarTest extends TestCase
         return $bytes;
     }
 
-    /**
-     * A genuinely incompressible PNG, for the size assertions.
-     *
-     * Solid colours would compress to a few hundred bytes and prove nothing
-     * about whether the input was actually resized — so the fixture has to be
-     * large on the way in, not just large in pixel count.
-     *
-     * The pixel field is handed to GD as a raw 24-bit BMP rather than painted
-     * with `imagesetpixel`. That matters: PNG filters operate row by row, so
-     * *any* pattern built from a coarser grid (blocks, tiles, a few random
-     * colours) collapses to a few kilobytes and the size assertions become
-     * vacuous — which is exactly how an earlier version of this helper managed
-     * to produce a 52 KB "large" upload. Random bytes have no row correlation
-     * for the filters to exploit, so the PNG that comes out stays ~3 MB at
-     * 1000x1000 and the downscale claim means something.
-     *
-     * BMP is only an intermediate here; the fixture that gets uploaded is still
-     * a PNG, which is the format the endpoint accepts.
-     */
     private function noisePng(int $size): string
     {
         $rowBytes = $size * 3;
 
-        // BMP rows are padded to a four-byte boundary, hence the `$stride` the
-        // DIB header advertises. Getting this wrong shifts every row and the
-        // decode fails.
         $padding = (4 - ($rowBytes % 4)) % 4;
 
         $pixels = '';
@@ -883,18 +720,18 @@ class AdminAvatarTest extends TestCase
         }
 
         $header = 'BM'
-            .pack('V', 54 + strlen($pixels))   // file size
-            .pack('V', 0)                      // reserved
-            .pack('V', 54)                     // pixel data offset
-            .pack('V', 40)                     // DIB header size
-            .pack('V', $size)                  // width
-            .pack('V', $size)                  // height
-            .pack('v', 1)                      // colour planes
-            .pack('v', 24)                     // bits per pixel
-            .pack('V', 0)                      // compression: none
-            .pack('V', strlen($pixels))        // image size
-            .pack('V', 2835).pack('V', 2835)   // 72 dpi
-            .pack('V', 0).pack('V', 0);        // palette
+            .pack('V', 54 + strlen($pixels))
+            .pack('V', 0)
+            .pack('V', 54)
+            .pack('V', 40)
+            .pack('V', $size)
+            .pack('V', $size)
+            .pack('v', 1)
+            .pack('v', 24)
+            .pack('V', 0)
+            .pack('V', strlen($pixels))
+            .pack('V', 2835).pack('V', 2835)
+            .pack('V', 0).pack('V', 0);
 
         $image = imagecreatefromstring($header.$pixels);
 
@@ -906,8 +743,6 @@ class AdminAvatarTest extends TestCase
         return $bytes;
     }
 
-    // ================================================================= helpers
-
     private function uploadBytes(User $user, string $name, string $bytes)
     {
         return $this->actingAs($user)->post('/admin/api/profile/avatar', [
@@ -915,17 +750,6 @@ class AdminAvatarTest extends TestCase
         ], ['Accept' => 'application/json']);
     }
 
-    /**
-     * Open a panel page as this user, the way a real request would.
-     *
-     * `actingAs()` hands the guard the very model instance it is given and
-     * keeps it for the rest of the test, so a relation loaded during an earlier
-     * assertion stays cached — a later upload would then be invisible to the
-     * view. That cannot happen over HTTP, where the session guard re-hydrates
-     * the user from the database on every hit, so the stale relation is a test
-     * artefact rather than a bug. Dropping it here is what makes the assertion
-     * describe production behaviour instead of the harness.
-     */
     private function visitPanel(User $user, string $path)
     {
         $user->unsetRelation('adminProfile');
@@ -943,13 +767,11 @@ class AdminAvatarTest extends TestCase
         return (string) base64_decode((string) $this->stored($user)->avatar_data, true);
     }
 
-    /** @return array{0: int, 1: int, 2: string, mime: string} */
     private function storedInfo(User $user): array
     {
         return getimagesizefromstring($this->storedBytes($user));
     }
 
-    /** @return array{0: int, 1: int, 2: int} red, green, blue */
     private function pixel(string $binary, int $x, int $y): array
     {
         $image = imagecreatefromstring($binary);
@@ -959,7 +781,6 @@ class AdminAvatarTest extends TestCase
         return [$parts['red'], $parts['green'], $parts['blue']];
     }
 
-    /** 0 is fully opaque, 127 fully transparent. */
     private function alphaAt(string $binary, int $x, int $y): int
     {
         $image = imagecreatefromstring($binary);
@@ -981,7 +802,6 @@ class AdminAvatarTest extends TestCase
     {
         $user = $this->user($name);
 
-        // Mentor identity is a ProfessionalProfile attribute, not a role slug.
         ProfessionalProfile::create([
             'user_id' => $user->id,
             'type' => 'mentor',
@@ -1001,9 +821,6 @@ class AdminAvatarTest extends TestCase
 
     private function user(string $name): User
     {
-        // `example.com`, never `test.com`: test.com addresses are disposable
-        // under the `indisposable` rule, so assertions about them can pass for
-        // the wrong reason.
         return User::forceCreate([
             'name' => $name,
             'email' => uniqid().'@example.com',

@@ -4,17 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Messages inside a support request thread.
- *
- * Mirrors `messages` (the mentor↔student table) so the two read the same way,
- * but is deliberately separate: a support thread has no
- * `mentor_student_connection_id`, and mixing the two would make every existing
- * conversation query need a discriminator.
- *
- * `sender_id` is a learner for inbound and a mentor/admin for outbound, so the
- * thread renders the same way in both directions.
- */
 return new class extends Migration
 {
     public function up(): void
@@ -27,9 +16,6 @@ return new class extends Migration
 
                 $table->text('body');
 
-                // 'system' is used for the handoff marker ("Transferring you to
-                // technical support") so the thread shows what happened without
-                // pretending a person wrote it.
                 $table->enum('message_type', ['text', 'system'])->default('text');
 
                 $table->json('metadata')->nullable();

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Render an Arabic (RTL) Markdown document to a print-ready PDF.
 
 Why this exists
@@ -72,13 +71,11 @@ hr { border: 0; border-top: 1px solid #d7dfe8; margin: 14px 0; }
 a { color: #14496f; }
 """
 
-
 def chrome_path() -> str:
     for candidate in CHROME_CANDIDATES:
         if os.path.exists(candidate):
             return candidate
     raise SystemExit("No Chrome or Edge found to print the PDF.")
-
 
 def build_html(markdown_text: str, title: str) -> str:
     body = markdown.markdown(
@@ -90,12 +87,7 @@ def build_html(markdown_text: str, title: str) -> str:
         f"<title>{title}</title><style>{CSS}</style></head><body>{body}</body></html>"
     )
 
-
 def render(html_path: str, pdf_path: str) -> None:
-    # Never write straight over the target and never delete it: this sandbox
-    # routes `os.remove` through the OS trash, which fails on a path it cannot
-    # recycle. Chrome writes into the temp dir instead and the result is copied
-    # over the target — a truncating copy, not a delete-then-create.
     command = [
         chrome_path(),
         "--headless",
@@ -110,7 +102,6 @@ def render(html_path: str, pdf_path: str) -> None:
     if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) < 1024:
         raise SystemExit(f"Chrome did not write the PDF.\n{result.stdout}\n{result.stderr}")
 
-
 def report(pdf_path: str) -> None:
     document = pymupdf.open(pdf_path)
     counts = []
@@ -123,7 +114,6 @@ def report(pdf_path: str) -> None:
         if len(counts) > 1 and min(counts) < 200:
             print("WARNING: a page has almost no text on it — probably an orphan page.")
     print(f"size={os.path.getsize(pdf_path)} bytes")
-
 
 def main() -> None:
     if len(sys.argv) != 3:
@@ -145,7 +135,6 @@ def main() -> None:
         shutil.copyfile(pdf_path, target)
 
     report(target)
-
 
 if __name__ == "__main__":
     main()

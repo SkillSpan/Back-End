@@ -13,17 +13,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Admin project management API — the read + moderation surface the admin
- * panel is built on.
- *
- * The owner-scoped ProjectManagementController cannot list a `draft`, and the
- * learner-facing ProjectController requires a student profile, so before this
- * controller existed there was no way for a platform administrator to see the
- * projects awaiting review. These tests pin the new contract: pagination,
- * search, filters, single-project retrieval, and the cancel (soft-delete)
- * path including its authorization and its refusal of terminal states.
- */
 class AdminProjectTest extends TestCase
 {
     use RefreshDatabase;
@@ -37,10 +26,6 @@ class AdminProjectTest extends TestCase
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
         Role::create(['name' => 'University Admin', 'slug' => 'university_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function user(string $email, string $role, ?Organization $organization = null): User
     {
@@ -78,9 +63,6 @@ class AdminProjectTest extends TestCase
         ]);
     }
 
-    /**
-     * US-MATCH-DATA-03 — a career role a project must now target.
-     */
     private function careerRole(): CareerRole
     {
         return CareerRole::first() ?? CareerRole::create([
@@ -109,12 +91,6 @@ class AdminProjectTest extends TestCase
         ], $attributes));
     }
 
-    /**
-     * A project that satisfies ProjectLifecycleService::completenessGaps(), so
-     * a review decision can actually be reached. Approving requires every
-     * field the matching snapshot reads - description, objectives, capacity,
-     * at least one skill and role, and a sane date triple.
-     */
     private function completeProject(string $status): Project
     {
         $project = $this->project([
@@ -144,10 +120,6 @@ class AdminProjectTest extends TestCase
         return $project->fresh();
     }
 
-    // -----------------------------------------------------------------
-    // Authorization
-    // -----------------------------------------------------------------
-
     public function test_guests_cannot_list_projects(): void
     {
         $this->getJson('/api/v1/admin/projects')->assertStatus(401);
@@ -171,14 +143,6 @@ class AdminProjectTest extends TestCase
         $this->assertSame(Project::STATUS_DRAFT, $project->fresh()->status);
     }
 
-    // -----------------------------------------------------------------
-    // Fields the panel needs but the shared contract must not carry
-    //
-    // Each of these closes a silencer: a control that would never render, a
-    // role that would be dropped on save, and a section that would always claim
-    // "none". All three are asserted to stay OUT of the learner catalog.
-    // -----------------------------------------------------------------
-
     public function test_the_list_says_which_projects_are_editable(): void
     {
         Sanctum::actingAs($this->admin());
@@ -189,8 +153,6 @@ class AdminProjectTest extends TestCase
 
         $rows = collect($response->json('data.data'))->keyBy('id');
 
-        // Derived from Project::EDITABLE_STATUSES, so it can never disagree
-        // with what the update endpoint will accept.
         $this->assertTrue($rows[$draft->id]['is_editable']);
         $this->assertFalse($rows[$open->id]['is_editable']);
     }
@@ -215,11 +177,9 @@ class AdminProjectTest extends TestCase
 
         $data = $this->getJson("/api/v1/admin/projects/{$project->id}")->assertOk()->json('data');
 
-        // The learner list still hides the inactive role...
         $available = collect($data['available_project_roles'])->pluck('title')->all();
         $this->assertSame(['Active Role'], $available);
 
-        // ...but the editing list carries it, or it would be dropped on save.
         $all = collect($data['project_roles'])->pluck('title')->all();
         $this->assertContains('Active Role', $all);
         $this->assertContains('Retired Role', $all);
@@ -246,14 +206,6 @@ class AdminProjectTest extends TestCase
 
     public function test_the_learner_catalog_does_not_gain_the_admin_only_fields(): void
     {
-        // A learner-facing response must keep the exact contract it had: no
-        // is_editable, and no `project_roles` key. `available_project_roles` is
-        // the only role list a learner sees.
-        //
-        // Asserted against the resource directly rather than through
-        // GET /api/v1/projects/{id}, because that endpoint additionally
-        // requires a student profile (a learner without one gets 422), and
-        // that is not what this test is about.
         $project = $this->project(['status' => Project::STATUS_OPEN]);
         $project->projectRoles()->create(['title' => 'Backend Developer', 'is_active' => true]);
         $project->eligibilityConstraints()->create(['constraint_type' => 'location', 'value' => 'Amman']);
@@ -265,13 +217,8 @@ class AdminProjectTest extends TestCase
         $this->assertArrayNotHasKey('project_roles', $data);
         $this->assertArrayNotHasKey('eligibility_constraints', $data);
 
-        // The learner-facing list is still exactly the active roles.
         $this->assertSame(['Backend Developer'], collect($data['available_project_roles'])->pluck('title')->all());
     }
-
-    // -----------------------------------------------------------------
-    // Listing
-    // -----------------------------------------------------------------
 
     public function test_an_admin_can_list_projects_including_drafts(): void
     {
@@ -281,8 +228,6 @@ class AdminProjectTest extends TestCase
 
         $response = $this->getJson('/api/v1/admin/projects')->assertOk();
 
-        // Both statuses appear - this is the whole point of the endpoint, since
-        // the owner and learner controllers can never surface a draft.
         $titles = collect($response->json('data.data'))->pluck('title');
         $this->assertTrue($titles->contains('Draft One'));
         $this->assertTrue($titles->contains('Submitted One'));
@@ -298,8 +243,6 @@ class AdminProjectTest extends TestCase
 
         $response = $this->getJson('/api/v1/admin/projects?per_page=5')->assertOk();
 
-        // ProjectResource::collection wraps the paginator, so the rows sit under
-        // data.data and the counters under data.meta - not flat on `data`.
         $response->assertJsonPath('data.meta.current_page', 1)
             ->assertJsonPath('data.meta.per_page', 5)
             ->assertJsonPath('data.meta.total', 18)
@@ -313,7 +256,6 @@ class AdminProjectTest extends TestCase
         Sanctum::actingAs($this->admin());
         $this->project();
 
-        // A caller asking for 10k rows must not be able to pull the table.
         $this->getJson('/api/v1/admin/projects?per_page=10000')
             ->assertOk()
             ->assertJsonPath('data.meta.per_page', 100);
@@ -322,10 +264,6 @@ class AdminProjectTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.meta.per_page', 1);
     }
-
-    // -----------------------------------------------------------------
-    // Search and filters
-    // -----------------------------------------------------------------
 
     public function test_search_matches_the_title(): void
     {
@@ -357,16 +295,6 @@ class AdminProjectTest extends TestCase
         $this->project(['title' => 'Atlas Migration']);
         $this->project(['title' => 'Unrelated Work']);
 
-        /*
-         * The search term reaches the query builder as a bound parameter, so
-         * each of these is just a string that matches nothing: the query still
-         * runs, the table survives and the envelope is unchanged.
-         *
-         * `stats` is asserted on every pass because it is produced by the ONE
-         * raw-SQL fragment in the codebase — selectRaw('status, COUNT(*) as
-         * aggregate'), a static string with no interpolation. If it ever grew
-         * user input, this would be where it blows up.
-         */
         foreach ([
             "'; DROP TABLE projects; --",
             "' OR 1=1 --",
@@ -378,7 +306,6 @@ class AdminProjectTest extends TestCase
             $this->assertSame(2, $response->json('stats.total'));
         }
 
-        // Nothing was dropped, nothing was widened.
         $this->assertSame(2, Project::count());
     }
 
@@ -429,7 +356,6 @@ class AdminProjectTest extends TestCase
         Sanctum::actingAs($this->admin());
         $this->project();
 
-        // A bogus status must not blow up the query - it simply filters nothing.
         $this->getJson('/api/v1/admin/projects?status=not_a_real_status')->assertOk();
     }
 
@@ -447,8 +373,6 @@ class AdminProjectTest extends TestCase
     {
         Sanctum::actingAs($this->admin());
 
-        // 20 drafts spread over two pages of 10 - a page-scoped count would
-        // report 10 and quietly understate the real backlog.
         for ($i = 0; $i < 20; $i++) {
             $this->project(['status' => Project::STATUS_DRAFT]);
         }
@@ -470,18 +394,12 @@ class AdminProjectTest extends TestCase
         $this->project(['status' => Project::STATUS_DRAFT]);
         $this->project(['status' => Project::STATUS_OPEN]);
 
-        // Filtering to one status must not make the other cards read zero -
-        // they are a stable reference point while the list is narrowed.
         $this->getJson('/api/v1/admin/projects?status=open')
             ->assertOk()
             ->assertJsonPath('stats.total', 2)
             ->assertJsonPath('stats.draft', 1)
             ->assertJsonPath('data.meta.total', 1);
     }
-
-    // -----------------------------------------------------------------
-    // Show
-    // -----------------------------------------------------------------
 
     public function test_an_admin_can_view_a_single_project_with_its_relations(): void
     {
@@ -498,8 +416,6 @@ class AdminProjectTest extends TestCase
             ->assertJsonPath('data.id', $project->id)
             ->assertJsonPath('data.title', 'Detailed Project')
             ->assertJsonPath('data.type', 'company_sponsored')
-            // The key is `title` for contract stability, but it is read from
-            // organizations.name - see ProjectResource.
             ->assertJsonPath('data.organization.title', 'Sponsor Ltd')
             ->assertJsonPath('success', true);
     }
@@ -513,10 +429,6 @@ class AdminProjectTest extends TestCase
             ->assertJsonPath('code', 'PROJECT_NOT_FOUND');
     }
 
-    // -----------------------------------------------------------------
-    // Cancel (soft delete)
-    // -----------------------------------------------------------------
-
     public function test_an_admin_can_cancel_a_project_and_the_row_survives(): void
     {
         Sanctum::actingAs($this->admin());
@@ -526,7 +438,6 @@ class AdminProjectTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_CANCELLED);
 
-        // Soft delete: the record is still there, just retired.
         $this->assertDatabaseHas('projects', [
             'id' => $project->id,
             'status' => Project::STATUS_CANCELLED,
@@ -587,17 +498,11 @@ class AdminProjectTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // Lifecycle actions are reused, not reimplemented
-    // -----------------------------------------------------------------
-
     public function test_lifecycle_actions_remain_available_to_an_admin(): void
     {
         Sanctum::actingAs($this->admin());
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
 
-        // The admin panel drives the EXISTING endpoints; this asserts the
-        // approve route the panel calls is still wired and reaches the service.
         $this->postJson("/api/v1/projects/{$project->id}/approve")
             ->assertOk();
 
@@ -607,9 +512,6 @@ class AdminProjectTest extends TestCase
     public function test_a_completeness_gap_blocks_approval_with_a_useful_code(): void
     {
         Sanctum::actingAs($this->admin());
-        // A bare project: no description, objectives, skills, roles or dates.
-        // The service must refuse the review rather than approve something
-        // matching could never use.
         $project = $this->project(['status' => Project::STATUS_SUBMITTED]);
 
         $this->postJson("/api/v1/projects/{$project->id}/approve")
@@ -624,10 +526,6 @@ class AdminProjectTest extends TestCase
         $admin = $this->admin();
         Sanctum::actingAs($admin);
 
-        // Review separation was removed by product decision. An admin can own a
-        // project (an internal simulation), and is now allowed to approve it;
-        // this call used to answer 403 PROJECT_REVIEW_SELF_FORBIDDEN. The
-        // project has to be COMPLETE, otherwise PROJECT_INCOMPLETE masks it.
         $project = $this->completeProject(Project::STATUS_SUBMITTED);
         $project->forceFill(['owner_id' => $admin->id])->save();
 
@@ -640,15 +538,9 @@ class AdminProjectTest extends TestCase
 
     public function test_any_admin_can_review_not_just_one_designated_admin(): void
     {
-        // The rule, stated plainly: reviewing is a permission of EVERY admin,
-        // not of one designated admin and not only of a non-owner. So two
-        // DIFFERENT admins must each be able to review, and the second must be
-        // able to review a project owned by the first - a case that is neither
-        // "the owner" nor "a company owner".
         $first = $this->admin('first-admin@example.com');
         $second = $this->admin('second-admin@example.com');
 
-        // 1. The first admin reviews a project they own themselves.
         $own = $this->completeProject(Project::STATUS_SUBMITTED);
         $own->forceFill(['owner_id' => $first->id])->save();
 
@@ -658,7 +550,6 @@ class AdminProjectTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_APPROVED);
 
-        // 2. The second admin reviews a DIFFERENT project, owned by the first.
         $theirs = $this->completeProject(Project::STATUS_SUBMITTED);
         $theirs->forceFill(['owner_id' => $first->id])->save();
 
@@ -668,8 +559,6 @@ class AdminProjectTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_REJECTED);
 
-        // 3. "Any project on planet Earth" also means any admin can SEE it: the
-        //    panel list is not scoped by ownership or organization.
         Sanctum::actingAs($this->admin('third-admin@example.com'));
 
         $this->getJson('/api/v1/admin/projects')
@@ -684,23 +573,12 @@ class AdminProjectTest extends TestCase
         Sanctum::actingAs($this->admin());
         $project = $this->project(['status' => Project::STATUS_DRAFT]);
 
-        // draft → approved is not a declared transition; only draft → submitted
-        // is. The admin panel must not be able to skip the review.
         $this->postJson("/api/v1/projects/{$project->id}/approve")
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
 
         $this->assertSame(Project::STATUS_DRAFT, $project->fresh()->status);
     }
-
-    // -----------------------------------------------------------------
-    // Create / edit — the admin panel's write path
-    //
-    // These hang off the SAME StoreProjectRequest / UpdateProjectRequest and
-    // the same ProjectLifecycleService the owner API uses, so what is being
-    // pinned here is that routing an administrator's submission through the
-    // admin panel does not change any rule.
-    // -----------------------------------------------------------------
 
     public function test_an_admin_can_create_a_project_and_it_starts_as_a_draft(): void
     {
@@ -719,8 +597,6 @@ class AdminProjectTest extends TestCase
             ->assertJsonPath('data.title', 'Admin Created Project')
             ->assertJsonPath('data.status', Project::STATUS_DRAFT);
 
-        // A freshly created project is never born in a reviewed state, even
-        // when an administrator is the one creating it.
         $this->assertDatabaseHas('projects', [
             'title' => 'Admin Created Project',
             'status' => Project::STATUS_DRAFT,
@@ -731,7 +607,6 @@ class AdminProjectTest extends TestCase
     {
         Sanctum::actingAs($this->admin());
 
-        // The vocabulary is closed: `simulation` and `company_sponsored` only.
         $this->postJson('/api/v1/admin/projects', [
             'type' => 'volunteer',
             'title' => 'Nope',
@@ -786,9 +661,6 @@ class AdminProjectTest extends TestCase
         Sanctum::actingAs($this->admin());
         $project = $this->project(['status' => Project::STATUS_OPEN, 'title' => 'Locked']);
 
-        // `open` is not in Project::EDITABLE_STATUSES, so the edit must be
-        // refused rather than silently rewriting a project that is already
-        // taking applications.
         $this->patchJson("/api/v1/admin/projects/{$project->id}", ['title' => 'Hijacked'])
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_NOT_EDITABLE');
@@ -809,9 +681,6 @@ class AdminProjectTest extends TestCase
     {
         $admin = $this->admin();
 
-        // Session-authenticated twin used by the Blade panel's JavaScript. It
-        // must behave identically to the token endpoint, because both delegate
-        // to the same controller method.
         $created = $this->actingAs($admin)
             ->postJson('/admin/api/projects', [
                 'type' => 'simulation',

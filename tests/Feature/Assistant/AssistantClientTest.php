@@ -9,25 +9,6 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-/**
- * US-REC-01 — the Laravel -> FastAPI transport, tested against a faked service.
- *
- * These assert the *wire* contract: what we send, what we read back, and how
- * every failure maps to a stable code. AssistantAskTest covers orchestration
- * with the transport stubbed; this file is the other half, where the stub would
- * otherwise hide a mismatch with the real service.
- *
- * The contract is the one the service actually implements:
- *
- *     POST /chat  { user_id, message, context? }
- *             -> { reply, provider_used, timestamp, prompt_version,
- *                  status, grounded }
- *
- * `status` (answered | insufficient_context) and `grounded` are REQUIRED by the
- * service's published schema and are read back as `answer_status` / `grounded`.
- *
- * No database is involved, so this does not use RefreshDatabase.
- */
 class AssistantClientTest extends TestCase
 {
     private const SERVICE_URL = 'http://assistant.test';
@@ -38,7 +19,6 @@ class AssistantClientTest extends TestCase
     {
         parent::setUp();
 
-        // The §12.5 gate must be open for the transport to be reachable at all.
         config([
             'services.assistant.enabled' => true,
             'services.assistant.approval_reference' => 'GOV-TRANSPORT-TEST',
@@ -58,10 +38,6 @@ class AssistantClientTest extends TestCase
         );
     }
 
-    /**
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
     private function response(array $overrides = []): array
     {
         return array_merge([
@@ -72,18 +48,12 @@ class AssistantClientTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * @param  array<string, mixed>  $snapshot
-     * @return array<string, mixed>
-     */
     private function ask(
         array $snapshot = ['student_profile_id' => 7],
         string $intent = 'explain_readiness',
     ): array {
         return $this->client()->ask('42', 'Why is my score low?', $snapshot, 'req-1', $intent);
     }
-
-    // ------------------------------------------------------------ what we send
 
     public function test_it_sends_the_documented_contract_payload(): void
     {
@@ -94,7 +64,6 @@ class AssistantClientTest extends TestCase
         Http::assertSent(function (Request $request) {
             $body = $request->data();
 
-            // Exactly the four keys the service declares, and nothing else.
             $this->assertSame(['user_id', 'message', 'intent', 'context'], array_keys($body));
             $this->assertSame('42', $body['user_id']);
             $this->assertSame('Why is my score low?', $body['message']);
@@ -106,13 +75,6 @@ class AssistantClientTest extends TestCase
 
     public function test_it_sends_the_intent_the_caller_validated_verbatim(): void
     {
-        /*
-         * The intent is relayed as given, not re-derived from the message text.
-         * AskAssistantRequest has already checked it against the six-value
-         * §12.5 whitelist by the time it reaches this transport, so the client
-         * must not second-guess it -- a guess here would let the gateway's
-         * scope decision and the service's recorded intent disagree.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
 
         $this->ask(intent: 'project_bounded_help');
@@ -122,12 +84,6 @@ class AssistantClientTest extends TestCase
 
     public function test_it_does_not_send_the_old_invented_field_names(): void
     {
-        /*
-         * The previous revision of this client assumed a contract nobody had
-         * agreed: { context_snapshot, question, request_id }. The service accepts
-         * none of those, so every call would have been a 422. This is the
-         * assertion that keeps the real shape from drifting back.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
 
         $this->ask();
@@ -156,9 +112,6 @@ class AssistantClientTest extends TestCase
             $context = $request->data()['context'];
 
             $this->assertIsString($context);
-            // Structured decision data, not a prose paraphrase the model would
-            // have to interpret — REC-07 forbids inventing a second description
-            // of the learner's record.
             $this->assertStringContainsString('"student_profile_id": 7', $context);
             $this->assertStringContainsString('"score": 61.5', $context);
 
@@ -168,27 +121,6 @@ class AssistantClientTest extends TestCase
 
     public function test_the_context_is_always_present_so_service_retrieval_never_runs(): void
     {
-        /*
-         * A deliberate, load-bearing consequence of always sending `context`.
-         *
-         * The service treats a non-null `context` as "use this verbatim and skip
-         * retrieval" -- documented in ChatRequest.context. `serialiseContext()`
-         * therefore *always* returns a string, even for a learner whose every
-         * snapshot section is `available: false`, so the service's own RAG corpus
-         * is never consulted for a Laravel-originated call.
-         *
-         * That is the correct trade-off (Laravel's stored decision data is
-         * authoritative and REC-07 forbids a second paraphrase of it), but it has
-         * a visible consequence worth pinning: a learner with no readiness,
-         * roadmap or skill gaps gets a context that says so and nothing else, and
-         * the model has no documentation to fall back on -- so it correctly
-         * answers "I don't have enough information" rather than inventing an
-         * explanation. Verified against the live service on 8010.
-         *
-         * If this ever becomes `null` for an empty snapshot, retrieval would
-         * silently switch on and answers would start coming from the corpus
-         * instead of the learner's record.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
 
         $this->ask([
@@ -201,8 +133,6 @@ class AssistantClientTest extends TestCase
 
             $this->assertIsString($context);
             $this->assertNotSame('', trim($context));
-            // The unavailability is stated, not omitted -- an absent key would
-            // read as "no information" rather than "not yet calculated".
             $this->assertStringContainsString('"available": false', $context);
 
             return true;
@@ -211,11 +141,6 @@ class AssistantClientTest extends TestCase
 
     public function test_it_attaches_the_service_token_server_side(): void
     {
-        /*
-         * The credential is Laravel's, not the learner's: a Sanctum token would
-         * authenticate a person to the service, which is not what this is. And
-         * it is attached here, server-side, so it can never reach a browser.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
 
         $this->ask();
@@ -235,8 +160,6 @@ class AssistantClientTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->hasHeader('X-Request-ID', 'req-1'));
     }
 
-    // ----------------------------------------------------------- what we read
-
     public function test_it_reads_the_reply_provider_and_prompt_version(): void
     {
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
@@ -251,12 +174,6 @@ class AssistantClientTest extends TestCase
 
     public function test_a_total_provider_outage_is_returned_not_thrown(): void
     {
-        /*
-         * The service answers HTTP 200 with its fallback text when every
-         * provider fails, so there is nothing to throw on here — the transport
-         * reports what it received and the orchestrator decides. Deciding in the
-         * transport would hide the distinction from the audit trail.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
             'reply' => "I'm temporarily unavailable. Please try again shortly.",
             'provider_used' => null,
@@ -283,16 +200,6 @@ class AssistantClientTest extends TestCase
 
     public function test_it_maps_the_wire_status_onto_answer_status(): void
     {
-        /*
-         * The regression this exists for: the transport used to return only
-         * four keys, silently discarding `status` and `grounded`. That made
-         * "the assistant could not answer" indistinguishable from "the
-         * assistant answered" — the reply is generated prose in the learner's
-         * own language, so it can never be string-matched — and it cost the
-         * learner the offer of a human. The rename is deliberate: `status` on
-         * the wire is about the answer, while `response_status` in our own
-         * model is about the call.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
             'status' => 'insufficient_context',
             'grounded' => false,
@@ -319,11 +226,6 @@ class AssistantClientTest extends TestCase
 
     public function test_a_missing_status_is_null_rather_than_a_guess(): void
     {
-        /*
-         * A service that predates the field will not send one. Treating an
-         * absent status as "insufficient_context" would offer a human on every
-         * single question.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response(), 200)]);
 
         $result = $this->ask();
@@ -334,8 +236,6 @@ class AssistantClientTest extends TestCase
 
     public function test_a_non_boolean_grounded_is_coerced_to_false(): void
     {
-        // `grounded` is a boolean in the schema, but a stringy "false" must not
-        // read as true — that would claim an ungrounded answer was sourced.
         Http::fake([self::SERVICE_URL.'/chat' => Http::response($this->response([
             'grounded' => 'false',
         ]), 200)]);
@@ -343,15 +243,8 @@ class AssistantClientTest extends TestCase
         $this->assertFalse($this->ask()['grounded']);
     }
 
-    // ----------------------------------------------------------- failure modes
-
     public function test_it_refuses_to_send_without_a_governance_approval(): void
     {
-        /*
-         * §12.5, enforced at the transport rather than only at the service
-         * layer, so a direct call to this class can never put learner data on
-         * the wire.
-         */
         config(['services.assistant.approval_reference' => null]);
 
         Http::fake();
@@ -373,8 +266,6 @@ class AssistantClientTest extends TestCase
         Http::fake();
 
         try {
-            // No explicit token, so this resolves from config — which is the
-            // path a real deployment takes when the env var is missing.
             (new AssistantClient(baseUrl: self::SERVICE_URL, timeout: 5))
                 ->ask('42', 'Why?', [], 'req-1', 'explain_readiness');
 
@@ -383,18 +274,11 @@ class AssistantClientTest extends TestCase
             $this->assertSame('ASSISTANT_NOT_CONFIGURED', $e->codeName);
         }
 
-        // Never called unauthenticated.
         Http::assertNothingSent();
     }
 
     public function test_a_rejected_credential_is_reported_as_our_misconfiguration(): void
     {
-        /*
-         * A 401 from the service means OUR token is wrong, not the learner's.
-         * Mapping it to 401 would blame the learner's session for a deployment
-         * fault; 503 with a distinct code points at the actual fix, which is
-         * making ASSISTANT_SERVICE_TOKEN match the service's SERVICE_TOKEN.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response(['detail' => 'nope'], 401)]);
 
         try {
@@ -446,10 +330,6 @@ class AssistantClientTest extends TestCase
 
     public function test_a_success_body_without_a_reply_is_rejected(): void
     {
-        /*
-         * A 200 with no reply would otherwise be relayed as an empty string,
-         * handing the learner a blank answer where an explanation belongs.
-         */
         Http::fake([self::SERVICE_URL.'/chat' => Http::response(['provider_used' => 'gemini'], 200)]);
 
         try {

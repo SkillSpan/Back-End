@@ -4,16 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * US-INT-01 — decision snapshots.
- *
- * One row per intelligence decision (skill-gap + readiness + roadmap
- * triple). The snapshot captures the validated input state BEFORE the
- * FastAPI calls: role id/version, required role skills, learner skill
- * state, availability, and the resolved algorithm/configuration
- * versions. Enough to reproduce or explain every historical result —
- * without storing PII (no email, no name, no credentials).
- */
 return new class extends Migration
 {
     public function up(): void

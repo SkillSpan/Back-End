@@ -14,21 +14,6 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * "Delete" in the chat list removes the conversation from the CALLER's list
- * only. It is deliberately not a delete: the thread carries an explicit notice
- * that communication is recorded for audit purposes, so erasing it for both
- * participants would destroy the other side's history and the audit trail.
- *
- * These tests pin the contract that makes that safe:
- *
- *   1. hiding removes it from the caller's list;
- *   2. the other participant is completely unaffected;
- *   3. a stranger gets 403 and cannot hide someone else's conversation;
- *   4. hiding twice is idempotent, not an error and not a duplicate row;
- *   5. a new message brings the conversation back — nothing can be lost
- *      silently, which was the original complaint.
- */
 class ConversationHideTest extends TestCase
 {
     use RefreshDatabase;
@@ -87,9 +72,6 @@ class ConversationHideTest extends TestCase
         return $user;
     }
 
-    /**
-     * @return array{0: User, 1: User, 2: Conversation}
-     */
     private function conversation(): array
     {
         $mentor = $this->mentor();
@@ -218,7 +200,6 @@ class ConversationHideTest extends TestCase
         $this->deleteJson("/api/v1/conversations/{$conversation->id}")->assertOk();
         $this->assertNotContains($conversation->id, $this->listIds($mentor));
 
-        // The student replies.
         Sanctum::actingAs($student);
         $this->postJson("/api/v1/conversations/{$conversation->id}/messages", [
             'body' => 'Thanks, I have a question.',

@@ -4,15 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Replace the learner-profile university / specialization Foreign Keys
- * with free-text fields (SRS change): university_id / specialization_id
- * referenced reference tables, but the learner just types (or picks from
- * an autocomplete list) the university name, their university student
- * number, and the specialization name. Storing plain text removes the
- * dependency on seeded reference rows and the "specialization id is
- * required" validation failure when those tables are empty.
- */
 return new class extends Migration
 {
     public function up(): void

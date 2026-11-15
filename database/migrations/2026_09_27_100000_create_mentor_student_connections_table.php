@@ -21,8 +21,6 @@ return new class extends Migration
                 $table->timestamps();
                 $table->softDeletes();
 
-                // Prevent duplicate connections for the same (mentor, student, project) triple.
-                // project_id is nullable, so a NULL project means a general mentoring relationship.
                 $table->unique(['mentor_id', 'student_id', 'project_id'], 'msc_mentor_student_project_unique');
                 $table->index(['mentor_id', 'status']);
                 $table->index(['student_id', 'status']);

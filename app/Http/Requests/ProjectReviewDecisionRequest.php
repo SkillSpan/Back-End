@@ -7,17 +7,6 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Str;
 
-/**
- * Project Management Workflow — a reviewer's decision on a submitted project
- * (approve / request changes / reject).
- *
- * `reason` is optional at the shape level and is recorded in the audit row
- * when present — the projects table has no decision-reason column and the
- * Pilot did not ask for one, so no column is invented. Whether a reason is
- * MANDATORY for a given decision (it is for `changes_requested`) is a business
- * rule enforced by ProjectLifecycleService, which returns a precise
- * PROJECT_REASON_REQUIRED code rather than a generic validation error.
- */
 class ProjectReviewDecisionRequest extends FormRequest
 {
     public function authorize(): bool

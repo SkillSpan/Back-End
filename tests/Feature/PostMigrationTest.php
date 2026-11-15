@@ -4,15 +4,6 @@ namespace Tests\Feature;
 
 use Tests\TestCase;
 
-/**
- * Guards that catch the mistakes a region/host migration tends to introduce,
- * without touching the real database.
- *
- * Everything here is static or HTTP-level: no RefreshDatabase, no query
- * against the production MySQL. The latency and connectivity measurements
- * live in `php artisan app:deployment-check`, which is read-only and has to
- * run where the app runs.
- */
 class PostMigrationTest extends TestCase
 {
     public function test_health_endpoint_answers(): void
@@ -22,8 +13,6 @@ class PostMigrationTest extends TestCase
 
     public function test_protected_api_route_is_still_guarded(): void
     {
-        // 401 means the route exists and the guard is wired. A 404 would mean
-        // the route table is broken; a 500 would mean the app cannot boot.
         $this->getJson('/api/v1/profile')->assertUnauthorized();
     }
 
@@ -39,8 +28,6 @@ class PostMigrationTest extends TestCase
             );
         }
 
-        // A literal host in the config is how a migration silently keeps
-        // pointing at the old database.
         $this->assertDoesNotMatchRegularExpression(
             "/'host'\s*=>\s*'(?!127\.0\.0\.1')[^']*\.(com|net|io|cloud)'/",
             $source,
@@ -63,14 +50,11 @@ class PostMigrationTest extends TestCase
         $this->assertStringContainsString('migrate --force', $dockerfile);
         $this->assertStringContainsString('serve --host=0.0.0.0', $dockerfile);
         $this->assertStringContainsString('${PORT', $dockerfile);
-        // Config cache is built after the env is present, never at build time.
         $this->assertStringContainsString('config:cache', $dockerfile);
     }
 
     public function test_the_route_table_loads_completely(): void
     {
-        // A partially-broken route table is the usual symptom of a bad cache
-        // or a missing binding after a deploy.
         $this->assertGreaterThan(100, count(app('router')->getRoutes()));
     }
 }

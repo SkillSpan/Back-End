@@ -12,15 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * `GET /api/v1/applications/{application}` — one application by its own id.
- *
- * Three callers are allowed and each is tested, because the whole reason this
- * endpoint exists is that the two natural readers of an application hold
- * different roles: the applicant is a learner and the reviewer is a project
- * owner. A single `role:` gate cannot serve both, so the rule is ownership —
- * and everyone else must be refused with a stable code.
- */
 class ApplicationShowTest extends TestCase
 {
     use RefreshDatabase;
@@ -33,10 +24,6 @@ class ApplicationShowTest extends TestCase
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Test Org'): Organization
     {
@@ -106,10 +93,6 @@ class ApplicationShowTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // The three allowed readers
-    // -----------------------------------------------------------------
-
     public function test_the_applicant_can_read_their_own_application(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -135,7 +118,6 @@ class ApplicationShowTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // The owner is not a learner — the route deliberately has no role gate.
         $this->getJson("/api/v1/applications/{$application->id}")
             ->assertOk()
             ->assertJsonPath('data.id', $application->id);
@@ -155,10 +137,6 @@ class ApplicationShowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.id', $application->id);
     }
-
-    // -----------------------------------------------------------------
-    // Everyone else
-    // -----------------------------------------------------------------
 
     public function test_an_unrelated_learner_is_refused(): void
     {

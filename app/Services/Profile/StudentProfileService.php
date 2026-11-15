@@ -10,46 +10,17 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * The learner's own profile — the only writer of `student_profiles.avatar_*`.
- *
- * Everything here is scoped to the acting user: the caller passes the
- * authenticated `User` and never an id, so there is no path by which one
- * learner can touch another's avatar.
- *
- * The avatar is decoded, centre-cropped to a square and re-encoded at a fixed
- * size before storage (see AdminProfileService for the rationale): that caps the
- * database cost and strips the original's metadata, and the stored mime is the
- * format *we* produced rather than the one the client claimed.
- */
 class StudentProfileService
 {
-    /** Formats GD can decode and we are willing to re-encode from. */
     private const ACCEPTED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-    /**
-     * The profile row for a user, created empty on first access.
-     */
     public function profileFor(User $user): StudentProfile
     {
         return $user->studentProfile ?? StudentProfile::forceCreate(['user_id' => $user->id]);
     }
 
-    /**
-     * Decode, centre-crop and store an uploaded avatar.
-     *
-     * @throws ReadinessException 422 when the bytes are not a usable image.
-     */
     public function storeAvatar(User $user, UploadedFile $file): StudentProfile
     {
-        // Detect PHP-level upload errors BEFORE reading any bytes. Without this
-        // guard a phone photo larger than PHP's `upload_max_filesize` (2 MB by
-        // default on the CLI image) would be silently truncated mid-stream:
-        // the first few KB would arrive intact — enough for
-        // `getimagesizefromstring` to identify the format — but the body would
-        // be cut off, so `imagecreatefromstring` then fails on the truncated
-        // bytes with the opaque "could not be processed" message. Tell the
-        // caller exactly what PHP rejected and why.
         $error = $file->getError();
         if ($error !== UPLOAD_ERR_OK) {
             throw new ReadinessException(
@@ -69,7 +40,6 @@ class StudentProfileService
             );
         }
 
-        // Cheap structural check before any decoding.
         $info = @getimagesizefromstring($binary);
 
         if ($info === false || ! in_array($info['mime'] ?? null, self::ACCEPTED_MIMES, true)) {
@@ -80,8 +50,6 @@ class StudentProfileService
             );
         }
 
-        // The header read is cheap and attacker-controlled; the decode that
-        // follows allocates width * height * 4 bytes, so refuse here first.
         $this->assertDecodableSize($info);
 
         [$encoded, $mime] = $this->squareAvatar($binary, $info['mime']);
@@ -118,9 +86,6 @@ class StudentProfileService
         return $profile;
     }
 
-    /**
-     * The stored image as raw bytes, or null when there is none.
-     */
     public function avatarBinary(StudentProfile $profile): ?string
     {
         if (! $profile->hasAvatar()) {
@@ -132,9 +97,6 @@ class StudentProfileService
         return $decoded === false ? null : $decoded;
     }
 
-    /**
-     * Browser-facing URL for the avatar, or null when there is none.
-     */
     public function avatarUrl(StudentProfile $profile): ?string
     {
         if (! $profile->hasAvatar()) {
@@ -144,14 +106,6 @@ class StudentProfileService
         return route('learner.profile.avatar', ['v' => $profile->avatarVersion()]);
     }
 
-    /**
-     * Refuse an image whose declared dimensions would exhaust memory when
-     * decoded — a decompression bomb.
-     *
-     * @param  array<int|string, mixed>  $info
-     *
-     * @throws ReadinessException 422 when the declared dimensions are too large
-     */
     private function assertDecodableSize(array $info): void
     {
         $width = (int) ($info[0] ?? 0);
@@ -175,13 +129,6 @@ class StudentProfileService
         }
     }
 
-    /**
-     * Centre-crop to a square and re-encode at the configured size.
-     *
-     * @return array{0: string, 1: string} encoded bytes, and the mime produced
-     *
-     * @throws ReadinessException
-     */
     private function squareAvatar(string $binary, string $sourceMime): array
     {
         $source = @imagecreatefromstring($binary);
@@ -258,17 +205,6 @@ class StudentProfileService
         return [$encoded, $mime];
     }
 
-    /**
-     * Translate a PHP `UPLOAD_ERR_*` code into a message that tells the
-     * learner what to do, not just what went wrong server-side.
-     *
-     * `UPLOAD_ERR_INI_SIZE` is the case that came out of the dashboard bug:
-     * a phone photo larger than `upload_max_filesize` was silently truncated
-     * to a 2 MB slice, and the truncated bytes then surfaced downstream as
-     * a generic "could not be processed". The fix is twofold — raise the
-     * limit in the Dockerfile (so the photo survives the upload), AND give
-     * the caller an actionable message when PHP itself rejects the upload.
-     */
     private function uploadErrorMessage(int $code, UploadedFile $file): string
     {
         $maxKb = (int) config('services.profile.avatar_max_upload_kb', 4096);

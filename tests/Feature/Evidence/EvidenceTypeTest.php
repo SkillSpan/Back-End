@@ -14,27 +14,6 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Coverage for the four evidence kinds the frontend submits.
- *
- * The endpoint used to accept exactly one shape — "a URL or a file" — and
- * stored every learner submission with `source = certificate`. The frontend now
- * distinguishes a GitHub repository, a live deployment, a design file and an
- * uploaded document, so the backend has to:
- *
- *   - record which kind it was given (`evidence_type`), without touching
- *     `source`, which is the weighted skill-evaluation channel and not a file
- *     label;
- *   - require a URL for the link-based kinds and a file for `document`, and
- *     refuse the unused half instead of silently dropping it;
- *   - keep every legacy request (no `evidence_type` at all) working exactly as
- *     before, because the old clients and the old tests still exist.
- *
- * These tests drive the real HTTP endpoint, because the interesting failures
- * live in the hand-off between validation and persistence — a rule that accepts
- * a request the controller then stores half of is exactly what the previous
- * version of this endpoint did with `description`.
- */
 class EvidenceTypeTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,17 +24,12 @@ class EvidenceTypeTest extends TestCase
 
         Event::fake();
 
-        // Evidence files must land on the private `local` disk.
         Storage::fake('local');
         Storage::fake('public');
 
         Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function user(string $role): User
     {
@@ -88,10 +62,6 @@ class EvidenceTypeTest extends TestCase
     {
         return $this->post('/api/v1/evidence', $payload, ['Accept' => 'application/json']);
     }
-
-    // -----------------------------------------------------------------
-    // 1. Submission — one test per evidence kind.
-    // -----------------------------------------------------------------
 
     public function test_a_github_repository_can_be_submitted(): void
     {
@@ -165,17 +135,10 @@ class EvidenceTypeTest extends TestCase
         $this->assertSame('document', $evidence->evidence_type);
         $this->assertStringStartsWith('evidence/', $evidence->reference);
 
-        // Private disk only — never the web-served one.
         Storage::disk('local')->assertExists($evidence->reference);
         Storage::disk('public')->assertMissing($evidence->reference);
     }
 
-    /**
-     * `source` must keep its evaluation meaning. A GitHub repository is still
-     * the `certificate` channel — the unassessed, self-submitted one — because
-     * re-labelling it `project_performance` would multiply its confidence
-     * contribution by seven without anyone deciding that.
-     */
     public function test_the_evaluation_source_is_unchanged_for_every_type(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -204,10 +167,6 @@ class EvidenceTypeTest extends TestCase
             );
         }
     }
-
-    // -----------------------------------------------------------------
-    // 2. Validation — the type decides which half of the payload is legal.
-    // -----------------------------------------------------------------
 
     public function test_an_unknown_evidence_type_is_rejected(): void
     {
@@ -294,11 +253,6 @@ class EvidenceTypeTest extends TestCase
         $this->assertDatabaseCount('skill_evidences', 0);
     }
 
-    /**
-     * A document is a file. Sending a URL instead used to be accepted and the
-     * URL silently stored as if it were a document, which is a 201 for a proof
-     * that does not exist.
-     */
     public function test_a_document_sent_as_a_url_is_rejected(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -311,10 +265,6 @@ class EvidenceTypeTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('evidence_url');
     }
 
-    /**
-     * And the reverse: a repository is a link, so an upload is refused rather
-     * than stored and ignored.
-     */
     public function test_a_url_based_type_sent_with_a_file_is_rejected(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -341,11 +291,6 @@ class EvidenceTypeTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('evidence_url');
     }
 
-    /**
-     * Laravel's `url` rule accepts any scheme, so this has to be refused
-     * explicitly — a `javascript:` reference echoed into the admin panel is a
-     * stored-XSS vector, and `ftp://` is not a proof anyone can open.
-     */
     public function test_a_non_web_url_scheme_is_rejected(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -403,7 +348,6 @@ class EvidenceTypeTest extends TestCase
         $this->submit([
             'skill_id' => $skill->id,
             'evidence_type' => 'document',
-            // One kilobyte over the 10 MB cap the frontend displays.
             'evidence_file' => UploadedFile::fake()->create('huge.pdf', 10001, 'application/pdf'),
         ])->assertStatus(422)->assertJsonValidationErrors('evidence_file');
     }
@@ -447,10 +391,6 @@ class EvidenceTypeTest extends TestCase
 
         $this->assertSame('github_repository', $response->json('data.evidence_type'));
     }
-
-    // -----------------------------------------------------------------
-    // 3. Authorization — unchanged boundaries, re-checked for the new paths.
-    // -----------------------------------------------------------------
 
     public function test_an_unauthenticated_submission_is_rejected(): void
     {
@@ -510,10 +450,6 @@ class EvidenceTypeTest extends TestCase
         $this->getJson('/api/v1/evidence')->assertOk()->assertJsonCount(0, 'data');
     }
 
-    // -----------------------------------------------------------------
-    // 4. Duplicates — the rule is per (learner, skill, type, reference).
-    // -----------------------------------------------------------------
-
     public function test_the_same_typed_evidence_twice_is_a_duplicate(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -542,8 +478,6 @@ class EvidenceTypeTest extends TestCase
             'evidence_url' => 'https://github.com/owner/project',
         ])->assertStatus(201);
 
-        // A different proof of the same skill is a different claim, so it must
-        // not be swallowed by the previous record.
         $this->postJson('/api/v1/evidence', [
             'skill_id' => $skill->id,
             'evidence_type' => 'live_deployment',
@@ -567,10 +501,6 @@ class EvidenceTypeTest extends TestCase
         $this->postJson('/api/v1/evidence', $payload)->assertStatus(409);
     }
 
-    /**
-     * The legacy contract itself: no `evidence_type`, a URL or a file, and the
-     * row records "type not recorded" rather than a guessed label.
-     */
     public function test_a_legacy_url_submission_stores_a_null_type(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -584,10 +514,6 @@ class EvidenceTypeTest extends TestCase
         $this->assertNull($response->json('data.evidence_type'));
     }
 
-    /**
-     * A lone upload with no declared type is unambiguously a document, so it is
-     * recorded as one instead of left unlabelled.
-     */
     public function test_a_legacy_file_submission_is_recorded_as_a_document(): void
     {
         Sanctum::actingAs($this->learnerWithProfile());
@@ -600,10 +526,6 @@ class EvidenceTypeTest extends TestCase
 
         $this->assertSame('document', $response->json('data.evidence_type'));
     }
-
-    // -----------------------------------------------------------------
-    // 5. Status lifecycle for typed evidence.
-    // -----------------------------------------------------------------
 
     public function test_typed_evidence_is_listed_in_every_status_and_can_be_filtered(): void
     {
@@ -618,7 +540,6 @@ class EvidenceTypeTest extends TestCase
             'evidence_url' => 'https://www.figma.com/file/abc123/Checkout',
         ])->assertStatus(201)->json('data.id');
 
-        // Pending is visible to its owner before anyone reviews it.
         $this->getJson('/api/v1/evidence?status=pending')
             ->assertOk()
             ->assertJsonPath('data.0.id', $id);
@@ -640,7 +561,6 @@ class EvidenceTypeTest extends TestCase
             ->assertOk()
             ->assertJsonCount(0, 'data');
 
-        // The type survives the review untouched.
         $this->getJson("/api/v1/evidence/{$id}")
             ->assertOk()
             ->assertJsonPath('data.evidence_type', 'design_file')
@@ -668,13 +588,11 @@ class EvidenceTypeTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.verification_status', 'revision');
 
-        // Revision is not terminal — a corrected decision is allowed.
         $this->putJson("/api/v1/evidence/{$id}/review", [
             'verification_status' => 'verified',
         ])->assertOk()
             ->assertJsonPath('data.verification_status', 'verified');
 
-        // Verified is terminal for this endpoint.
         $this->putJson("/api/v1/evidence/{$id}/review", [
             'verification_status' => 'rejected',
         ])->assertStatus(422)

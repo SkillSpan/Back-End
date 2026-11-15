@@ -20,7 +20,6 @@ import time
 
 HOST = "skillspan.alwaysdata.net"
 
-# Weighted mix of cheap read endpoints (path, weight).
 ENDPOINTS = [
     ("/api/v1/projects", 5),
     ("/api/v1/career-roles", 2),
@@ -28,7 +27,6 @@ ENDPOINTS = [
 ]
 
 CTX = ssl.create_default_context()
-
 
 def pick(i):
     total = sum(w for _, w in ENDPOINTS)
@@ -79,13 +77,12 @@ class Worker(threading.Thread):
                 resp = self.conn.getresponse()
                 resp.read()
                 status = resp.status
-            except Exception as exc:  # noqa: BLE001 - recorded, not raised
+            except Exception as exc:
                 err = type(exc).__name__
                 self.conn = None
             elapsed = (time.time() - started) * 1000.0
             with self.lock:
                 self.results.append((path, status, elapsed, err))
-
 
 def pct(values, p):
     if not values:
@@ -93,7 +90,6 @@ def pct(values, p):
     ordered = sorted(values)
     k = min(len(ordered) - 1, int(round((p / 100.0) * (len(ordered) - 1))))
     return ordered[k]
-
 
 def run_stage(concurrency, seconds, token):
     results = []
@@ -125,7 +121,6 @@ def run_stage(concurrency, seconds, token):
         "errors_seen": sorted({r[3] for r in bad if r[3]}),
     }
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stages", default="5,10,20,30")
@@ -156,7 +151,6 @@ def main():
             break
 
     print(json.dumps(rows, indent=2))
-
 
 if __name__ == "__main__":
     main()

@@ -2,10 +2,6 @@
 
 namespace App\Exceptions;
 
-/**
- * US-REC-01 assistant integration errors. Stable code names are part of
- * the public contract; never expose internal traces or secrets.
- */
 class AssistantException extends ReadinessException
 {
     public function __construct(

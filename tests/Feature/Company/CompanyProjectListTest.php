@@ -11,20 +11,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The company's own project list and detail.
- *
- * Two rules carry the whole file:
- *
- *   1. **Scoping.** The organization comes from the caller's admin membership,
- *      never from a request parameter. A project belonging to another company
- *      must be invisible — and it must answer 404, not 403, because a 403
- *      would confirm that the id exists.
- *   2. **The response is usable by the editor.** `is_editable`,
- *      `project_roles` (including inactive ones) and `eligibility_constraints`
- *      are what the edit form renders; without them the form cannot round-trip
- *      a project without silently dropping data.
- */
 class CompanyProjectListTest extends TestCase
 {
     use RefreshDatabase;
@@ -41,10 +27,6 @@ class CompanyProjectListTest extends TestCase
             'description' => '',
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name, string $status = 'verified'): Organization
     {
@@ -98,10 +80,6 @@ class CompanyProjectListTest extends TestCase
             'version' => 1,
         ]);
     }
-
-    // -----------------------------------------------------------------
-    // List
-    // -----------------------------------------------------------------
 
     public function test_the_list_returns_only_the_callers_own_organization_projects(): void
     {
@@ -183,7 +161,6 @@ class CompanyProjectListTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // A stale bookmark must not 422 the whole screen.
         $this->getJson('/api/v1/company/projects?status=not_a_status')
             ->assertOk()
             ->assertJsonPath('meta.total', 1);
@@ -226,14 +203,8 @@ class CompanyProjectListTest extends TestCase
         $this->assertSame(1, $response->json('stats.by_status.open'));
         $this->assertSame(0, $response->json('stats.by_status.completed'));
 
-        // Every one of the twelve statuses is present, even at zero, so the UI
-        // can render a stable grid.
         $this->assertCount(12, $response->json('stats.by_status'));
     }
-
-    // -----------------------------------------------------------------
-    // Detail
-    // -----------------------------------------------------------------
 
     public function test_the_detail_returns_the_project_with_the_editor_fields(): void
     {
@@ -254,8 +225,6 @@ class CompanyProjectListTest extends TestCase
             ->assertJsonPath('data.title', 'Editable One')
             ->assertJsonPath('data.is_editable', true);
 
-        // Every role is returned, including the inactive one: an editor must
-        // see what is stored or it would be dropped on save.
         $this->assertCount(2, $response->json('data.project_roles'));
 
         $this->assertSame('Damascus', $response->json('data.eligibility_constraints.0.value'));
@@ -287,7 +256,6 @@ class CompanyProjectListTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        // 403 would confirm the id exists and make the route an oracle.
         $this->getJson("/api/v1/company/projects/{$foreign->id}")
             ->assertStatus(404)
             ->assertJsonPath('code', 'PROJECT_NOT_FOUND');
@@ -304,10 +272,6 @@ class CompanyProjectListTest extends TestCase
             ->assertStatus(404)
             ->assertJsonPath('code', 'PROJECT_NOT_FOUND');
     }
-
-    // -----------------------------------------------------------------
-    // Guards
-    // -----------------------------------------------------------------
 
     public function test_a_member_who_is_not_an_organization_admin_is_refused(): void
     {

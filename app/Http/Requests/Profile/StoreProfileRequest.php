@@ -4,19 +4,6 @@ namespace App\Http\Requests\Profile;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * POST /api/v1/profile
- *
- * Saves the learner's student profile (SRS PROF-01). A StudentProfile row
- * is created at registration (AuthService::createStudentProfile()), so
- * POST acts as an upsert: it fills the existing row (completing it during
- * onboarding, UC-02) or creates one if missing. It never rejects an
- * existing profile, so the frontend can always POST the full data.
- *
- * Per the learner-profile task: university and specialization are
- * stored as free text (the learner types the university name and picks
- * the specialization from an autocomplete list), not as Foreign Keys.
- */
 class StoreProfileRequest extends FormRequest
 {
     public function authorize(): bool

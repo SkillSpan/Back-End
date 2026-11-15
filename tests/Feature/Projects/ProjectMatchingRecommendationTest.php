@@ -18,12 +18,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use PDOException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
-/**
- * Task 11 — project matching recommendation persistence and retrieval.
- */
 class ProjectMatchingRecommendationTest extends TestCase
 {
     use RefreshDatabase;
@@ -50,8 +48,6 @@ class ProjectMatchingRecommendationTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------------------ fixtures
 
     private function createLearner(string $email = 'learner@test.com'): User
     {
@@ -113,12 +109,6 @@ class ProjectMatchingRecommendationTest extends TestCase
         return $this->snapshotService->createForProject($project, $learner);
     }
 
-    /**
-     * The normalized shape ProjectMatchingService::match() returns.
-     *
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
     private function validResult(ProjectMatchingSnapshot $snapshot, array $overrides = []): array
     {
         return array_merge([
@@ -163,10 +153,6 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->fail("Expected IntelligenceException [{$codeName}] but none was thrown.");
     }
 
-    /**
-     * Persist as the snapshot's own learner unless a caller explicitly wants
-     * to act as someone else (the cross-learner ownership test does).
-     */
     private function persist(
         ProjectMatchingSnapshot $snapshot,
         array $result,
@@ -178,8 +164,6 @@ class ProjectMatchingRecommendationTest extends TestCase
             $result,
         );
     }
-
-    // -------------------------------------------------------- persistence
 
     public function test_validated_result_is_persisted(): void
     {
@@ -276,12 +260,9 @@ class ProjectMatchingRecommendationTest extends TestCase
         $result = $this->validResult($snapshot);
         $recommendation = $this->persist($snapshot, $result);
 
-        // Loose comparison: whole floats round-trip through JSON as ints.
         $this->assertEquals($result['factor_scores'], $recommendation->factors);
         $this->assertEquals($result['weighted_contributions'], $recommendation->weighted_contributions);
     }
-
-    // ------------------------------------------------------ integrity
 
     public function test_duplicate_persist_for_the_same_snapshot_is_idempotent(): void
     {
@@ -308,9 +289,6 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->assertDatabaseCount('recommendations', 0);
     }
 
-    /**
-     * @return array<string, array{0: array<string, mixed>}>
-     */
     public static function malformedResults(): array
     {
         return [
@@ -328,11 +306,7 @@ class ProjectMatchingRecommendationTest extends TestCase
         ];
     }
 
-    /**
-     * @param  array<string, mixed>  $overrides
-     *
-     * @dataProvider malformedResults
-     */
+    #[DataProvider('malformedResults')]
     public function test_malformed_result_is_rejected_without_persisting(array $overrides): void
     {
         $snapshot = $this->makeSnapshot();
@@ -363,14 +337,8 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->assertDatabaseCount('recommendations', 0);
     }
 
-    // -------------------------------------------------- deduplication
-
     public function test_repeated_matching_across_distinct_snapshots_does_not_duplicate(): void
     {
-        // The real-world case: every POST /projects/{id}/match creates a NEW
-        // ProjectMatchingSnapshot (Task 8 is deliberately append-only), so
-        // keying dedup on the snapshot id would write a duplicate row on every
-        // repeated request. The logical result is identical, so one row.
         $learner = $this->createLearner();
         $project = $this->createProject();
 
@@ -388,17 +356,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_existing_recommendation_is_reused_for_an_identical_result(): void
     {
-        // Persistence has NO application-level existence pre-check — the unique
-        // index on dedup_key is the guard, so there is no TOCTOU window. The
-        // second call below therefore genuinely drives the conflict-recovery
-        // branch: its INSERT violates the constraint and the service returns
-        // the row that already represents that logical result instead of
-        // raising.
-        //
-        // LIMITATION: this exercises the recovery branch deterministically but
-        // does NOT prove real concurrent safety. The test environment runs
-        // SQLite :memory:, which cannot execute two writers in parallel, so a
-        // genuine two-writer race is not reproducible here.
         $learner = $this->createLearner();
         $project = $this->createProject();
 
@@ -414,8 +371,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_a_changed_result_is_kept_as_its_own_recommendation(): void
     {
-        // A different score is a genuinely different matching result, so it
-        // must not be collapsed into the existing row.
         $learner = $this->createLearner();
         $project = $this->createProject();
 
@@ -450,8 +405,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_dedup_key_is_unique_at_the_database_level(): void
     {
-        // The guarantee must come from the database, not only from the
-        // service's existence check.
         $learner = $this->createLearner();
         $snapshot = $this->makeSnapshot($learner);
         $recommendation = $this->persist($snapshot, $this->validResult($snapshot));
@@ -475,7 +428,6 @@ class ProjectMatchingRecommendationTest extends TestCase
     {
         $snapshot = $this->makeSnapshot();
 
-        // A non-integrity failure must surface, not be mistaken for a dedup.
         Recommendation::creating(function () {
             throw new QueryException('sqlite', 'insert into "recommendations"', [], new PDOException('syntax error'));
         });
@@ -487,25 +439,17 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_non_duplicate_integrity_violation_is_not_reported_as_a_successful_dedup(): void
     {
-        // Regression: SQLSTATE 23000 covers foreign-key, NOT NULL and CHECK
-        // violations as well as duplicate keys. Classifying all of them as
-        // "duplicate" meant a genuinely failed write could be reported as a
-        // successful dedup whenever a row with the same dedup_key happened to
-        // exist. Only a real duplicate-key violation may be recovered from.
         $learner = $this->createLearner();
         $project = $this->createProject();
 
         $firstSnapshot = $this->makeSnapshot($learner, $project);
         $first = $this->persist($firstSnapshot, $this->validResult($firstSnapshot));
 
-        // Prove the repeat shares a dedup key: it is a no-op that reuses the row.
         $secondSnapshot = $this->makeSnapshot($learner, $project);
         $result = $this->validResult($secondSnapshot);
         $this->assertSame($first->id, $this->persist($secondSnapshot, $result)->id);
         $this->assertDatabaseCount('recommendations', 1);
 
-        // Now make the write itself fail with a NOT NULL integrity violation
-        // (a non-duplicate 23000) while a row with that dedup_key exists.
         Recommendation::creating(function (Recommendation $model) {
             $model->candidate_id = null;
         });
@@ -517,16 +461,12 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_a_foreign_key_violation_is_not_reported_as_a_successful_dedup(): void
     {
-        // A foreign-key violation is also SQLSTATE 23000, but it is NOT a
-        // duplicate-key violation and must never be treated as one. Uses a
-        // fresh dedup key so the foreign key is the only constraint in play —
-        // otherwise the unique index on dedup_key fires first and masks it.
         $learner = $this->createLearner();
         $snapshot = $this->makeSnapshot($learner);
         $result = $this->validResult($snapshot);
 
         Recommendation::creating(function (Recommendation $model) {
-            $model->user_id = 999999; // no such user → foreign key violation
+            $model->user_id = 999999;
         });
 
         try {
@@ -538,8 +478,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 0);
     }
-
-    // ---------------------------------------------------- consistency
 
     public function test_snapshot_belonging_to_another_learner_is_rejected(): void
     {
@@ -625,8 +563,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 0);
     }
-
-    // ------------------------------------------------------- Task 12: project recommendation explanation
 
     public function test_learner_can_retrieve_their_project_recommendation_explanation(): void
     {
@@ -735,23 +671,11 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_error_contract_only_distinguishes_projects_the_learner_can_see(): void
     {
-        // Contract after the Task 12 authorization fix:
-        //
-        //   inaccessible OR nonexistent      → PROJECT_NOT_FOUND (identical body)
-        //   accessible but no recommendation → RECOMMENDATION_NOT_FOUND
-        //
-        // The first two MUST be indistinguishable, otherwise the endpoint is an
-        // oracle for the existence of restricted projects. The third reveals
-        // nothing new: the learner can already read that project from the
-        // catalog. Authorization is checked before anything is read back, so an
-        // inaccessible project never yields score/reasons/limiting factors.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 
-        // Restricted to an organization this learner does not belong to.
         $restricted = $this->createProject(['confidentiality' => 'restricted']);
 
-        // Public and open — visible, but with no stored recommendation.
         $public = $this->createProject(['confidentiality' => 'public']);
 
         $missing = $this->getJson('/api/v1/projects/999999/recommendation')->assertStatus(404);
@@ -764,7 +688,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertSame('RECOMMENDATION_NOT_FOUND', $noRecommendation->json('code'));
 
-        // No response leaks project content or recommendation data.
         foreach ([$missing, $inaccessible, $noRecommendation] as $response) {
             $this->assertNull($response->json('data'));
             $this->assertArrayNotHasKey('title', $response->json());
@@ -783,13 +706,11 @@ class ProjectMatchingRecommendationTest extends TestCase
         $snapshot = $this->makeSnapshot($owner, $project);
         $this->persist($snapshot, $this->validResult($snapshot));
 
-        // The owner can read it back.
         Sanctum::actingAs($owner);
         $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
             ->assertStatus(200)
             ->assertJsonPath('data.reasons', 'Strong alignment with the project skill set.');
 
-        // The outsider gets a bare 404 with none of the owner's content.
         Sanctum::actingAs($outsider);
         $response = $this->getJson('/api/v1/projects/'.$project->id.'/recommendation');
 
@@ -802,8 +723,6 @@ class ProjectMatchingRecommendationTest extends TestCase
         $this->assertArrayNotHasKey('title', $response->json());
         $this->assertNull($response->json('data'));
     }
-
-    // ------------------------------------------------------- retrieval
 
     public function test_unauthenticated_request_is_rejected(): void
     {
@@ -895,7 +814,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
         $this->assertCount(2, $response->json('data'));
 
-        // Newest first: the third project was persisted last.
         $this->assertSame($projectIds[2], $response->json('data.0.project_id'));
     }
 
@@ -932,11 +850,6 @@ class ProjectMatchingRecommendationTest extends TestCase
 
     public function test_recommendation_whose_project_is_gone_is_returned_safely(): void
     {
-        // recommendations.candidate_id is a plain polymorphic column with no
-        // foreign key, so the project can disappear while the recommendation
-        // row survives (deleting the project cascades the snapshot away and
-        // nulls project_matching_snapshot_id, but leaves the recommendation).
-        // Retrieval must degrade to a null project rather than erroring.
         $learner = $this->createLearner();
         $project = $this->createProject();
         $projectId = $project->id;
@@ -954,8 +867,6 @@ class ProjectMatchingRecommendationTest extends TestCase
             ->assertJsonPath('data.0.project_id', $projectId)
             ->assertJsonPath('data.0.project', null);
     }
-
-    // ------------------------------------------- end-to-end via the match endpoint
 
     public function test_match_endpoint_persists_the_recommendation(): void
     {
@@ -1019,7 +930,6 @@ class ProjectMatchingRecommendationTest extends TestCase
             'configuration_version' => 'project-matching-config-v1',
         ]);
 
-        // The stored row is retrievable through the Task 11 endpoint.
         $this->getJson('/api/v1/recommendations')
             ->assertStatus(200)
             ->assertJsonPath('meta.total', 1)

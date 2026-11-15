@@ -20,16 +20,6 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-REC-01 — POST /api/v1/assistant/ask
- *
- * Covers the gateway guarantees that hold independently of the FastAPI
- * contract: authorization, the §12.5 governance gate, the assistant scope
- * whitelist, the audit record, and the no-fabrication guarantee.
- *
- * The happy path is exercised with a test double because the real client
- * deliberately refuses to guess the contract (ASSISTANT_CONTRACT_PENDING).
- */
 class AssistantAskTest extends TestCase
 {
     use RefreshDatabase;
@@ -45,20 +35,11 @@ class AssistantAskTest extends TestCase
         $this->learnerRole = Role::create(['name' => 'Learner', 'slug' => 'learner', 'description' => '']);
         $this->companyRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
 
-        // Nothing may leave the platform unless both are set (§12.5).
         config([
             'services.assistant.enabled' => false,
             'services.assistant.approval_reference' => null,
         ]);
 
-        /*
-         * An interaction records the configuration_version it was produced
-         * under, resolved from the active AlgorithmConfiguration exactly as
-         * the intelligence endpoints do. Without one there is no truthful
-         * answer to "which configuration is this explanation based on", so
-         * the assistant refuses rather than inventing a version — see
-         * test_it_refuses_when_no_active_configuration_exists.
-         */
         AlgorithmConfiguration::create([
             'name' => 'intelligence',
             'version' => 1,
@@ -67,8 +48,6 @@ class AssistantAskTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------------ authorization
 
     public function test_unauthenticated_user_is_rejected(): void
     {
@@ -104,16 +83,12 @@ class AssistantAskTest extends TestCase
             ->assertJsonPath('code', 'STUDENT_PROFILE_NOT_FOUND');
     }
 
-    // ------------------------------------------------------------- scope
-
     public function test_an_intent_outside_the_permitted_scope_is_refused(): void
     {
         [$user] = $this->createLearner();
 
         Sanctum::actingAs($user);
 
-        // §12.5 permits explanation and guidance. Writing a deliverable on
-        // the learner's behalf is explicitly outside that scope.
         $this->postJson('/api/v1/assistant/ask', [
             'intent' => 'write_my_project_submission',
             'question' => 'Write my final project report for me.',
@@ -152,8 +127,6 @@ class AssistantAskTest extends TestCase
         Http::assertNothingSent();
     }
 
-    // ------------------------------------------------ §12.5 governance gate
-
     public function test_the_assistant_is_off_by_default(): void
     {
         [$user] = $this->createLearner();
@@ -172,8 +145,6 @@ class AssistantAskTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // Mirrors REC-06 / BR-REC-07: not enableable without approval
-        // metadata. A bare flag is not enough.
         config(['services.assistant.enabled' => true]);
 
         $this->postJson('/api/v1/assistant/ask', [
@@ -219,13 +190,6 @@ class AssistantAskTest extends TestCase
 
     public function test_the_governance_gate_is_asserted_before_configuration_is_resolved(): void
     {
-        /*
-         * Both later failure conditions are present at once: the assistant
-         * is disabled AND no active configuration exists. The gate must win.
-         * If it were consulted late — as it originally was, inside the
-         * client — the missing configuration would surface first and the
-         * caller would be handed the wrong code and the wrong status.
-         */
         AlgorithmConfiguration::query()->update(['status' => 'retired']);
 
         [$user] = $this->createLearner();
@@ -239,8 +203,6 @@ class AssistantAskTest extends TestCase
             ->assertJsonPath('code', 'ASSISTANT_NOT_ENABLED');
     }
 
-    // ------------------------------------------------ configuration binding
-
     public function test_it_refuses_when_no_active_configuration_exists(): void
     {
         AlgorithmConfiguration::query()->update(['status' => 'retired']);
@@ -248,8 +210,6 @@ class AssistantAskTest extends TestCase
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
-        // The gate is open here, so the refusal genuinely comes from the
-        // missing configuration and not from governance.
         $this->approveGate();
 
         $this->postJson('/api/v1/assistant/ask', [
@@ -259,22 +219,11 @@ class AssistantAskTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'INTELLIGENCE_CONFIGURATION_INVALID');
 
-        // Nothing was dispatched and nothing needed auditing: the request
-        // never reached orchestration, so no PENDING row is left behind.
         $this->assertSame(0, AssistantInteraction::query()->count());
     }
 
-    // ------------------------------------------------------- transport wiring
-
     public function test_with_the_gate_open_but_no_service_token_it_fails_locally(): void
     {
-        /*
-         * The transport must refuse before any network I/O when the credential
-         * is missing, so a misconfigured deployment can never call the service
-         * unauthenticated. This replaces the old ASSISTANT_CONTRACT_PENDING
-         * assertion: the contract is no longer pending, but the failure mode it
-         * guarded — reaching the network without a credential — still is.
-         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -293,8 +242,6 @@ class AssistantAskTest extends TestCase
         Http::assertNothingSent();
     }
 
-    // ------------------------------------------------------------ audit
-
     public function test_a_failed_interaction_is_still_audited(): void
     {
         [$user, $profile] = $this->createLearner();
@@ -303,7 +250,6 @@ class AssistantAskTest extends TestCase
         $this->approveGate();
         $this->configureTransport();
 
-        // The service itself is down. The attempt must still be auditable.
         Http::fake(['*' => Http::response(['detail' => 'boom'], 500)]);
 
         $this->postJson('/api/v1/assistant/ask', [
@@ -340,17 +286,10 @@ class AssistantAskTest extends TestCase
         $interaction = AssistantInteraction::query()->firstOrFail();
         $serialised = (string) json_encode($interaction->getAttributes());
 
-        /*
-         * §12.5 data minimisation: the conversation is never stored, on success
-         * or on failure. Relaying the reply to the caller is deliberately not
-         * the same as keeping it — this assertion is what would catch someone
-         * adding a `reply` column and quietly populating it.
-         */
         $this->assertStringNotContainsString('learner@example.com', $serialised);
         $this->assertStringNotContainsString($question, $serialised);
         $this->assertStringNotContainsString($this->assistantResponse()['reply'], $serialised);
 
-        // A provenance fingerprint IS stored instead.
         $this->assertStringStartsWith('ctx-', (string) $interaction->context_reference);
     }
 
@@ -397,12 +336,8 @@ class AssistantAskTest extends TestCase
         $this->assertSame('Which gap should I close first?', $call['message']);
         $this->assertNotEmpty($call['request_id']);
 
-        // The approved snapshot travels as structured data, not as prose the
-        // model would have to interpret.
         $this->assertSame($profile->id, $call['context']['student_profile_id']);
     }
-
-    // --------------------------------------------------------- happy path
 
     public function test_a_permitted_intent_is_orchestrated_end_to_end(): void
     {
@@ -430,11 +365,6 @@ class AssistantAskTest extends TestCase
 
     public function test_the_reply_is_relayed_to_the_caller(): void
     {
-        /*
-         * The regression this exists for: the endpoint used to drop the reply
-         * entirely, so the UI had nothing to render even when the assistant had
-         * answered correctly. Relaying is not the same as storing.
-         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -452,17 +382,6 @@ class AssistantAskTest extends TestCase
 
     public function test_a_total_provider_outage_is_recorded_as_failed_but_still_relays_the_fallback(): void
     {
-        /*
-         * The service returns HTTP 200 with its fallback text when every
-         * provider in its chain fails, so the status code cannot carry the
-         * failure — `provider_used: null` is the only machine-readable signal.
-         * Recording that as SUCCEEDED would log a total outage as a working
-         * assistant.
-         *
-         * The reply is still relayed. It is a real, handled outcome, and the
-         * learner reading "temporarily unavailable" beats an error state; what
-         * changes is the audit record, not the user's experience.
-         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -502,28 +421,11 @@ class AssistantAskTest extends TestCase
             'question' => 'Which gap should I close first?',
         ])->assertStatus(201);
 
-        // A token shipped to a browser is public. It must never appear in a
-        // response the learner can read.
         $this->assertStringNotContainsString('test-service-token', (string) $response->getContent());
     }
 
-    // ------------------------------------------------- human handoff signal
-
-    /*
-     * These drive `AssistantClient` through a stub, so the array they return is
-     * the PARSED shape the real client produces — `answer_status`, not the
-     * wire's `status`. The wire-level mapping is covered in AssistantClientTest.
-     */
-
     public function test_an_ungrounded_answer_offers_the_human_handoff(): void
     {
-        /*
-         * `status: insufficient_context` is REQUIRED in the service's published
-         * AssistantChatResponse schema, and it is the only machine-readable way
-         * to tell "the assistant could not answer" from "the assistant
-         * answered" — the reply is generated prose, so it can never be
-         * string-matched. This is the signal the support handoff is built on.
-         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -551,13 +453,6 @@ class AssistantAskTest extends TestCase
 
     public function test_a_grounded_answer_does_not_offer_the_handoff(): void
     {
-        /*
-         * The fixture learner must actually HAVE the data behind the
-         * question. The offer is driven by whether the snapshot could ground
-         * the intent, so a learner with no skill-gap rows is offered a human
-         * even when the service reports a clean, grounded answer — that is
-         * the intended behaviour and is pinned separately below.
-         */
         [$user, $profile] = $this->createLearner();
         $this->giveSkillGapGrounding($profile);
         Sanctum::actingAs($user);
@@ -580,15 +475,6 @@ class AssistantAskTest extends TestCase
 
     public function test_a_question_whose_source_is_empty_offers_the_handoff(): void
     {
-        /*
-         * THE case this feature exists for, and the only one that occurs in
-         * practice. The service reports a perfectly good `answered` result —
-         * it explained, in prose, that no skill-gap analysis exists for this
-         * learner yet. That is a grounded answer to the service and a
-         * non-answer to the learner, so `answer_status` cannot carry the
-         * handoff. Laravel sent an empty `skill_gaps` source, so Laravel
-         * knows the question was unanswerable from the learner's own data.
-         */
         [$user, $profile] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -610,12 +496,6 @@ class AssistantAskTest extends TestCase
 
     public function test_the_offer_follows_the_intent_not_the_learners_data_richness(): void
     {
-        /*
-         * A learner with readiness data but no skill-gap decision. The same
-         * learner, asked two questions, must get two different answers to
-         * "can the assistant help with this?" — the rule is per-intent, not
-         * a blanket "this learner is empty".
-         */
         [$user, $profile] = $this->createLearner();
         $this->giveReadinessGrounding($profile);
         Sanctum::actingAs($user);
@@ -643,16 +523,6 @@ class AssistantAskTest extends TestCase
 
     public function test_a_provider_outage_does_not_offer_the_handoff(): void
     {
-        /*
-         * Two different signals, deliberately kept apart. A total outage is
-         * infrastructure, not "the assistant has no answer" — offering
-         * "talk to technical support" there would send learners to a human for
-         * a question the assistant never actually considered.
-         *
-         * The learner is left with an empty context on purpose: that would
-         * normally raise the offer, so this pins the ordering — the outage
-         * guard has to win over the empty snapshot.
-         */
         [$user] = $this->createLearner();
         Sanctum::actingAs($user);
 
@@ -674,16 +544,6 @@ class AssistantAskTest extends TestCase
 
     public function test_an_answer_without_the_status_field_does_not_offer_the_handoff(): void
     {
-        /*
-         * The status is REQUIRED by the published schema, but a service that
-         * predates it (or a partial rollout) simply will not send one. Treating
-         * an absent field as "insufficient_context" would offer a human on
-         * every single question.
-         *
-         * The learner is given real skill-gap data so the missing status is
-         * the only variable: with grounding present, the handoff must stay
-         * off no matter what the service does or does not report.
-         */
         [$user, $profile] = $this->createLearner();
         $this->giveSkillGapGrounding($profile);
         Sanctum::actingAs($user);
@@ -700,8 +560,6 @@ class AssistantAskTest extends TestCase
             ->assertJsonPath('data.handoff_available', false);
     }
 
-    // ------------------------------------------------------------ helpers
-
     private function approveGate(): void
     {
         config([
@@ -710,12 +568,6 @@ class AssistantAskTest extends TestCase
         ]);
     }
 
-    /**
-     * Point the transport at a fake service with a known credential.
-     *
-     * Set explicitly rather than inherited from .env, so a developer with a real
-     * ASSISTANT_SERVICE_TOKEN gets the same results as CI.
-     */
     private function configureTransport(): void
     {
         config([
@@ -726,12 +578,6 @@ class AssistantAskTest extends TestCase
         ]);
     }
 
-    /**
-     * A well-formed response from the assistant service, per its real contract.
-     *
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
     private function assistantResponse(array $overrides = []): array
     {
         return array_merge([
@@ -742,19 +588,10 @@ class AssistantAskTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * Swap the transport for a stub returning a fixed response, and hand it back
-     * so the test can inspect what the orchestrator actually sent.
-     *
-     * The wire contract itself is covered by AssistantClientTest against
-     * Http::fake(); this exists so orchestration can be tested without also
-     * pretending to be the service.
-     */
     private function fakeClientReturning(array $response): AssistantClient
     {
         $client = new class($response) extends AssistantClient
         {
-            /** @var list<array<string, mixed>> */
             public array $calls = [];
 
             public function __construct(private readonly array $stub) {}
@@ -783,16 +620,6 @@ class AssistantAskTest extends TestCase
         return $client;
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile}
-     */
-    /**
-     * Give the learner a stored readiness result.
-     *
-     * The context builder reports a source as `available => true` only when
-     * a row exists, and the handoff offer is driven by exactly that, so a
-     * test about "grounded" needs the row to be there.
-     */
     private function giveReadinessGrounding(StudentProfile $profile): void
     {
         ReadinessResult::forceCreate([
@@ -808,13 +635,6 @@ class AssistantAskTest extends TestCase
         ]);
     }
 
-    /**
-     * Give the learner a successful decision snapshot with one skill gap.
-     *
-     * Both rows are needed: the builder reads gaps from the latest
-     * `succeeded` snapshot and reports `available => false` if either the
-     * snapshot or its gap rows are missing.
-     */
     private function giveSkillGapGrounding(StudentProfile $profile): void
     {
         $skill = Skill::create(['name' => 'SQL', 'slug' => 'sql-'.uniqid()]);

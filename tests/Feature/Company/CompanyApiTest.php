@@ -15,30 +15,6 @@ use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
-/**
- * The company API surface, in one place.
- *
- * The deep tests already exist and each one pins a rule: `CompanyDashboardTest`
- * the four aggregates, `TalentDiscoveryTest` the visibility model,
- * `OrganizationProfileTest` the profile and its documents. What none of them
- * answers is the question a reviewer actually asks before a release — *is every
- * company endpoint still wired, still guarded, and still answering?* A route
- * dropped in a merge, a middleware removed from a group, or a controller method
- * renamed shows up here as one failing test with the endpoint in its name,
- * instead of as a 404 in production.
- *
- * So this file is a contract matrix, not a second copy of the behaviour:
- *
- *   - every endpoint is registered with the method and path the clients use;
- *   - every one of them refuses an anonymous call (401);
- *   - every one of them refuses a learner token (403 `COMPANY_ADMIN_ONLY`);
- *   - every one of them refuses a pending organization (403 `ORGANIZATION_PENDING`);
- *   - every one of them answers its documented success shape for a real
- *     company admin.
- *
- * The two auth endpoints are included because a company account begins there —
- * without them the rest of the surface is unreachable.
- */
 class CompanyApiTest extends TestCase
 {
     use RefreshDatabase;
@@ -57,16 +33,6 @@ class CompanyApiTest extends TestCase
         $this->companyAdminRole = Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // The surface
-    // -----------------------------------------------------------------
-
-    /**
-     * Every company endpoint that needs a token: the method and the exact path
-     * a client calls.
-     *
-     * @return array<string, array{0: string, 1: string}>
-     */
     public static function protectedEndpoints(): array
     {
         return [
@@ -94,18 +60,6 @@ class CompanyApiTest extends TestCase
         ];
     }
 
-    /**
-     * The endpoints that carry `role:company_admin`.
-     *
-     * `/organization/profile` is deliberately NOT in this list: it is the
-     * generic self-service organization endpoint (it predates this story and
-     * also serves university / training-partner desks), so it gates on
-     * membership rather than on the company role. It is still in
-     * `protectedEndpoints` for the token and pending-organization checks, and
-     * it has its own learner test below.
-     *
-     * @return array<string, array{0: string, 1: string}>
-     */
     public static function companyGatedEndpoints(): array
     {
         return array_diff_key(
@@ -153,10 +107,6 @@ class CompanyApiTest extends TestCase
         }
     }
 
-    // -----------------------------------------------------------------
-    // Guards — the same three checks against every endpoint
-    // -----------------------------------------------------------------
-
     #[DataProvider('protectedEndpoints')]
     public function test_every_endpoint_requires_a_token(string $method, string $uri): void
     {
@@ -175,8 +125,6 @@ class CompanyApiTest extends TestCase
 
     public function test_the_generic_organization_profile_refuses_a_learner(): void
     {
-        // No company role here — the endpoint asks "which organization do you
-        // administer", and the answer for a learner is none.
         Sanctum::actingAs($this->learner());
 
         $this->getJson('/api/v1/organization/profile')
@@ -187,19 +135,12 @@ class CompanyApiTest extends TestCase
     #[DataProvider('protectedEndpoints')]
     public function test_every_endpoint_refuses_a_pending_organization(string $method, string $uri): void
     {
-        // A company admin, with a valid token, whose organization is still
-        // under review: `organization.approved` is the second, independent
-        // gate and must fire before any controller runs.
         Sanctum::actingAs($this->companyAdmin($this->organization('Acme', 'pending')));
 
         $this->json($method, $uri)
             ->assertStatus(403)
             ->assertJsonPath('code', 'ORGANIZATION_PENDING');
     }
-
-    // -----------------------------------------------------------------
-    // Auth — where a company account starts
-    // -----------------------------------------------------------------
 
     public function test_an_organization_can_register(): void
     {
@@ -221,12 +162,10 @@ class CompanyApiTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
-            // No OTP on this flow: access is gated on the document review.
             ->assertJsonPath('data.requires_verification', false);
 
         $organization = Organization::query()->where('name', 'Acme Industries')->firstOrFail();
 
-        // Registered, not trusted: the review workflow owns the status.
         $this->assertSame('pending', $organization->verification_status);
         $this->assertSame('company', $organization->type);
 
@@ -251,18 +190,12 @@ class CompanyApiTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            // AC-01 — the client reads the destination from the response
-            // instead of deriving it from the role list.
             ->assertJsonPath('data.redirect_url', '/company/dashboard')
             ->assertJsonPath('data.token_type', 'Bearer')
             ->assertJsonStructure(['data' => ['token', 'user', 'organizations']]);
 
         $this->assertNotEmpty($response->json('data.token'));
     }
-
-    // -----------------------------------------------------------------
-    // Happy paths — one per endpoint
-    // -----------------------------------------------------------------
 
     public function test_the_organization_profile_endpoint_answers(): void
     {
@@ -383,14 +316,8 @@ class CompanyApiTest extends TestCase
     {
         Sanctum::actingAs($this->companyAdmin($this->organization('Acme')));
 
-        // A private profile must be indistinguishable from an unknown id —
-        // anything else turns the endpoint into a membership oracle.
         $this->getJson('/api/v1/talent/999999')->assertStatus(404);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Acme', string $status = 'verified'): Organization
     {
@@ -445,7 +372,6 @@ class CompanyApiTest extends TestCase
         return $user;
     }
 
-    /** A student the company is allowed to see: public profile + consent. */
     private function discoverableStudent(string $name): User
     {
         $user = $this->learner();

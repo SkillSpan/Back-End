@@ -9,30 +9,6 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-/**
- * University reference data (countries → universities task).
- *
- * Source: http://universities.hipolabs.com — fetched ONCE into the local
- * snapshot database/data/universities.json (name + country_code, already
- * matched against countries.iso2). The frontend never talks to Hipolabs.
- *
- * If the snapshot is absent, the seeder downloads it once (Hipolabs
- * search endpoint), persists it, and proceeds — so production seeds from
- * the committed snapshot and never needs the API at runtime. Every skip
- * (malformed record, unmatched country code, network failure) degrades
- * gracefully: the row is skipped and counted, the seeder never aborts.
- *
- * Idempotency: (country_id, name) is the uniqueness key in the schema, so
- * re-runs upsert on that pair and cannot duplicate rows.
- *
- * PERFORMANCE: this used to call University::updateOrCreate() once per
- * record inside a foreach loop — one round trip per row. Against a
- * remote database (Render) with 10,000+ rows, that took upwards of an
- * hour and made the reference-data endpoints look permanently empty
- * while it was still running. Batched upsert() does the same "insert or
- * update on conflict" semantics in a handful of queries instead of one
- * per row.
- */
 class UniversitySeeder extends Seeder
 {
     private const SNAPSHOT_PATH = 'database/data/universities.json';
@@ -75,7 +51,6 @@ class UniversitySeeder extends Seeder
 
             $countryId = $countriesByIso2[$iso2] ?? null;
 
-            // Unknown country code: skip the record, never invent a country.
             if ($countryId === null) {
                 $skippedUnmatched++;
 
@@ -99,9 +74,6 @@ class UniversitySeeder extends Seeder
             ];
         }
 
-        // Cheap "how many already exist" check up front, so we can report
-        // created/updated counts without needing per-row wasRecentlyCreated
-        // (which upsert() does not give us).
         $beforeCount = University::query()->count();
 
         foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
@@ -125,9 +97,6 @@ class UniversitySeeder extends Seeder
         );
     }
 
-    /**
-     * @return array<int, array{name: string, country_code: string}>|null
-     */
     private function loadSnapshot(): ?array
     {
         $path = database_path('data/universities.json');
@@ -147,14 +116,6 @@ class UniversitySeeder extends Seeder
         return $this->downloadSnapshot($path);
     }
 
-    /**
-     * Snapshot missing (fresh clone / first run): fetch Hipolabs once,
-     * filter to {name, country_code} against the countries table's iso2
-     * codes, and persist for the next run. Network failure → warning +
-     * null; the application stays usable without this reference data.
-     *
-     * @return array<int, array{name: string, country_code: string}>|null
-     */
     private function downloadSnapshot(string $path): ?array
     {
         $this->command?->warn('universities.json snapshot missing — downloading from Hipolabs.');
@@ -212,22 +173,8 @@ class UniversitySeeder extends Seeder
         return $records;
     }
 
-    /**
-     * Rows that existed before the country_id column was added (the old
-     * fixed Palestinian list) get their country backfilled by matching
-     * Hipolabs names against the imported dataset.
-     *
-     * Kept as a small per-row loop (unlike run()'s bulk upsert above)
-     * because in practice this only ever touches a handful of leftover
-     * rows (the old hardcoded list), not thousands — batching it would
-     * add complexity for no measurable benefit.
-     *
-     * @param  array<string, int>  $countriesByIso2
-     */
     private function backfillExistingRows(array $countriesByIso2): int
     {
-        // PS is the country of the old fixed list; the Hipolabs dataset
-        // is the source of truth, so backfill only what it confirms.
         $backfill = [];
 
         foreach (University::whereNull('country_id')->limit(500)->get() as $university) {
@@ -248,12 +195,6 @@ class UniversitySeeder extends Seeder
                 University::whereKey($id)->update(['country_id' => $countryId]);
                 $backfilled++;
             } catch (UniqueConstraintViolationException $e) {
-                // The null-country_id row is a leftover duplicate: a row
-                // with this exact (country_id, name) pair already exists
-                // (created earlier in run(), from the Hipolabs import).
-                // Nothing to backfill here — the canonical row already
-                // exists — so we log and skip instead of crashing the
-                // whole seeder over a redundant leftover row.
                 $conflicts++;
                 Log::warning('UniversitySeeder: skipped duplicate row during backfill', [
                     'university_id' => $id,

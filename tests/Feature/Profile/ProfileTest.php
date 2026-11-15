@@ -36,11 +36,6 @@ class ProfileTest extends TestCase
         return $user;
     }
 
-    /**
-     * university_name + student_university_number + specialization +
-     * academic_level are required by the store contract; the rest are
-     * optional completeness fields.
-     */
     private function validPayload(): array
     {
         return [
@@ -98,9 +93,6 @@ class ProfileTest extends TestCase
             ->assertJsonPath('data.academic_level', 'Third Year')
             ->assertJsonPath('data.visibility', 'organization_only');
 
-        // 5 of 7 completeness fields filled (university_name,
-        // student_university_number, specialization, academic_level,
-        // availability) = 71%.
         $response->assertJsonPath('data.completeness_percent', 71);
 
         $this->assertDatabaseHas('student_profiles', [
@@ -193,7 +185,6 @@ class ProfileTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.visibility', 'public')
-            // untouched fields survive the partial update.
             ->assertJsonPath('data.university_name', 'An-Najah National University')
             ->assertJsonPath('data.availability', '5h/week');
     }
@@ -219,7 +210,6 @@ class ProfileTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.bio', 'Updated bio.');
 
-        // Sending null is an explicit "clear this field".
         $this->putJson('/api/v1/profile', [
             'bio' => null,
             'expected_graduation' => null,
@@ -273,10 +263,6 @@ class ProfileTest extends TestCase
             ->assertStatus(404);
     }
 
-    /**
-     * Build a tiny real PNG on disk so the GD processing path is exercised
-     * (UploadedFile::fake() does not produce decodable pixels).
-     */
     private function pngPath(): string
     {
         $path = tempnam(sys_get_temp_dir(), 'avatar').'.png';
@@ -312,7 +298,6 @@ class ProfileTest extends TestCase
         $this->assertNotNull($profile->avatar_mime);
         $this->assertNotNull($profile->avatar_updated_at);
 
-        // The stored bytes are a square, so the served image is square.
         $served = $this->getJson('/api/v1/profile/avatar')->assertOk();
         $info = @getimagesizefromstring($served->getContent());
         $this->assertSame($info[0], $info[1]);
@@ -325,14 +310,6 @@ class ProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        /*
-         * A learner without a photo is a normal state, but the answer still has
-         * to be readable: a bare `abort(404)` sends an empty body, so the
-         * frontend could not tell "no photo yet" from "wrong URL" and had no
-         * message to show. `no-store` matters too — the success response is
-         * cached for 300s, and a browser that asked before the upload would
-         * keep serving its own cached 404.
-         */
         $response = $this->getJson('/api/v1/profile/avatar')
             ->assertStatus(404)
             ->assertJsonPath('code', 'PROFILE_AVATAR_NOT_FOUND')
@@ -386,11 +363,6 @@ class ProfileTest extends TestCase
 
     public function test_avatar_upload_rejects_php_truncated_payload(): void
     {
-        // Simulates a phone photo larger than PHP's `upload_max_filesize`: PHP
-        // would normally truncate the upload mid-flight and surface the cut-off
-        // bytes as an opaque "could not be processed" error. The service must
-        // recognise the UPLOAD_ERR_INI_SIZE code and tell the caller exactly
-        // what was rejected so the UI can guide them to a smaller image.
         $user = $this->learner();
         StudentProfile::forceCreate(['user_id' => $user->id, 'visibility' => 'private', 'consent_given' => true]);
 
@@ -400,8 +372,8 @@ class ProfileTest extends TestCase
             $this->pngPath(),
             'phone-snap.png',
             'image/png',
-            UPLOAD_ERR_INI_SIZE,  // PHP itself refused the upload (too big)
-            true,                 // test-mode: skip the isUploadedFile() check
+            UPLOAD_ERR_INI_SIZE,
+            true,
         );
 
         $this->postJson('/api/v1/profile/avatar', ['avatar' => $file])

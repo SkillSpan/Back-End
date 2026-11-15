@@ -22,11 +22,6 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Render terminates TLS and forwards the request to the app as
-        // plain HTTP. Without this, Laravel thinks every request is
-        // insecure, generates http:// URLs (route(), url(), asset()),
-        // and that scheme mismatch is what causes the "not secure" form
-        // warning and the 419 CSRF/session errors on the admin login.
         $middleware->trustProxies(
             at: '*',
             headers: Request::HEADER_X_FORWARDED_FOR |
@@ -43,21 +38,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'account.active' => EnsureAccountIsActive::class,
         ]);
 
-        // Browser-facing security headers on every response (see the
-        // middleware for why there is no CSP). Global, so error and
-        // middleware-rejected responses carry them too.
         $middleware->append(AddSecurityHeaders::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // A database failure can reach the log through two doors, and both
-        // used to leak row data. The application's own catch blocks now go
-        // through SafeLog::reason(); this covers the other door — an
-        // *unhandled* QueryException reaching the default reporter, which logs
-        // `$e->getMessage()` with every bound value substituted into the SQL.
-        //
-        // Returning false suppresses that default report; the redacted line
-        // below replaces it. The stack trace is kept on purpose — it carries no
-        // bound values — so a database failure stays diagnosable.
         $exceptions->report(function (QueryException $e): bool {
             Log::error('Unhandled database query failure.', [
                 'connection' => $e->getConnectionName(),

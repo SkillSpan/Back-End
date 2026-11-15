@@ -10,31 +10,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* SkillSpan design tokens. This block is identical on every admin page
-       (each page is standalone, so it is repeated inline on purpose). */
+
     --cw-navy-950:#020720;
     --cw-navy-900:#060D2E;
     --cw-navy-800:#0D1A4A;
-    --cw-blue:#1667E0;          /* SkillSpan royal blue: the one accent */
+    --cw-blue:#1667E0;
     --cw-blue-700:#0F52BA;
     --cw-blue-100:#D0E3FA;
     --cw-blue-50:#E2EEFC;
-    --cw-gold:#F2B544;          /* used sparingly: nav counters, Free Track */
+    --cw-gold:#F2B544;
     --cw-gray:#5A6482;
     --cw-gray-bg:#EEF1F6;
     --cw-soft:#F7FAFE;
 
-    /* Sidebar: SkillSpan navy */
     --nav-bg:#060D2E;
     --nav-bg-soft:#0D1A4A;
     --nav-bg-hover:rgba(255,255,255,.05);
     --nav-ink:#E8EEFF;
     --nav-ink-soft:#AAB5D6;
     --nav-line:rgba(255,255,255,.07);
-    --accent:#3D8BFF;           /* active marker on navy */
+    --accent:#3D8BFF;
     --accent-soft:rgba(22,103,224,.18);
 
-    /* Content area: white cards on a cool light background */
     --paper:#F0F6FC;
     --paper-raised:#FFFFFF;
     --ink:#05103D;
@@ -43,8 +40,7 @@
     --line:#E4EBF5;
     --line-soft:#EEF2F8;
 
-    /* Actions + status palette (names kept so every page rule still resolves) */
-    --teal:#1667E0;             /* primary action, now SkillSpan blue */
+    --teal:#1667E0;
     --teal-deep:#0F52BA;
     --amber:#9A5B00;
     --amber-bg:#FFF3DF;
@@ -75,9 +71,6 @@
 
   .app{display:flex;min-height:100vh;}
 
-  /* ----------------------------------------------------------------
-   * Sidebar — identical to the organizations panel
-   * ---------------------------------------------------------------- */
   .sidebar{
     width:var(--sidebar-w);
     flex-shrink:0;
@@ -144,9 +137,6 @@
   .user-card .meta .nm{font-size:13.5px;color:#fff;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .user-card .meta .rl{font-size:11.5px;color:var(--nav-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  /* ----------------------------------------------------------------
-   * Main column
-   * ---------------------------------------------------------------- */
   .main{flex:1;min-width:0;display:flex;flex-direction:column;}
   .topbar{
     background:var(--paper-raised);
@@ -190,7 +180,6 @@
   .btn-primary:hover{background:var(--teal-deep);}
   .btn-primary:disabled{opacity:.5;cursor:default;}
 
-  /* Stats */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
   .stat{
     background:var(--paper-raised);border:1px solid var(--line);
@@ -206,7 +195,6 @@
   .stat .body .val{font-family:inherit;font-size:24px;font-weight:600;line-height:1.1;margin-top:2px;}
   .stat .body .val.skeleton{color:var(--ink-faint);}
 
-  /* Filter bar */
   .filters{
     background:var(--paper-raised);border:1px solid var(--line);
     border-radius:11px;padding:14px 16px;margin-bottom:18px;
@@ -231,7 +219,6 @@
   #status-line.err{color:var(--brick);}
   #status-line.ok{color:var(--sage);}
 
-  /* Table */
   .table-wrap{
     background:var(--paper-raised);border:1px solid var(--line);
     border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
@@ -278,7 +265,6 @@
   .row-btn:hover{border-color:var(--teal);color:var(--teal-deep);}
   .row-btn.danger:hover{border-color:var(--brick);color:var(--brick);}
 
-  /* Pagination */
   .pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap;}
   .pager .info{font-size:13px;color:var(--ink-soft);}
   .pager .pages{display:flex;gap:6px;align-items:center;}
@@ -294,7 +280,6 @@
   .empty-state .big{font-family:inherit;font-size:20px;color:var(--ink);margin-bottom:6px;}
   .empty-state .hint{font-size:13.5px;}
 
-  /* Modal */
   .overlay{
     position:fixed;inset:0;background:rgba(2,7,32,.45);
     display:none;align-items:flex-start;justify-content:center;
@@ -353,7 +338,6 @@
   }
   .section-title:first-child{margin-top:0;}
 
-  /* Detail view */
   .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;font-size:13.5px;}
   .detail-grid .k{color:var(--ink-soft);}
   .detail-grid .v{font-weight:500;}
@@ -365,7 +349,6 @@
   }
   .chip.critical{border-color:var(--amber);color:var(--amber);background:var(--amber-bg);}
 
-  /* Toast */
   #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:80;}
   .toast{
     background:var(--cw-navy-900);color:#F2F5FA;border-radius:10px;
@@ -389,24 +372,11 @@
     .page-head{flex-direction:column;}
   }
 
-
-
-
-
-
-
-
-  /* ==================================================================
-   * SkillSpan design system layer
-   * Identical on every admin page. Visual only: it restyles the classes
-   * the page already uses and adds no behaviour.
-   * ================================================================== */
   body{font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
   ::placeholder{color:var(--ink-faint);}
   ::selection{background:var(--cw-blue-100);}
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-  /* Brand: the SkillSpan mark always sits on a light-blue tile */
   .brand .bolt{width:34px;height:34px;border-radius:10px;background:var(--cw-blue-50);color:var(--cw-blue);}
   .brand .name{font-family:inherit;font-weight:600;font-size:19px;letter-spacing:-.01em;}
   .sidebar .brand .name{color:#fff;}
@@ -414,7 +384,6 @@
   .shell .brand .name{color:var(--ink);}
   .shell .brand .name span{color:var(--cw-blue);}
 
-  /* Sidebar */
   .sidebar{background:var(--nav-bg);scrollbar-width:none;}
   .sidebar::-webkit-scrollbar{display:none;}
   .brand{border-bottom-color:var(--nav-line);}
@@ -434,7 +403,6 @@
   .user-card .avatar{background:var(--cw-blue);}
   .user-card .meta .rl{color:#8E9AC0;}
 
-  /* Top bar */
   .topbar{background:var(--paper-raised);border-bottom:1px solid var(--line);}
   .topbar .crumb{color:var(--ink-faint);}
   .topbar .crumb .cur{color:var(--ink);font-weight:600;}
@@ -443,12 +411,10 @@
   .logout-btn{border-radius:10px;color:var(--ink-soft);font-weight:500;}
   .logout-btn:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Page heading */
   .page-head h1{font-family:inherit;font-weight:600;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .page-head p{color:var(--ink-soft);font-size:14px;}
   .page-head p strong{color:var(--ink);font-weight:600;}
 
-  /* Cards, stats, panels */
   .card, .stat, .table-wrap, .filters{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .stat .glyph{border-radius:10px;}
   .stat .body .lbl{color:var(--ink-soft);}
@@ -458,7 +424,6 @@
   .empty-state{color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-weight:600;font-size:16px;color:var(--ink);}
 
-  /* Buttons: flat, solid colours */
   .btn-primary{background:var(--cw-blue);color:#fff;border-radius:10px;font-weight:600;box-shadow:none;}
   .btn-primary:hover{background:var(--cw-blue-700);}
   .btn-secondary{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;font-weight:500;}
@@ -470,28 +435,23 @@
   .row-btn:hover{border-color:var(--cw-blue);color:var(--cw-blue);background:var(--cw-blue-50);}
   .row-btn.danger:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Inputs */
   .field label, .filters label{color:var(--ink-soft);font-weight:500;}
   .field input, .field select, .field textarea, .filters input, .filters select{background:#fff;border:1px solid var(--line);border-radius:10px;color:var(--ink);}
   .field input:focus, .field select:focus, .field textarea:focus, .filters input:focus, .filters select:focus{outline:none;border-color:var(--cw-blue);background:#fff;box-shadow:0 0 0 3px rgba(22,103,224,.14);}
   .field.invalid input, .field.invalid select, .field.invalid textarea{border-color:var(--brick);background:var(--brick-bg);}
   input[type="checkbox"], input[type="radio"]{accent-color:var(--cw-blue);}
 
-  /* Tables */
   thead th{background:var(--cw-soft);color:#6B7593;font-size:11.5px;letter-spacing:.06em;border-bottom-color:var(--line);}
   tbody td{border-bottom-color:var(--line-soft);}
   tbody tr:hover{background:var(--cw-soft);}
 
-  /* Organization monograms: one calm tile instead of hashed colours */
   .card-top > .avatar{background:var(--cw-blue-50) !important;color:var(--cw-navy-800);font-family:inherit;font-weight:700;font-size:15px;letter-spacing:-.02em;border-radius:12px;}
 
-  /* Row actions stay reachable when a table scrolls sideways */
   .table-scroll td.actions-cell, .table-scroll thead th:last-child{position:sticky;right:0;z-index:1;}
   .table-scroll td.actions-cell{background:#fff;}
   .table-scroll thead th:last-child{background:var(--cw-soft);}
   .table-scroll tbody tr:hover td.actions-cell{background:var(--cw-soft);}
 
-  /* Tabs */
   .tabs{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .tabs button{color:var(--ink-soft);font-weight:500;}
   .tabs button:hover{color:var(--ink);}
@@ -499,7 +459,6 @@
   .tabs button .count{background:var(--cw-gray-bg);border-color:transparent;color:var(--cw-gray);font-weight:600;}
   .tabs button.active .count{background:var(--cw-blue);color:#fff;border-color:transparent;}
 
-  /* Status chips: one palette on every page */
   .pill{border-radius:999px;font-weight:600;font-size:12px;letter-spacing:0;}
   .pill.verified, .pill.approved, .pill.open, .pill.selection, .pill.active,
   .pill.completed, .pill.resolved, .pill.in-use{background:var(--sage-bg);color:var(--sage);}
@@ -510,23 +469,19 @@
   .pill.draft, .pill.archived, .pill.closed, .pill.inactive, .pill.unused{background:var(--cw-gray-bg);color:var(--cw-gray);}
   .pill.free{background:#FDF3DC;color:#8A5D00;}
 
-  /* Modals */
   .overlay{background:rgba(2,7,32,.5);}
   .modal{border-radius:var(--radius);box-shadow:0 24px 60px -12px rgba(2,7,32,.35);}
   .modal-head h2{font-family:inherit;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
   .modal-head .close:hover{background:var(--cw-gray-bg);color:var(--ink);}
 
-  /* Inner scrolling panels scroll without a visible scrollbar */
   .table-scroll, .queue-list, .thread-scroll, .modal-body, .picker-list, .overlay{scrollbar-width:none;-ms-overflow-style:none;}
   .table-scroll::-webkit-scrollbar, .queue-list::-webkit-scrollbar, .thread-scroll::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar, .picker-list::-webkit-scrollbar, .overlay::-webkit-scrollbar{display:none;}
 
-  /* Toasts */
   .toast{background:var(--cw-navy-900);color:#fff;border-radius:10px;}
   .toast.err{background:var(--brick);}
   .toast.ok{background:var(--sage);}
 
-  /* Small screens: the navy sidebar becomes a top strip so the pages stay reachable */
   @media (max-width:880px){
     .app{flex-direction:column;}
     .sidebar{position:sticky;top:0;left:0;width:100%;height:auto;z-index:40;box-shadow:none;
@@ -553,8 +508,6 @@
     .filters input, .filters select{width:100%;min-width:0;}
   }
 
-  /* Page-specific: compact 12-column table; the Actions column stays pinned
-     on the right so View / Edit / Delete never scroll out of reach */
   .content{max-width:1320px;padding-left:24px;padding-right:24px;}
   table{font-size:12.5px;min-width:0;}
   thead th{padding:11px 7px;font-size:10.5px;letter-spacing:.03em;}
@@ -570,7 +523,6 @@
   td.actions-cell, thead th:last-child{box-shadow:-1px 0 0 var(--line);}
   thead th:last-child{padding-right:12px;}
 
-  /* SkillSpan wordmark (brand): Span in its brand gradient, as in the platform */
   .brand .bolt{display:none !important;}
   .brand .name{font-weight:600;letter-spacing:-.01em;}
   .brand .name span{background:linear-gradient(180deg,#0491AF 0%,#034076 100%);-webkit-background-clip:text;background-clip:text;color:transparent !important;-webkit-text-fill-color:transparent;}
@@ -580,7 +532,6 @@
 
 <div class="app">
 
-  <!-- ============================= Sidebar ============================= -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="bolt" aria-hidden="true">
@@ -653,7 +604,6 @@
     @include('admin.partials.user-card')
   </aside>
 
-  <!-- ============================= Main ============================= -->
   <main class="main">
     <header class="topbar">
       <div class="crumb">
@@ -694,7 +644,6 @@
         </button>
       </header>
 
-      <!-- Stats -->
       <div class="stats">
         <div class="stat">
           <div class="glyph total">
@@ -734,7 +683,6 @@
         </div>
       </div>
 
-      <!-- Filters -->
       <form class="filters" id="filters">
         <div class="field grow">
           <label for="f-q">Search</label>
@@ -808,7 +756,6 @@
 
 </div>
 
-<!-- ============================= Detail modal ============================= -->
 <div class="overlay" id="detail-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -824,7 +771,6 @@
   </div>
 </div>
 
-<!-- ============================= Create / edit modal ============================= -->
 <div class="overlay" id="form-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -938,8 +884,7 @@
 
         <div class="section-title">Required Skills</div>
         <p class="hint" style="margin:0 0 10px;">At least one skill is required before the project can be submitted.</p>
-        <!-- Wrapped in a `.field` so the submit refusal can mark it the same way
-             a validation error marks a plain input (see showFormErrors). -->
+
         <div class="field" id="wrap-required_skills">
           <div id="skills-list"></div>
         </div>
@@ -967,7 +912,6 @@
   </div>
 </div>
 
-<!-- ============================= Confirm modal ============================= -->
 <div class="overlay" id="confirm-overlay">
   <div class="modal narrow">
     <div class="modal-head">
@@ -987,14 +931,6 @@
 <div id="toasts"></div>
 
 <script>
-// Session-authenticated panel: the cookie rides along automatically and the
-// CSRF token is sent for every mutating request. The token itself is declared
-// next to the `api()` helper below, as `let`, so it can be refreshed in place.
-
-// ── Lifecycle metadata, mirrored from App\Models\Project ──────────────────
-// These are LABELS ONLY. The backend decides every transition; the UI just
-// decides which buttons to offer so an operator is not shown an action that
-// would be refused. `closed` is the legacy value, kept displayable.
 const STATUS_LABELS = {
   draft: 'Draft',
   submitted: 'Submitted',
@@ -1011,8 +947,6 @@ const STATUS_LABELS = {
   closed: 'Closed',
 };
 
-// The only transitions the panel offers a button for. Mirrors
-// Project::TRANSITIONS; anything else is refused by the backend.
 const ACTION_FOR_STATUS = {
   draft: [{ key: 'submit', label: 'Submit', to: 'submitted' }],
   changes_requested: [{ key: 'submit', label: 'Submit', to: 'submitted' }],
@@ -1024,8 +958,6 @@ const ACTION_FOR_STATUS = {
   approved: [{ key: 'open', label: 'Open', to: 'open' }],
 };
 
-// Roles the backend accepts for an eligibility constraint — the vocabulary
-// ProjectEligibilityService understands. No new types are invented here.
 const ELIGIBILITY_TYPES = ['location', 'language', 'schedule', 'work_mode'];
 
 let state = {
@@ -1040,7 +972,6 @@ let state = {
   detail: null,
 };
 
-// ── Small helpers ─────────────────────────────────────────────────────────
 function setStatusLine(text, kind){
   const el = document.getElementById('status-line');
   el.textContent = text || '';
@@ -1063,20 +994,8 @@ function escapeHtml(value){
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// CSRF token is sent for every mutating request. It is held in a variable so a
-// stale token can be refreshed in place instead of reloading the page.
 let CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
-/**
- * Ask the server for a fresh CSRF token and update the meta tag.
- *
- * A 419 means the token the page was rendered with is no longer the one the
- * session expects - typically because another tab, or a session rotation,
- * replaced it. Re-fetching the token lets the next request succeed without a
- * full reload.
- *
- * Returns true when a token was obtained.
- */
 async function refreshCsrfToken(){
   try {
     const res = await fetch(window.location.pathname, {
@@ -1087,16 +1006,12 @@ async function refreshCsrfToken(){
     if (!res.ok) return false;
 
     const html = await res.text();
-    // Attribute order is not guaranteed and the value may be HTML-escaped, so
-    // scan for the meta tag itself rather than assuming `name` precedes
-    // `content`.
     const meta = html.match(/<meta[^>]*name="csrf-token"[^>]*>/i);
 
     if (meta){
       const content = meta[0].match(/content="([^"]*)"/i);
 
       if (content && content[1]){
-        // Un-escape the entities Blade may have emitted.
         CSRF_TOKEN = content[1]
           .replace(/&quot;/g, '"')
           .replace(/&#039;/g, "'")
@@ -1125,24 +1040,17 @@ async function api(path, options = {}, isRetry = false){
     },
   });
 
-  // 419 = the CSRF token is stale, NOT that the session ended. Retry ONCE with
-  // a freshly fetched token before concluding anything: an unconditional
-  // redirect to /admin/login is what turned a stale token into an endless
-  // reload loop for a user who was still signed in.
   if (res.status === 419 && !isRetry){
     if (await refreshCsrfToken()){
       return api(path, options, true);
     }
   }
 
-  // 401 = genuinely no session. Send the user to sign in.
   if (res.status === 401){
     window.location.href = '/admin/login';
     throw new Error('Your session has ended. Please sign in again.');
   }
 
-  // A 419 that survived the retry still means the session is unusable, but say
-  // so plainly rather than bouncing silently.
   if (res.status === 419){
     const err = new Error('Your session token could not be verified. Please sign in again.');
     err.status = 419;
@@ -1175,8 +1083,6 @@ function typeTag(type){
 
 function fmtDate(value){
   if (!value) return '—';
-  // Dates arrive as YYYY-MM-DD; render them as stored rather than shifting
-  // them into a local timezone.
   return escapeHtml(String(value).slice(0, 10));
 }
 
@@ -1185,7 +1091,6 @@ function fmtDifficulty(value){
   return escapeHtml(String(value));
 }
 
-// ── Load + render the list ────────────────────────────────────────────────
 async function loadProjects(){
   const tbody = document.getElementById('rows');
   setStatusLine('Loading projects…');
@@ -1284,7 +1189,6 @@ function renderPager(meta, count){
 
   html += `<button ${current <= 1 ? 'disabled' : ''} data-page="${current - 1}">Prev</button>`;
 
-  // Windowed page numbers so a large table does not render 200 buttons.
   const start = Math.max(1, current - 2);
   const end = Math.min(last, start + 4);
   for (let i = start; i <= end; i++){
@@ -1296,8 +1200,6 @@ function renderPager(meta, count){
   pages.innerHTML = html;
 }
 
-// Stats are derived from the page currently on screen plus the authoritative
-// total, so they never claim a count the API did not return.
 function updateStats(explicit, rows, meta){
   const byStatus = {};
   for (const p of rows) byStatus[p.status] = (byStatus[p.status] || 0) + 1;
@@ -1327,7 +1229,6 @@ function updateStats(explicit, rows, meta){
   set('stat-open', byStatus.open || 0);
 }
 
-// ── Detail ────────────────────────────────────────────────────────────────
 async function openDetail(id){
   const overlay = document.getElementById('detail-overlay');
   const body = document.getElementById('detail-body');
@@ -1364,8 +1265,6 @@ function factGrid(pairs){
 function renderDetail(p){
   const skills = (p.required_skills || []);
   const roles = (p.project_roles || p.available_project_roles || []);
-  // The stored constraint rows. `p.eligibility` is the per-learner verdict and
-  // is null on an admin response, so it is not a usable source here.
   const eligibility = Array.isArray(p.eligibility_constraints) ? p.eligibility_constraints : [];
 
   const skillsHtml = skills.length
@@ -1455,7 +1354,6 @@ function renderDetail(p){
   `;
 }
 
-// ── Create / edit form ────────────────────────────────────────────────────
 function skillOptions(selected){
   const opts = state.skills.map(s =>
     `<option value="${s.id}" ${String(s.id) === String(selected) ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
@@ -1539,8 +1437,6 @@ function showFormErrors(errors){
   clearFormErrors();
   if (!errors) return;
   for (const [field, messages] of Object.entries(errors)){
-    // Server keys use dot notation for the repeatable rows
-    // (required_skills.0.skill_id); point the message at the first row.
     const base = field.split('.')[0];
     const wrap = document.getElementById('wrap-' + base);
     if (!wrap) continue;
@@ -1605,18 +1501,12 @@ async function openEditForm(id){
     (p.required_skills || []).forEach(s => addSkillRow(s));
 
     document.getElementById('roles-list').innerHTML = '';
-    // `project_roles` is the complete stored list (including deactivated roles);
-    // `available_project_roles` is the learner-facing list that hides them.
-    // Editing must start from the complete list, otherwise an inactive role
-    // would vanish from the form and be silently dropped on save.
     (p.project_roles || p.available_project_roles || []).forEach(r => addRoleRow(r));
 
     document.getElementById('eligibility-list').innerHTML = '';
     const elig = p.eligibility_constraints;
     if (Array.isArray(elig)) elig.forEach(e => addEligibilityRow(e));
 
-    // The repeatable sections are required by the backend, so an empty list
-    // still gets one blank row rather than no row at all.
     if (!document.querySelectorAll('.skill-row').length) addSkillRow();
     if (!document.querySelectorAll('.role-row').length) addRoleRow();
 
@@ -1628,12 +1518,6 @@ async function openEditForm(id){
   }
 }
 
-/**
- * Collect the form into the exact payload StoreProjectRequest /
- * UpdateProjectRequest validate. Empty text inputs are omitted rather than
- * sent as "", so a nullable field is cleared instead of stored as an empty
- * string, and numbers are sent as numbers so the numeric rules apply.
- */
 function collectPayload(){
   const value = (id) => document.getElementById(id).value.trim();
   const num = (id) => {
@@ -1660,8 +1544,6 @@ function collectPayload(){
     confidentiality: orNull(value('p-confidentiality')),
   };
 
-  // Drop nulls so an omitted field is genuinely absent - the backend applies
-  // its own default and the update path keeps the stored value.
   const cleaned = {};
   for (const [k, v] of Object.entries(payload)){
     if (k === 'type' || k === 'title'){ cleaned[k] = v; continue; }
@@ -1712,8 +1594,6 @@ async function submitForm(event){
 
   const { cleaned, skills, roles, eligibility } = collectPayload();
 
-  // The repeatable sections are only sent when they have content, so merge
-  // them onto the scalar payload rather than replacing it.
   const body = { ...cleaned };
   if (skills.length) body.required_skills = skills;
   if (roles.length) body.roles = roles;
@@ -1755,7 +1635,6 @@ async function submitForm(event){
   }
 }
 
-// ── Lifecycle actions ─────────────────────────────────────────────────────
 const ACTION_META = {
   submit: { path: 'submit', label: 'Submitting…', done: 'Project submitted for review.' },
   approve: { path: 'approve', label: 'Approving…', done: 'Project approved.' },
@@ -1764,20 +1643,6 @@ const ACTION_META = {
   open: { path: 'open', label: 'Opening…', done: 'Project opened.' },
 };
 
-/*
- * An incomplete project is a FIELD problem, not a dead end.
- *
- * The lifecycle service refuses it with 422 PROJECT_INCOMPLETE and lists what is
- * missing in `details.missing`. Reporting that as a toast on its own leaves the
- * operator stuck: the project DETAIL panel has no fields to fix, so "not
- * complete enough to be submitted" reads as "the Submit button is broken". The
- * refusal therefore opens the edit form and marks each missing field the same
- * way a validation error does, so the red outline and the message say what to
- * do and where.
- */
-
-// Most completeness keys are already the form's own field name and have a
-// `wrap-<key>` container. These are the ones that have to point somewhere else.
 const COMPLETENESS_FIELD = {
   required_skills: 'required_skills',
   roles: 'roles',
@@ -1792,8 +1657,6 @@ function completenessErrors(missing){
     const field = COMPLETENESS_FIELD[key] || key;
     if (errors[field]) return;
 
-    // The two ordering rules are not empty-field problems, so they state the
-    // rule instead of "required".
     const message =
       key === 'end_date_before_start_date'
         ? 'The end date must be on or after the start date.'
@@ -1807,7 +1670,6 @@ function completenessErrors(missing){
   return errors;
 }
 
-/** Bring the first marked field into view and put the cursor in it. */
 function focusFirstInvalidField(){
   const wrap = document.querySelector('#project-form .field.invalid');
   if (!wrap) return;
@@ -1822,7 +1684,6 @@ async function runAction(key, id){
   const meta = ACTION_META[key];
   if (!meta) return;
 
-  // Reject and request-changes are review decisions and may carry a reason.
   let reason = null;
   if (key === 'reject' || key === 'request-changes'){
     reason = window.prompt(
@@ -1833,11 +1694,6 @@ async function runAction(key, id){
 
   toast(meta.label);
   try {
-    // Session-backed twin. The canonical endpoint is
-    // /api/v1/projects/{id}/{action}, but that sits behind `auth:sanctum` and
-    // expects a BEARER TOKEN — the panel has a session cookie, so calling it
-    // returned 401 and api() bounced the operator to /admin/login. Every other
-    // call on this page already uses the /admin/api prefix.
     await api(`/admin/api/projects/${id}/${meta.path}`, {
       method: 'POST',
       body: JSON.stringify(reason ? { reason } : {}),
@@ -1852,7 +1708,6 @@ async function runAction(key, id){
     if (e.code === 'PROJECT_INCOMPLETE' && missing.length){
       toast(e.message + ' The missing fields are marked in red.', 'err');
 
-      // openEditForm() already switches the detail overlay for the form one.
       await openEditForm(id);
 
       if (document.getElementById('form-overlay').classList.contains('open')){
@@ -1863,12 +1718,10 @@ async function runAction(key, id){
       return;
     }
 
-    // Anything else: the backend's refusal is the source of truth - show it verbatim.
     toast(e.message, 'err');
   }
 }
 
-// ── Delete (soft) ─────────────────────────────────────────────────────────
 let confirmAction = null;
 
 function askConfirm(opts){
@@ -1896,7 +1749,6 @@ async function doDelete(id, title){
   });
 }
 
-// ── Wiring ────────────────────────────────────────────────────────────────
 let searchTimer = null;
 function debounceLoad(){
   clearTimeout(searchTimer);
@@ -1962,7 +1814,6 @@ async function loadCareerRoleSkills(careerRoleId, clearRows = true){
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Populate the status filter from the same list the backend validates.
   const statusSelect = document.getElementById('f-status');
   for (const [value, label] of Object.entries(STATUS_LABELS)){
     const opt = document.createElement('option');
@@ -1973,7 +1824,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadCareerRoles().then(loadProjects);
 
-  // Filters
   document.getElementById('f-q').addEventListener('input', (e) => {
     state.filters.q = e.target.value.trim();
     debounceLoad();
@@ -2001,14 +1851,12 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
   });
 
-  // Top-bar search mirrors the filter box.
   document.getElementById('global-search').addEventListener('input', (e) => {
     state.filters.q = e.target.value.trim();
     document.getElementById('f-q').value = e.target.value;
     debounceLoad();
   });
 
-  // Row actions (delegated)
   document.getElementById('rows').addEventListener('click', (e) => {
     const view = e.target.closest('[data-view]');
     if (view){ openDetail(view.dataset.view); return; }
@@ -2020,7 +1868,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (del){ doDelete(del.dataset.del, del.dataset.title); }
   });
 
-  // Detail lifecycle actions (delegated)
   document.getElementById('detail-body').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (btn) runAction(btn.dataset.action, btn.dataset.id);
@@ -2030,7 +1877,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.dataset.edit) openEditForm(e.target.dataset.edit);
   });
 
-  // Pagination (delegated)
   document.getElementById('pager-pages').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-page]');
     if (!btn || btn.disabled) return;
@@ -2038,14 +1884,12 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
   });
 
-  // Form
   document.getElementById('btn-add').addEventListener('click', openCreateForm);
   document.getElementById('project-form').addEventListener('submit', submitForm);
   document.getElementById('add-skill').addEventListener('click', () => addSkillRow());
   document.getElementById('add-role').addEventListener('click', () => addRoleRow());
   document.getElementById('add-eligibility').addEventListener('click', () => addEligibilityRow());
 
-  // Remove buttons inside the repeatable rows (delegated)
   document.querySelectorAll('#skills-list, #roles-list, #eligibility-list').forEach(box => {
     box.addEventListener('click', (e) => {
       const rm = e.target.closest('.rm-row');
@@ -2053,14 +1897,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Type hint
   document.getElementById('p-type').addEventListener('change', (e) => {
     document.getElementById('type-hint').textContent = e.target.value === 'company_sponsored'
       ? 'Company-sponsored projects are owned by a company representative.'
       : 'Simulation projects are SkillSpan-internal.';
   });
 
-  // Modals: close buttons, backdrop, Escape
   document.querySelectorAll('[data-close]').forEach(btn => {
     btn.addEventListener('click', () => document.getElementById(btn.dataset.close).classList.remove('open'));
   });
@@ -2071,7 +1913,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
   });
 
-  // Confirm modal
   document.getElementById('confirm-ok').addEventListener('click', async () => {
     const fn = confirmAction;
     confirmAction = null;

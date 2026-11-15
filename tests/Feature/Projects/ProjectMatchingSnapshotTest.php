@@ -98,8 +98,6 @@ class ProjectMatchingSnapshotTest extends TestCase
         ]);
     }
 
-    // --------------------------------------------------------------- tests
-
     public function test_valid_authorized_available_and_eligible_project_creates_snapshot(): void
     {
         $learner = $this->createLearnerWithProfile();
@@ -183,7 +181,6 @@ class ProjectMatchingSnapshotTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // Learner has no skill evaluation at all — ineligible.
         $this->expectException(IntelligenceException::class);
 
         try {
@@ -338,11 +335,9 @@ class ProjectMatchingSnapshotTest extends TestCase
         $learner = $this->createLearnerWithProfile();
         $project = $this->createOpenProject();
 
-        // Ensure the project matching snapshot creates successfully.
         $snapshot = $this->service->createForProject($project, $learner);
         $this->assertTrue($snapshot->exists);
 
-        // Ensure no career-role DecisionSnapshot is created.
         $this->assertSame(0, DecisionSnapshot::count());
     }
 }

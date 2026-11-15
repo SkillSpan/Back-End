@@ -9,21 +9,8 @@ use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use Illuminate\Support\Collection;
 
-/**
- * US-INT-01 §12 — single reusable payload builder for skill-gap,
- * readiness and roadmap requests. No duplicated payload logic.
- *
- * Carries only validated decision data: learner reference + skill
- * state, approved role version + required skills (with importance,
- * criticality, prerequisites), availability, and the resolved
- * algorithm/configuration versions. Never PII, never credentials.
- */
 class IntelligencePayloadBuilder
 {
-    /**
-     * @param  Collection<int, SkillEvaluation>  $evaluations
-     * @param  array<string, mixed>  $evidenceSummary
-     */
     public function build(
         StudentProfile $studentProfile,
         CareerRole $careerRole,
@@ -46,14 +33,6 @@ class IntelligencePayloadBuilder
 
             $evaluation = $latestEvaluationsBySkillId->get($skillId)?->first();
 
-            /*
-             * SRS validated learner skill state: the authoritative
-             * current level/confidence come ONLY from a skill
-             * evaluation. There is deliberately NO fallback to the
-             * learner_skills projection — a missing evaluation means an
-             * incomplete skill state, which the orchestrator rejects
-             * before the payload is even built.
-             */
             if ($evaluation === null) {
                 throw new IntelligenceException(
                     'The learner does not have evaluations for all required skills.',
@@ -114,19 +93,6 @@ class IntelligencePayloadBuilder
         ];
     }
 
-    /**
-     * All prerequisite skill IDs for one required role skill.
-     *
-     * The `career_role_skill_dependencies` relation is the source of truth
-     * and may return MANY prerequisites. The legacy single
-     * `prerequisite_skill_id` column is used only as a fallback when the
-     * relation carries no rows, so existing data that predates the
-     * dependency table is not silently dropped. IDs are de-duplicated,
-     * kept as integers, and returned as an empty array when there are none
-     * (never null).
-     *
-     * @return list<int>
-     */
     private function prerequisiteSkillIds(CareerRoleSkill $roleSkill): array
     {
         $ids = $roleSkill->prerequisites

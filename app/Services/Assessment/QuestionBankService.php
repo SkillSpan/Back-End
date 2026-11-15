@@ -11,55 +11,22 @@ use App\Models\Specialization;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Question-bank management for the admin "Questions" page.
- *
- * WHY THIS EXISTS
- * ---------------
- * The page drives the Dynamic Assessment chain
- * (specialization -> career role -> skill -> question) and must not
- * re-implement any of it: the relationships already live on the models
- * (Specialization::careerRoles(), CareerRole::roleSkills(), Skill) and the
- * questions are ordinary `baseline_assessment_items` rows. This service is
- * the one place that reads and writes those rows for the panel, so the
- * controller stays a thin HTTP adapter and the same rules can be tested
- * without a browser.
- *
- * WHAT IT DOES NOT DO
- * -------------------
- * It never invents a second question store: every method works on
- * `baseline_assessment_items`, keyed to a `skill_id`, exactly the shape
- * BaselineQuestionSelectionService already selects from. New questions are
- * authored against the ACTIVE assessment version, so they are immediately
- * eligible for the baseline flow.
- */
 class QuestionBankService
 {
     public const TYPE_MULTIPLE_CHOICE = 'single_choice';
 
     public const TYPE_TEXT = 'text';
 
-    /** The answer shapes the panel may author. */
     public const ANSWER_TYPES = [
         self::TYPE_MULTIPLE_CHOICE,
         self::TYPE_TEXT,
     ];
 
-    /**
-     * The assessment version new questions are authored against — the same
-     * value BaselineAssessmentService freezes an assessment to, so a
-     * question created here is picked up by the next assessment.
-     */
     public function activeVersion(): string
     {
         return (string) config('services.data_science.baseline.version', 'v1.0');
     }
 
-    /**
-     * Active specializations for the first dropdown.
-     *
-     * @return array<int, array{id:int,name:string}>
-     */
     public function specializations(): array
     {
         return Specialization::query()
@@ -70,39 +37,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * Career roles for the second dropdown, ORDERED BY the chosen
-     * specialization.
-     *
-     * WHY THIS IS NOT THE LEARNER-FACING LIST
-     * ---------------------------------------
-     * The learner picker (GET /api/v1/career-roles) is ordered by the curated
-     * priority in config/mvp.php. The question-bank screen has a different
-     * job: an operator picks a specialization and then a role to author
-     * questions for, so the roles that specialization actually covers must be
-     * at the top of the list — and "covers" means the
-     * `career_role_specialization` mapping an operator maintains on the
-     * specializations screen. Reusing the learner ordering here would put the
-     * MVP's product priority on an authoring screen, which is not what the
-     * operator selected.
-     *
-     * THE SPECIALIZATION ORDERS, IT DOES NOT FILTER
-     * ---------------------------------------------
-     * Every selectable role (approved AND active) is returned, because an
-     * operator may need to author a question for a role outside the chosen
-     * track. The linked roles come first, in title order; every other role
-     * follows, also in title order. The two blocks are ordered independently so
-     * the list is stable and the boundary is visible.
-     *
-     * The "Self-Learning / Free Track" carries no mapping of its own — every
-     * role is equally valid under it — so it gets the neutral order (title)
-     * over the same complete set.
-     *
-     * Deactivated and non-approved roles are excluded: they are not offered to
-     * learners, so a question authored against them would be unreachable.
-     *
-     * @return array<int, array{id:int,title:string,status:string}>
-     */
     public function careerRoles(int $specializationId): array
     {
         $specialization = Specialization::find($specializationId);
@@ -113,14 +47,6 @@ class QuestionBankService
 
         $query = CareerRole::query()->selectable();
 
-        /*
-         * Rank the mapped roles ahead of the rest in SQL rather than sorting in
-         * PHP: the list is a dropdown over the whole catalog, and doing it in
-         * the query keeps one definition of the order (and stays correct if a
-         * page size is ever added).
-         *
-         * The ids are bound as parameters, never interpolated.
-         */
         $linkedIds = $specialization->isFreeTrack()
             ? []
             : $specialization->careerRoles()
@@ -138,8 +64,6 @@ class QuestionBankService
         }
 
         return $query
-            // Deterministic order inside each block, and the whole order for
-            // the free track (which adds no rank).
             ->orderBy('career_roles.title')
             ->get(['career_roles.id', 'career_roles.title', 'career_roles.status'])
             ->map(fn ($role) => [
@@ -150,12 +74,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * Required skills of a career role (the third dropdown). Ordered by name
-     * so the select is stable.
-     *
-     * @return array<int, array{id:int,name:string,slug:string}>
-     */
     public function skills(int $careerRoleId): array
     {
         return CareerRoleSkill::query()
@@ -173,14 +91,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * Resolve the specialization / career role a skill sits under, so the
-     * edit form can pre-select the chain for a question it did not filter
-     * down to. A skill can be required by several roles; the first one (by
-     * id) is returned, which is deterministic.
-     *
-     * @return array{skill_id:int,career_role_id:?int,specialization_id:?int}
-     */
     public function contextForSkill(int $skillId): array
     {
         $careerRoleId = CareerRoleSkill::query()
@@ -204,13 +114,6 @@ class QuestionBankService
         ];
     }
 
-    /**
-     * Paginated questions for the current filters, scoped to the active
-     * version. Narrowing is applied at the finest available level: a skill
-     * filter wins over a career role, which wins over a specialization.
-     *
-     * @param  array{specialization_id?:mixed,career_role_id?:mixed,skill_id?:mixed,q?:mixed}  $filters
-     */
     public function paginate(array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = BaselineAssessmentItem::query()
@@ -234,8 +137,6 @@ class QuestionBankService
         } elseif ($careerRoleId !== null) {
             $query->whereIn('skill_id', $this->skillIdsForCareerRole($careerRoleId));
         } elseif ($specializationId !== null) {
-            // The free track exposes every role, so every skill is in scope
-            // and no restriction is applied.
             $specialization = Specialization::find($specializationId);
 
             if ($specialization !== null && ! $specialization->isFreeTrack()) {
@@ -246,15 +147,6 @@ class QuestionBankService
         return $query->paginate($perPage)->withQueryString();
     }
 
-    /**
-     * Create a question in the existing item bank.
-     *
-     * The `item_id` is generated (never taken from the client) and the
-     * assessment version is the active one, so a question can never be
-     * created against an arbitrary or inactive version.
-     *
-     * @param  array<string, mixed>  $data
-     */
     public function create(array $data): BaselineAssessmentItem
     {
         $skill = Skill::findOrFail((int) $data['skill_id']);
@@ -273,13 +165,6 @@ class QuestionBankService
         ]);
     }
 
-    /**
-     * Update a question. `item_id` and `assessment_version` are immutable:
-     * a frozen snapshot references the item by id, and changing the version
-     * would silently move the question out of the bank the panel is showing.
-     *
-     * @param  array<string, mixed>  $data
-     */
     public function update(BaselineAssessmentItem $item, array $data): BaselineAssessmentItem
     {
         $item->update([
@@ -293,13 +178,6 @@ class QuestionBankService
         return $item->refresh()->load('skill:id,name,slug');
     }
 
-    /**
-     * Delete a question that is not yet part of any assessment.
-     *
-     * The snapshot FK cascades, so an item already frozen into an
-     * assessment must never be deleted here — that is refused with a 409
-     * rather than allowed to erase the learner's question set.
-     */
     public function delete(BaselineAssessmentItem $item): void
     {
         $usageCount = $item->questionSnapshots()->count();
@@ -311,13 +189,6 @@ class QuestionBankService
         $item->delete();
     }
 
-    // -----------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------
-
-    /**
-     * @return array<int, int>
-     */
     private function skillIdsForCareerRole(int $careerRoleId): array
     {
         return CareerRoleSkill::query()
@@ -327,9 +198,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * @return array<int, int>
-     */
     private function skillIdsForSpecialization(int $specializationId): array
     {
         $specialization = Specialization::find($specializationId);
@@ -356,13 +224,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * The stored options: trimmed, non-empty, re-indexed. A free-text
-     * question stores an empty array — the `options` column is NOT NULL.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<int, string>
-     */
     private function normalizeOptions(array $data): array
     {
         if (($data['item_type'] ?? null) !== self::TYPE_MULTIPLE_CHOICE) {
@@ -378,10 +239,6 @@ class QuestionBankService
             ->all();
     }
 
-    /**
-     * A stable, unique, human-readable item id in the existing
-     * "{skillSlug}-NNN" style, unique within the active version.
-     */
     private function uniqueItemId(Skill $skill): string
     {
         $version = $this->activeVersion();

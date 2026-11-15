@@ -18,30 +18,6 @@ class EvidenceController extends Controller
         private readonly SkillEvaluationService $skillEvaluationService
     ) {}
 
-    /**
-     * POST /api/v1/evidence
-     *
-     * Submit new evidence for a skill.
-     * Evidence is created as pending until reviewed by an admin.
-     *
-     * Four kinds of proof are accepted, declared through `evidence_type`:
-     *
-     *   github_repository  → evidence_url (https://github.com/owner/repo)
-     *   live_deployment    → evidence_url (a reachable deployment)
-     *   design_file        → evidence_url (https://figma.com/file/...)
-     *   document           → evidence_file (pdf / jpg / jpeg / png / webp, ≤10 MB)
-     *
-     * `evidence_type` describes the SHAPE of the proof and is a different axis
-     * from `source`, which stays `certificate` for every learner submission —
-     * see SkillEvidence for why the two must not be conflated.
-     *
-     * Requests that declare no type keep the previous contract exactly (a URL or
-     * a file, at least one) and are stored with `evidence_type = NULL`.
-     *
-     * The rules themselves live in StoreEvidenceRequest, because "a URL is
-     * required for this type but forbidden for that one" cannot be expressed as
-     * one flat rule set.
-     */
     public function store(StoreEvidenceRequest $request)
     {
 
@@ -56,18 +32,6 @@ class EvidenceController extends Controller
 
         $skillId = $request->skill_id;
 
-        /*
-         * Resolve what is being stored, and under which evidence type.
-         *
-         * The URL, when present, is the reference; otherwise the uploaded file
-         * is stored and its path becomes the reference.
-         *
-         * The type is only inferred in one, unambiguous case: a client that
-         * uploaded a file without declaring a type has submitted a document.
-         * Nothing is inferred for a URL, because a link on its own says nothing
-         * about whether it is a repository, a deployment or a design file —
-         * guessing there would put a wrong label in front of the reviewer.
-         */
         $declaredType = $request->declaredEvidenceType();
 
         if ($request->filled('evidence_url')) {
@@ -81,18 +45,6 @@ class EvidenceController extends Controller
             $evidenceType = $declaredType;
         }
 
-        /*
-         * Prevent duplicate evidence for the same learner, skill, evidence type
-         * and reference.
-         *
-         * The type is part of the key on purpose. Before it existed the check
-         * was (learner, skill, source, reference) — and because every learner
-         * submission is stored under `source = certificate`, a URL re-submitted
-         * under a different kind could not be told apart from a real duplicate.
-         * Legacy rows carry no type, so a request that declares none is matched
-         * against other typeless rows only, which keeps the old behaviour intact
-         * for old clients.
-         */
         $duplicate = SkillEvidence::query()
             ->where('student_profile_id', $studentProfile->id)
             ->where('skill_id', $skillId)
@@ -112,13 +64,6 @@ class EvidenceController extends Controller
             ], 409);
         }
 
-        /*
-         * New evidence starts as pending.
-         *
-         * recency_factor is initially set for storage compatibility,
-         * but SkillEvaluationService recalculates it dynamically
-         * during every recalculate().
-         */
         $declaredLevel = $request->filled('level')
             ? round((float) $request->input('level'), 2)
             : 0.0;
@@ -132,12 +77,6 @@ class EvidenceController extends Controller
             'normalized_value' => $declaredLevel,
             'reference' => $reference,
 
-            /*
-             * The learner's own description of the evidence. Validated above,
-             * and stored here — it used to be validated and then dropped on
-             * the floor, so a client that sent one got a 201 with nothing
-             * recorded and no error explaining it.
-             */
             'description' => $request->input('description'),
 
             'evidence_date' => $request->filled('evidence_date')
@@ -148,12 +87,6 @@ class EvidenceController extends Controller
             'recency_factor' => 1.00,
         ]);
 
-        /*
-         * Recalculate immediately.
-         *
-         * Pending evidence contributes to confidence using
-         * the configured pending verification factor.
-         */
         $skill = Skill::find($skillId);
 
         if ($skill) {
@@ -170,26 +103,6 @@ class EvidenceController extends Controller
         ], 201);
     }
 
-    /**
-     * GET /api/v1/evidence
-     *
-     * Retrieve the authenticated learner's own evidence.
-     *
-     * The list covers EVERY verification state — pending, verified, rejected,
-     * expired and revision — not just `verified`. Restricting it to
-     * `verified` hid the two states a learner most needs to act on: a
-     * reviewer's `revision` request ("clarify/replace this") and a `rejected`
-     * decision were invisible, so the revision workflow had no way to reach
-     * the learner it was created for (SRS SKL-09 requires the evidence and
-     * its state to be viewable).
-     *
-     * Optional `?status={state}` narrows the list to a single state; the
-     * value is validated against SkillEvidence::STATUSES by
-     * ListEvidenceRequest. Omitting it returns everything.
-     *
-     * Ownership is enforced in the query itself — the learner can only ever
-     * see rows on their own student profile.
-     */
     public function index(ListEvidenceRequest $request)
     {
         $studentProfile = $request->user()->studentProfile;
@@ -201,7 +114,6 @@ class EvidenceController extends Controller
             ], 422);
         }
 
-        // Present-and-valid, or null when the filter was omitted.
         $status = $request->validated('status');
 
         $evidence = SkillEvidence::where(
@@ -225,38 +137,16 @@ class EvidenceController extends Controller
         ]);
     }
 
-    /**
-     * GET /api/v1/evidence/{id}
-     *
-     * Retrieve a specific evidence record.
-     *
-     * Only:
-     * - Admin
-     * - Owner of the evidence
-     *
-     * can access the record.
-     */
     public function show(Request $request, $id)
     {
         $user = $request->user();
 
-        /*
-         * Admins can access any evidence record.
-         */
         if ($user->hasRole('admin')) {
             $evidence = SkillEvidence::with([
                 'skill',
                 'reviewer',
             ])->findOrFail($id);
         } else {
-            /*
-             * Non-admin users can only access evidence
-             * belonging to their own student profile.
-             *
-             * The ownership check is now part of the query,
-             * so we do not retrieve another user's evidence
-             * before checking authorization.
-             */
             $studentProfile = $user->studentProfile;
 
             if (! $studentProfile) {
@@ -281,19 +171,6 @@ class EvidenceController extends Controller
         ]);
     }
 
-    /**
-     * PUT /api/v1/evidence/{id}/review
-     *
-     * Admin reviews evidence and marks it as:
-     * - verified  → approved
-     * - rejected  → denied
-     * - revision  → clarification requested (SRS SKL-05 / UC-03)
-     *
-     * Only evidence that is still awaiting a decision (`pending` or
-     * `revision`) may be reviewed. Terminal states are never silently
-     * rewritten — SRS BR-EVA-06 requires a correction to supersede or revise,
-     * not to overwrite history.
-     */
     public function review(Request $request, $id)
     {
         $request->validate([
@@ -308,15 +185,6 @@ class EvidenceController extends Controller
                 'max:500',
             ],
 
-            /*
-             * The reviewer's correction of the level this proof demonstrates.
-             *
-             * Evidence submitted before `level` existed on the request carries
-             * `normalized_value = 0`, and no amount of re-reviewing changes a
-             * 0 — the level average is computed from that column. This lets an
-             * admin fix such a row at review time instead of asking the learner
-             * to delete and re-upload the proof.
-             */
             'level' => [
                 'sometimes',
                 'numeric',
@@ -325,9 +193,6 @@ class EvidenceController extends Controller
             ],
         ]);
 
-        /*
-         * Only admins can review evidence.
-         */
         if (! $request->user()->hasRole('admin')) {
             return response()->json([
                 'success' => false,
@@ -337,14 +202,6 @@ class EvidenceController extends Controller
 
         $evidence = SkillEvidence::findOrFail($id);
 
-        /*
-         * Guard the transition.
-         *
-         * A review is a decision on evidence that is still waiting for one.
-         * `verified`, `rejected` and `expired` are terminal for this endpoint,
-         * so re-reviewing them is refused with an explicit error rather than
-         * silently flipping the status.
-         */
         if (! in_array($evidence->verification_status, SkillEvidence::REVIEWABLE_STATUSES, true)) {
             return response()->json([
                 'success' => false,
@@ -356,20 +213,12 @@ class EvidenceController extends Controller
 
         $status = $request->verification_status;
 
-        /*
-         * Update verification information.
-         */
         $evidence->update([
             'verification_status' => $status,
             'reviewer_id' => $request->user()->id,
             'reviewer_notes' => $request->reviewer_notes,
         ]);
 
-        /*
-         * A corrected level is written before the recalculation below, so the
-         * new value is what the projection is computed from — writing it after
-         * would leave `learner_skills` one review behind.
-         */
         if ($request->filled('level')) {
             $corrected = round((float) $request->input('level'), 2);
 
@@ -379,24 +228,11 @@ class EvidenceController extends Controller
             ]);
         }
 
-        /*
-         * Recalculate skill level and confidence after
-         * the evidence verification status changes.
-         */
         $this->skillEvaluationService->recalculate(
             $evidence->studentProfile,
             $evidence->skill
         );
 
-        /*
-         * US-INT-01:
-         * Any evidence review can change the learner's effective
-         * skill levels, so it triggers a queued intelligence recalculation
-         * for this learner.
-         *
-         * The synchronous skill recalculation above already ran.
-         * This event only enqueues the decision refresh.
-         */
         SkillDataChanged::dispatch(
             $evidence->studentProfile,
             'evidence_review'
@@ -409,13 +245,6 @@ class EvidenceController extends Controller
         ]);
     }
 
-    /**
-     * Human-readable confirmation for a review outcome.
-     *
-     * Kept as an explicit map rather than the previous
-     * "Evidence {$status} successfully" string, because that produced the
-     * ungrammatical "Evidence revision successfully." for the new state.
-     */
     private function reviewMessage(string $status): string
     {
         return match ($status) {

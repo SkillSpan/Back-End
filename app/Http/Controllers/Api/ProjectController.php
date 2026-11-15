@@ -20,11 +20,7 @@ class ProjectController extends Controller
         'organization:id,name',
         'requiredSkills.skill:id,name',
         'eligibilityConstraints',
-        // US-MATCH-02 — the roles a learner may select when applying, surfaced
-        // as `available_project_roles` on the details response.
         'projectRoles',
-        // US-MATCH-DATA-03 — the project's career role, surfaced as
-        // `career_role` on the project payload.
         'careerRole:id,title,slug,version',
     ];
 
@@ -55,14 +51,12 @@ class ProjectController extends Controller
 
         $query = $this->accessibleProjectsQuery($organizationIds, self::PROJECT_WITH);
 
-        /** @var array<string, mixed> $filters */
         $filters = $this->validatedFilters($request, $requestId);
 
         if ($filters instanceof JsonResponse) {
             return $filters;
         }
 
-        // Keyword search across the visible project text fields.
         if (! empty($filters['search'])) {
             $like = $this->likePattern($filters['search']);
 
@@ -73,7 +67,6 @@ class ProjectController extends Controller
             });
         }
 
-        // Exact-match filters on columns that exist in the current schema.
         foreach (['type', 'domain', 'work_mode'] as $column) {
             if (array_key_exists($column, $filters) && $filters[$column] !== null) {
                 $query->where($column, $filters[$column]);
@@ -88,26 +81,6 @@ class ProjectController extends Controller
             $query->where('organization_id', $filters['organization_id']);
         }
 
-        // Role filter — "show me the projects for a Frontend Developer".
-        //
-        // A project advertises a role in TWO places, and they are not
-        // interchangeable:
-        //   - `projects.role` is the single headline role, a free-text column;
-        //   - `project_roles` is the set of roles a learner may actually apply
-        //     as (surfaced as `available_project_roles`), and a role that has
-        //     been deactivated is NOT something a learner can apply to.
-        //
-        // Matching only one of them would silently hide projects the learner
-        // can legitimately see: a project whose headline is "Data Analyst" but
-        // which also offers an active "Data Analyst" role would be found by
-        // neither test alone in the reverse case. So the filter matches EITHER,
-        // and the `project_roles` branch requires `is_active` for the same
-        // reason the resource filters on it.
-        //
-        // This is deliberately a FILTER, not a hard visibility rule: a learner
-        // who supplies no `role` still sees the whole catalog (including
-        // projects outside their specialty), which is what keeps discovery,
-        // details and the recommendation list agreeing with each other.
         if (! empty($filters['role'])) {
             $role = $filters['role'];
 
@@ -119,8 +92,6 @@ class ProjectController extends Controller
             });
         }
 
-        // Required-skill filters: the project must require ALL of the
-        // supplied skill ids (joined through the pivot table).
         if (! empty($filters['skill_ids'])) {
             $skillIds = $filters['skill_ids'];
 
@@ -136,10 +107,6 @@ class ProjectController extends Controller
             }
         }
 
-        // `id` is a tie-breaker: `created_at` has second precision, so projects
-        // created in the same second would otherwise come back in an arbitrary
-        // order and could be duplicated across pages or skipped entirely. The
-        // deterministic secondary sort is what makes pagination correct.
         $projects = $query->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate((int) ($filters['per_page'] ?? 50));
@@ -158,14 +125,6 @@ class ProjectController extends Controller
         ]);
     }
 
-    /**
-     * GET /api/v1/projects/{project}
-     *
-     * Returns the details of one project the authenticated learner is
-     * authorized to see. The SAME access/availability rules as the
-     * catalog are applied here (never weaker), so a learner cannot
-     * bypass catalog restrictions by supplying a project ID directly.
-     */
     public function show(Request $request, int $project): JsonResponse
     {
         $requestId = (string) ($request->header('X-Request-ID') ?: Str::uuid());
@@ -200,10 +159,6 @@ class ProjectController extends Controller
             );
         }
 
-        // US-MATCH-02 — per-learner details. Both blocks are produced by
-        // EXISTING services (eligibility + the capacity policy); neither rule is
-        // re-implemented here. They are attached only on the details endpoint,
-        // so the catalog list does not run one eligibility check per project.
         $resource = new ProjectResource($accessibleProject);
 
         $eligibility = $this->eligibilityService->check($accessibleProject, $user);
@@ -231,13 +186,6 @@ class ProjectController extends Controller
         ]);
     }
 
-    /**
-     * Retrieve a project that the authenticated learner is authorized to
-     * view AND that satisfies availability rules. The query enforces the
-     * same catalog-level restrictions (status, deadline, end_date,
-     * confidentiality) so a learner cannot bypass access by supplying
-     * a project ID directly.
-     */
     private function getSecureAccessibleProject(int $projectId, $user): ?Project
     {
         $organizationIds = $this->accessService->activeOrganizationIds($user);
@@ -253,18 +201,6 @@ class ProjectController extends Controller
         return $project;
     }
 
-    /**
-     * Reusable base query enforcing the project catalog access rules.
-     *
-     * Delegates to ProjectAccessService so that discovery, project details and
-     * the recommendation list can never drift apart. The membership lookup
-     * that used to live here ignored `organization_members.status`, letting a
-     * removed or merely invited member see an organization's restricted
-     * projects — see ProjectAccessService for the full note.
-     *
-     * @param  list<int>  $organizationIds  the learner's ACTIVE memberships
-     * @param  array<int, string>  $with
-     */
     private function accessibleProjectsQuery(array $organizationIds, array $with = []): Builder
     {
         return $this->accessService->accessibleProjectsQuery($organizationIds, $with);
@@ -275,13 +211,6 @@ class ProjectController extends Controller
         return '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($term)).'%';
     }
 
-    /**
-     * Validate the supported project-catalog filter query parameters.
-     * Returns the validated array on success, or a JsonResponse with the
-     * standard project VALIDATION_ERROR contract on failure.
-     *
-     * @return array<string, mixed>|JsonResponse
-     */
     private function validatedFilters(Request $request, string $requestId): array|JsonResponse
     {
         $validator = validator($request->query(), [
@@ -289,10 +218,6 @@ class ProjectController extends Controller
             'type' => ['nullable', 'string', 'in:simulation,company_sponsored'],
             'domain' => ['nullable', 'string', 'max:100'],
             'work_mode' => ['nullable', 'string', 'max:50'],
-            // Free text on purpose: `projects.role` is a free-text column and
-            // `project_roles.title` is free text too, so an `in:` whitelist
-            // would reject role titles that legitimately exist. An unmatched
-            // value simply returns an empty page, exactly like `domain`.
             'role' => ['nullable', 'string', 'max:100'],
             'difficulty' => ['nullable', 'numeric', 'min:0', 'max:5'],
             'organization_id' => ['nullable', 'integer', 'gt:0', 'exists:organizations,id'],
@@ -315,10 +240,6 @@ class ProjectController extends Controller
 
         $filters = $validator->validated();
 
-        // `minimum_level` is the per-skill floor for the required-skills filter,
-        // so it is meaningless without `skill_ids`. It used to be silently
-        // ignored, so a caller could believe a filter was applied and receive
-        // unfiltered results. Reject it explicitly instead.
         $hasMinimumLevel = array_key_exists('minimum_level', $filters) && $filters['minimum_level'] !== null;
         $hasSkillIds = ! empty($filters['skill_ids']);
 
@@ -332,11 +253,6 @@ class ProjectController extends Controller
             );
         }
 
-        // `skill_ids` is a SET of required skills. Duplicates used to break the
-        // "requires ALL of these skills" count: the whereHas operator used
-        // count($skillIds) while the pivot can only match distinct skills, so
-        // `skill_ids[]=1&skill_ids[]=1` returned no projects at all. Collapse
-        // to distinct ids so a repeated id simply means "skill 1".
         if ($hasSkillIds) {
             $filters['skill_ids'] = array_values(array_unique(array_map('intval', $filters['skill_ids'])));
         }

@@ -18,28 +18,8 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Throwable;
 
-/**
- * US-MATCH-02 — project application endpoints.
- *
- * Thin controller, same convention as ProjectController /
- * ProjectMatchingController: validation in a FormRequest, orchestration in
- * ApplicationService, presentation in ApplicationResource, and every failure
- * mapped onto the shared `code` / `message` / `request_id` envelope.
- *
- * AUTHORIZATION SPLIT
- * -------------------
- * - Learner endpoints (submit, list own, withdraw) rely on the route's
- *   `role:learner` middleware for the role, and on ApplicationService for the
- *   ownership of a specific application.
- * - Owner endpoints (list a project's applications, decide) are NOT
- *   role-gated, because a project owner is any authenticated user. They are
- *   authorized by explicit ownership inside the service, which is stronger than
- *   a role check — a learner-role owner still passes, and a non-owner never
- *   does.
- */
 class ApplicationController extends Controller
 {
-    // Same pagination contract as RecommendationController.
     private const DEFAULT_PER_PAGE = 15;
 
     private const MAX_PER_PAGE = 100;
@@ -48,9 +28,6 @@ class ApplicationController extends Controller
         private readonly ApplicationService $applicationService,
     ) {}
 
-    /**
-     * POST /api/v1/projects/{project}/applications
-     */
     public function store(StoreApplicationRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -88,10 +65,6 @@ class ApplicationController extends Controller
                 $request->userAgent(),
             );
 
-            // A replay of an idempotency key returns the ORIGINAL row, so it
-            // must answer 200 rather than claiming a second resource was
-            // created. wasRecentlyCreated is the framework's own signal for
-            // "this instance came from an insert".
             $created = $application->wasRecentlyCreated;
 
             return (new ApplicationResource($application->load(['project.organization:id,name', 'projectRole'])))
@@ -112,9 +85,6 @@ class ApplicationController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/applications — the learner's own applications.
-     */
     public function index(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -147,9 +117,6 @@ class ApplicationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * GET /api/v1/projects/{project}/applications — the project owner's view.
-     */
     public function indexForProject(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -186,9 +153,6 @@ class ApplicationController extends Controller
         ], 200, ['X-Request-ID' => $requestId]);
     }
 
-    /**
-     * POST /api/v1/applications/{application}/withdraw
-     */
     public function withdraw(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -226,12 +190,6 @@ class ApplicationController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    /**
-     * PATCH /api/v1/projects/{project}/applications/{application}
-     *
-     * The project owner's decision. `status` must be one of the transitions the
-     * Application model allows from the current state.
-     */
     public function decide(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -244,8 +202,6 @@ class ApplicationController extends Controller
 
         $projectId = (int) $request->route('project');
 
-        // The application must actually belong to the project in the URL, so a
-        // mismatched pair cannot be used to decide an unrelated application.
         if ((int) $application->project_id !== $projectId) {
             return $this->errorResponse(
                 'APPLICATION_PROJECT_MISMATCH',
@@ -259,17 +215,6 @@ class ApplicationController extends Controller
         return $this->applyDecision($request, $application, $requestId);
     }
 
-    /**
-     * POST /api/v1/applications/{application}/decision
-     *
-     * The same decision, addressed by the application alone. Clients that hold
-     * only an application id — from a notification, a shortlist screen, or a
-     * previous decision response — should not have to remember which project it
-     * belongs to. Ownership is still proved inside ApplicationService against
-     * the application's own project, so dropping the project from the URL
-     * removes no protection: it only removes a redundant parameter that a
-     * client could get wrong.
-     */
     public function decideForApplication(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -283,10 +228,6 @@ class ApplicationController extends Controller
         return $this->applyDecision($request, $application, $requestId);
     }
 
-    /**
-     * The shared body of both decision routes: validate the target status and
-     * hand off to ApplicationService, which owns the transition rules.
-     */
     private function applyDecision(Request $request, Application $application, string $requestId): JsonResponse
     {
         $validator = validator($request->all(), [
@@ -336,14 +277,6 @@ class ApplicationController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    /**
-     * GET /api/v1/applications/{application}
-     *
-     * One application, addressed by its own id. Until this existed the only
-     * ways to read an application were the learner's own list and the project
-     * owner's list, so a client holding an id (from a notification, a decision
-     * response, or a team screen) had to fetch a whole page and filter it.
-     */
     public function show(Request $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -373,14 +306,6 @@ class ApplicationController extends Controller
             ->header('X-Request-ID', $requestId);
     }
 
-    // -----------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------
-
-    /**
-     * Resolve the {application} route parameter, returning the standard 404
-     * envelope rather than Laravel's default one (which carries no `code`).
-     */
     private function resolveApplication(Request $request): Application|JsonResponse
     {
         $applicationId = (int) $request->route('application');
@@ -400,10 +325,6 @@ class ApplicationController extends Controller
         return $application;
     }
 
-    /**
-     * Clamp the requested page size so a caller cannot ask for an unbounded
-     * result set. Mirrors RecommendationController::perPage().
-     */
     private function perPage(Request $request): int
     {
         $requested = (int) $request->query('per_page', self::DEFAULT_PER_PAGE);
@@ -415,9 +336,6 @@ class ApplicationController extends Controller
         return min($requested, self::MAX_PER_PAGE);
     }
 
-    /**
-     * The standard pagination block, matching the existing list endpoints.
-     */
     private function meta(LengthAwarePaginator $paginator): array
     {
         return [
@@ -428,9 +346,6 @@ class ApplicationController extends Controller
         ];
     }
 
-    /**
-     * @return array<int, string>
-     */
     private function allStatuses(): array
     {
         return [

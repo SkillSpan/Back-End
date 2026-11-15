@@ -6,10 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * US-INT-01 — validated FastAPI skill-gap output for one (decision, skill).
- * Append-only: recalculations create new decisions and new rows.
- */
 class SkillGapResult extends Model
 {
     use HasFactory;

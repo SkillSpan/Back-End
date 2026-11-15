@@ -17,15 +17,6 @@ use PDOException;
 use RuntimeException;
 use Tests\TestCase;
 
-/**
- * STEP 14 — logging must never become a copy of the data it is describing.
- *
- * The trap this file pins down: `Illuminate\Database\QueryException` builds its
- * message with `Str::replaceArray('?', $bindings, $sql)`, so the bound values
- * are substituted back into the SQL, and the PDO message in front of it echoes
- * the offending value as well. Logging `$e->getMessage()` on a database failure
- * therefore writes row data (emails, message bodies, hashes) into laravel.log.
- */
 class SensitiveDataLoggingTest extends TestCase
 {
     use RefreshDatabase;
@@ -34,10 +25,6 @@ class SensitiveDataLoggingTest extends TestCase
 
     public function test_the_raw_query_exception_message_really_does_leak_bound_values(): void
     {
-        // Evidence, not paranoia: this asserts the framework behaviour the
-        // whole step exists to defend against. If Laravel ever stops
-        // substituting bindings, this test fails loudly and the redaction can
-        // be reconsidered instead of silently over-engineering.
         try {
             DB::table('a_table_that_does_not_exist')
                 ->where('email', self::SECRET)
@@ -58,7 +45,6 @@ class SensitiveDataLoggingTest extends TestCase
         $reason = SafeLog::reason($this->leakyQueryException());
 
         $this->assertStringNotContainsString(self::SECRET, $reason);
-        // The part an operator actually needs is still there.
         $this->assertStringContainsString('insert into support_messages', $reason);
         $this->assertStringContainsString('QueryException', $reason);
         $this->assertStringContainsString('mysql', $reason);
@@ -66,9 +52,6 @@ class SensitiveDataLoggingTest extends TestCase
 
     public function test_safe_log_reason_leaves_application_exceptions_untouched(): void
     {
-        // Only driver-built messages are unsafe. Anything this application
-        // throws carries no bound data and must keep its full message, or the
-        // fix would blind every other failure.
         $this->assertSame(
             'Skill data is stale.',
             SafeLog::reason(new RuntimeException('Skill data is stale.')),
@@ -101,9 +84,6 @@ class SensitiveDataLoggingTest extends TestCase
     {
         Log::spy();
 
-        // The second door: an exception nobody caught, handled by the default
-        // reporter. The registered callback must redact it and suppress the
-        // framework's own (leaky) report — hence `once()`.
         app(ExceptionHandler::class)->report($this->leakyQueryException());
 
         Log::shouldHaveReceived('error')
@@ -113,10 +93,6 @@ class SensitiveDataLoggingTest extends TestCase
             ->once();
     }
 
-    /**
-     * A QueryException whose message embeds the bound value, exactly as the
-     * framework builds it — plus a PDO message that echoes it a second time.
-     */
     private function leakyQueryException(): QueryException
     {
         return new QueryException(

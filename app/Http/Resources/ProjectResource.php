@@ -5,33 +5,10 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/**
- * US-MATCH-02 — project presentation.
- *
- * The base field set is unchanged, so the catalog list, the recommendation
- * payload and every existing consumer keep the same contract.
- *
- * Three OPTIONAL blocks were added for the project-details endpoint:
- *
- *   - `duration_days`         — pure derivation from start_date/end_date.
- *   - `available_project_roles` — the active project_roles, present whenever the
- *                               relation is loaded.
- *   - `eligibility` / `capacity_state` — attached by the controller ONLY on the
- *                               details endpoint, because they are per-learner
- *                               and per-request: computing them for a 50-project
- *                               catalog page would run 50 eligibility checks.
- *
- * Nothing here decides eligibility or capacity. Both come from the existing
- * ProjectEligibilityService / ProjectCapacityPolicy, and both are omitted
- * (not defaulted to "true"/"available") when the controller has not computed
- * them — an absent block must never be read as a positive answer.
- */
 class ProjectResource extends JsonResource
 {
-    /** Per-learner eligibility, computed by the controller. Null = not computed. */
     public ?array $eligibility = null;
 
-    /** Capacity report from ProjectCapacityPolicy. Null = not computed. */
     public ?array $capacityState = null;
 
     public function toArray(Request $request): array
@@ -48,9 +25,6 @@ class ProjectResource extends JsonResource
             'learning_outcomes' => $project->learning_outcomes,
             'difficulty' => $project->difficulty,
             'work_mode' => $project->work_mode,
-            // US-MATCH-DATA-03 — `career_role_id` is the authoritative link;
-            // `role` is kept (derived from the career role title) so existing
-            // consumers and the matching contract do not change.
             'career_role_id' => $project->career_role_id,
             'career_role' => $this->whenLoaded('careerRole', fn () => $project->careerRole === null ? null : [
                 'id' => $project->careerRole->id,
@@ -69,9 +43,6 @@ class ProjectResource extends JsonResource
             'status' => $project->status,
             'confidentiality' => $project->confidentiality,
             'version' => $project->version,
-            // `organizations` has no `title` column — the display name lives in
-            // `name`. The JSON key stays `title` so the response contract is
-            // unchanged; only the column it is read from is corrected.
             'organization' => $this->whenLoaded('organization', fn () => [
                 'id' => $project->organization->id,
                 'title' => $project->organization->name,
@@ -79,9 +50,6 @@ class ProjectResource extends JsonResource
             'required_skills' => $this->whenLoaded('requiredSkills', fn () => $project->requiredSkills->map(fn ($rs) => [
                 'skill_id' => $rs->skill_id,
                 'skill_name' => $rs->skill?->name,
-                // `minimum_level` is the existing contract key; the canonical
-                // `minimum_required_level` is exposed alongside it. Both read
-                // the same decimal(3,2) column, so they can never diverge.
                 'minimum_level' => (float) $rs->minimum_level,
                 'minimum_required_level' => (float) $rs->minimum_level,
                 'is_critical_entry' => (bool) $rs->is_critical_entry,
@@ -101,10 +69,6 @@ class ProjectResource extends JsonResource
         ];
     }
 
-    /**
-     * Whole days between start_date and end_date, or null when either is
-     * missing. Derived from the stored dates — no duration policy is invented.
-     */
     private function durationDays(): ?int
     {
         $project = $this->resource;

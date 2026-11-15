@@ -24,18 +24,13 @@ FRONT = os.environ.get(
 
 LITERAL = re.compile(r"""(['"`])(/api/v1/[^'"`\n]*?)\1""")
 
-# A literal that is only a path *prefix* (`path.startsWith('/api/v1/company')`)
-# or that sits in a comment is not a request. Treating them as requests reports
-# phantom missing routes.
 NOT_A_CALL = re.compile(r"startsWith\(|^\s*(//|\*|/\*)")
-
 
 def is_call(text: str, match: re.Match[str]) -> bool:
     line_start = text.rfind("\n", 0, match.start()) + 1
     line_end = text.find("\n", match.end())
     line = text[line_start: line_end if line_end != -1 else len(text)]
     return NOT_A_CALL.search(line) is None
-
 
 def backend_routes() -> set[str]:
     out = subprocess.run(
@@ -52,19 +47,14 @@ def backend_routes() -> set[str]:
             paths.add(normalise("/" + uri))
     return paths
 
-
 def normalise(path: str) -> str:
     path = path.split("?")[0]
     path = re.sub(r"\{[^}]*\}", "{}", path)
-    # A fixture's literal id (`/projects/7/clone`, `/talent/L9`) is the same
-    # route as `/projects/{}/clone`; comparing literals would report every test
-    # fixture as a missing route.
     segments = [
         "{}" if re.fullmatch(r"\d+|[A-Za-z]\d+", segment) else segment
         for segment in path.split("/")
     ]
     return "/".join(segments).rstrip("/")
-
 
 def resolve_templates(raw: str) -> str:
     """`/a/${id}/b` -> `/a/{}/b`; `/a${qs}` -> `/a`."""
@@ -89,7 +79,6 @@ def resolve_templates(raw: str) -> str:
         index += 1
     return out
 
-
 def frontend_paths() -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for base, _, files in os.walk(FRONT):
@@ -107,14 +96,11 @@ def frontend_paths() -> dict[str, set[str]]:
                 found.setdefault(path, set()).add(name)
     return found
 
-
 def main() -> None:
     backend = backend_routes()
     frontend = frontend_paths()
 
     missing = {p: f for p, f in frontend.items() if p not in backend}
-    # A literal that is a strict prefix of a real route is a concatenation base
-    # (`BASE + '/projects'`), not a request of its own.
     prefixes = {p: f for p, f in missing.items() if any(r.startswith(p + "/") for r in backend)}
     missing = {p: f for p, f in missing.items() if p not in prefixes}
 
@@ -129,7 +115,6 @@ def main() -> None:
     print(f"MISSING ({len(missing)}):")
     for path in sorted(missing):
         print(f"  {path:55s} <- {', '.join(sorted(missing[path])[:3])}")
-
 
 if __name__ == "__main__":
     main()

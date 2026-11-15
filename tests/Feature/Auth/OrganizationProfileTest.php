@@ -9,14 +9,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * GET /api/v1/organization/profile — self-service endpoint behind
- * 'auth:sanctum' + 'organization.approved'. Complements
- * OrganizationApprovalTest (which proves pending/rejected orgs are
- * blocked at the middleware layer) by asserting what a VERIFIED org
- * actually receives, plus the graceful handling of accounts that have
- * no organization at all.
- */
 class OrganizationProfileTest extends TestCase
 {
     use RefreshDatabase;
@@ -73,11 +65,6 @@ class OrganizationProfileTest extends TestCase
             ->assertJsonPath('data.city', 'Nablus');
     }
 
-    /**
-     * The middleware only gates accounts WITH an organization; an account
-     * without one passes straight through to the controller. It must get
-     * a clean 403 JSON response there — not a fatal null-pointer 500.
-     */
     public function test_account_without_any_organization_gets_a_clean_403(): void
     {
         Sanctum::actingAs($this->user());

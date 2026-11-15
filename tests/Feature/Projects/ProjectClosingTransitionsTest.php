@@ -13,15 +13,6 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The company's own closing moves: reopen, revise, complete, cancel, archive.
- *
- * These were the four buttons the project screen offered with nothing behind
- * them. Each one is tested from the states it is meant for, and — more
- * importantly — from the states it is NOT meant for, because "a company can
- * retire its own live project" must not turn into "a company can rewrite a
- * finished one".
- */
 class ProjectClosingTransitionsTest extends TestCase
 {
     use RefreshDatabase;
@@ -98,10 +89,6 @@ class ProjectClosingTransitionsTest extends TestCase
         return $this->postJson("/api/v1/projects/{$project->id}/transitions", array_merge(['to' => $to], $body));
     }
 
-    // -----------------------------------------------------------------
-    // reopen: selection → open
-    // -----------------------------------------------------------------
-
     public function test_a_project_can_go_back_to_open_and_keep_its_team(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -116,10 +103,6 @@ class ProjectClosingTransitionsTest extends TestCase
         $this->assertSame(Project::STATUS_OPEN, $project->fresh()->status);
     }
 
-    // -----------------------------------------------------------------
-    // revise: rejected → draft
-    // -----------------------------------------------------------------
-
     public function test_a_rejected_project_can_be_reworked_into_a_new_draft_version(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -130,13 +113,8 @@ class ProjectClosingTransitionsTest extends TestCase
         $this->move($project, Project::STATUS_DRAFT)
             ->assertOk()
             ->assertJsonPath('data.status', Project::STATUS_DRAFT)
-            // A new version: the reviewer's decision applied to the previous one.
             ->assertJsonPath('data.version', 4);
     }
-
-    // -----------------------------------------------------------------
-    // complete: active → completed
-    // -----------------------------------------------------------------
 
     public function test_a_running_project_can_be_completed(): void
     {
@@ -161,10 +139,6 @@ class ProjectClosingTransitionsTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
     }
-
-    // -----------------------------------------------------------------
-    // cancel: a live project the company owns
-    // -----------------------------------------------------------------
 
     public function test_the_company_can_cancel_its_own_open_project(): void
     {
@@ -194,8 +168,6 @@ class ProjectClosingTransitionsTest extends TestCase
 
         $this->move($project, Project::STATUS_CANCELLED)->assertOk();
 
-        // A pending application to a project that no longer exists is noise in
-        // the applicant's list.
         $this->assertSame(Application::STATUS_WITHDRAWN, $application->fresh()->status);
     }
 
@@ -206,8 +178,6 @@ class ProjectClosingTransitionsTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // The admin route may retire a draft; the owner's own cancel is for a
-        // project that is already in front of people.
         $this->move($project, Project::STATUS_CANCELLED)
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
@@ -221,19 +191,12 @@ class ProjectClosingTransitionsTest extends TestCase
 
         Sanctum::actingAs($other);
 
-        // `PROJECT_NOT_OWNED`, not `PROJECT_FORBIDDEN`: the codebase already
-        // answers with this one everywhere else a project is managed by
-        // somebody who does not own it, and the OpenAPI document promises it.
         $this->move($project, Project::STATUS_CANCELLED)
             ->assertStatus(403)
             ->assertJsonPath('code', 'PROJECT_NOT_OWNED');
 
         $this->assertSame(Project::STATUS_OPEN, $project->fresh()->status);
     }
-
-    // -----------------------------------------------------------------
-    // archive: the three finished states
-    // -----------------------------------------------------------------
 
     public function test_completed_cancelled_and_rejected_projects_can_be_archived(): void
     {
@@ -257,7 +220,6 @@ class ProjectClosingTransitionsTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // Archiving is not a way to skip the workflow: close it first.
         $this->move($project, Project::STATUS_ARCHIVED)
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');
@@ -277,10 +239,6 @@ class ProjectClosingTransitionsTest extends TestCase
         $this->assertSame([], $response->json('details.allowed_transitions'));
     }
 
-    // -----------------------------------------------------------------
-    // The set a client is told about
-    // -----------------------------------------------------------------
-
     public function test_the_allowed_transitions_name_every_new_move(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -288,7 +246,6 @@ class ProjectClosingTransitionsTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // An invalid target returns the executable set for the CURRENT state.
         $response = $this->move($project, Project::STATUS_DRAFT)
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_INVALID_TRANSITION');

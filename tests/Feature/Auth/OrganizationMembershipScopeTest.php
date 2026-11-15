@@ -10,17 +10,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Regression tests for the organization authorization scope.
- *
- * GET /api/v1/organization/profile used to resolve the organization it
- * returned with organizations()->first() while separately checking
- * whether the user administered *any* linked organization. The two
- * queries were not linked, so a user who administered organization B but
- * was only a plain member of organization A could read A's profile. The
- * pivot `status` was also ignored, so a membership marked 'removed' still
- * granted admin rights.
- */
 class OrganizationMembershipScopeTest extends TestCase
 {
     use RefreshDatabase;
@@ -62,7 +51,6 @@ class OrganizationMembershipScopeTest extends TestCase
         $orgA = $this->organization('Org A');
         $orgB = $this->organization('Org B');
 
-        // Plain member of A, administrator of B.
         OrganizationMember::forceCreate([
             'organization_id' => $orgA->id,
             'user_id' => $user->id,
@@ -80,12 +68,10 @@ class OrganizationMembershipScopeTest extends TestCase
 
         $response = $this->getJson('/api/v1/organization/profile');
 
-        // The endpoint must serve the organization they actually administer.
         $response->assertOk()
             ->assertJsonPath('data.id', $orgB->id)
             ->assertJsonPath('data.name', 'Org B');
 
-        // And must never disclose organization A's data.
         $this->assertNotSame($orgA->id, $response->json('data.id'));
         $this->assertNotSame('Org A', $response->json('data.name'));
     }
@@ -165,10 +151,6 @@ class OrganizationMembershipScopeTest extends TestCase
             ->assertJsonPath('data.id', $org->id);
     }
 
-    /**
-     * The approval middleware must consider every active membership, so an
-     * approved organization cannot be used to carry a pending one through.
-     */
     public function test_pending_membership_blocks_even_when_another_org_is_approved(): void
     {
         $user = $this->user();
@@ -195,10 +177,6 @@ class OrganizationMembershipScopeTest extends TestCase
             ->assertStatus(403);
     }
 
-    /**
-     * A 'removed' membership must not be able to gate the approval check
-     * either — it is ignored entirely.
-     */
     public function test_removed_membership_does_not_gate_the_approval_check(): void
     {
         $user = $this->user();

@@ -17,17 +17,6 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * Task 15 — full matching workflow integration.
- *
- * Exercises the whole chain in one place:
- *
- *   Laravel request → validated snapshot → (mocked) FastAPI
- *     → response validation → recommendation persistence → API response
- *     → retrieval / explanation read-back
- *
- * The FastAPI service is always mocked; no live service is required.
- */
 class ProjectMatchingWorkflowIntegrationTest extends TestCase
 {
     use RefreshDatabase;
@@ -55,8 +44,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             'activated_at' => now(),
         ]);
     }
-
-    // ------------------------------------------------------------ fixtures
 
     private function createLearner(string $email = 'workflow@test.com'): User
     {
@@ -108,10 +95,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         ], $attributes));
     }
 
-    /**
-     * A fake that echoes the identifiers it received back, so correlation is
-     * proven by the assertions rather than assumed.
-     */
     private function fakeFastApi(float $score = 74.0): void
     {
         Http::fake(function ($request) use ($score) {
@@ -149,8 +132,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         });
     }
 
-    // ---------------------------------------------- 1. happy-path full chain
-
     public function test_full_chain_matching_persists_and_is_readable_end_to_end(): void
     {
         $learner = $this->createLearner();
@@ -159,7 +140,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         $this->fakeFastApi(74.0);
         $project = $this->createProject();
 
-        // 1-2. Match request → snapshot → FastAPI → validation → response.
         $match = $this->postJson(sprintf(self::ENDPOINT, $project->id), [], [
             'X-Request-ID' => 'workflow-happy',
         ]);
@@ -170,14 +150,12 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             ->assertJsonPath('data.algorithm_version', 'project-matching-v1')
             ->assertJsonPath('data.configuration_version', 'project-matching-config-v1');
 
-        // The validated snapshot was captured.
         $this->assertDatabaseHas('project_matching_snapshots', [
             'project_id' => $project->id,
             'student_profile_id' => $learner->studentProfile->id,
             'status' => 'validated',
         ]);
 
-        // 3. The result was persisted against the learner.
         $this->assertDatabaseHas('recommendations', [
             'user_id' => $learner->id,
             'candidate_id' => $project->id,
@@ -186,13 +164,11 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             'configuration_version' => 'project-matching-config-v1',
         ]);
 
-        // 4. It is readable through the Task 11 list endpoint.
         $this->getJson('/api/v1/recommendations')
             ->assertStatus(200)
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.project_id', $project->id);
 
-        // 5. And through the Task 12 explanation endpoint.
         $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')
             ->assertStatus(200)
             ->assertJsonPath('data.project_id', $project->id)
@@ -200,8 +176,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             ->assertJsonPath('data.limiting_factors.0', 'Limited schedule overlap.')
             ->assertJsonPath('data.algorithm_version', 'project-matching-v1');
     }
-
-    // ------------------------------------------------- 6. determinism
 
     public function test_identical_inputs_produce_an_identical_persisted_result(): void
     {
@@ -224,7 +198,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             $second->json('data.configuration_version'),
         );
 
-        // 12. Repeated requests must not create duplicate recommendations.
         $this->assertDatabaseCount('recommendations', 1);
     }
 
@@ -241,11 +214,8 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         }
 
         $this->assertDatabaseCount('recommendations', 1);
-        // Task 8 snapshots stay append-only — one per request.
         $this->assertDatabaseCount('project_matching_snapshots', 5);
     }
-
-    // ------------------------------------------- 2. timeout / transport errors
 
     public function test_fastapi_timeout_is_handled_safely_without_persisting(): void
     {
@@ -262,7 +232,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             ->assertStatus(503)
             ->assertJsonPath('code', 'INTELLIGENCE_UNAVAILABLE');
 
-        // 11. No false success, and nothing persisted.
         $this->assertDatabaseCount('recommendations', 0);
     }
 
@@ -282,8 +251,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         $this->assertDatabaseCount('recommendations', 0);
     }
 
-    // ------------------------------------------------- 3. FastAPI HTTP 422
-
     public function test_fastapi_422_is_surfaced_and_persists_nothing(): void
     {
         $learner = $this->createLearner();
@@ -299,8 +266,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 0);
     }
-
-    // ------------------------------------- 4-5. invalid / incomplete responses
 
     public function test_invalid_response_structure_is_rejected_without_persisting(): void
     {
@@ -342,8 +307,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         Http::fake(function ($request) {
             $body = $request->data();
 
-            // request_id and versions echo correctly, but the recommendation
-            // block is missing entirely.
             return Http::response([
                 'request_id' => $body['request_id'],
                 'algorithm_version' => $body['algorithm_version'],
@@ -408,8 +371,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         $this->assertDatabaseCount('recommendations', 0);
     }
 
-    // --------------------------------------------- 8-9. persistence behaviour
-
     public function test_persistence_failure_produces_an_error_and_no_recommendation(): void
     {
         $learner = $this->createLearner();
@@ -423,7 +384,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
 
         $project = $this->createProject();
 
-        // 11. The failure must not be reported as a successful recommendation.
         $response = $this->postJson(sprintf(self::ENDPOINT, $project->id));
 
         $response->assertStatus(500)
@@ -431,8 +391,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 0);
     }
-
-    // ------------------------------------------------------ 7. version handling
 
     public function test_versions_come_from_the_snapshot_not_from_the_response(): void
     {
@@ -454,13 +412,8 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
         $this->assertSame($snapshot->project_version, $recommendation->project_version);
     }
 
-    // ------------------------------------------- 10. eligibility gate on the chain
-
     public function test_ineligible_learner_is_rejected_before_fastapi_and_persists_nothing(): void
     {
-        // Task 14 requirement: matching must not create a recommendation for an
-        // ineligible learner. Eligibility is enforced in the MATCHING flow
-        // (ProjectMatchingSnapshotService), not in project discovery.
         $learner = $this->createLearner();
         Sanctum::actingAs($learner);
 
@@ -477,17 +430,13 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
             'is_critical_entry' => true,
         ]);
 
-        // The learner has no Rust evaluation at all.
         $this->postJson(sprintf(self::ENDPOINT, $project->id))
             ->assertStatus(422)
             ->assertJsonPath('code', 'PROJECT_MATCH_INELIGIBLE');
 
         $this->assertDatabaseCount('recommendations', 0);
-        // The ineligible learner must be rejected before any upstream call.
         Http::assertNothingSent();
     }
-
-    // ------------------------------------------------- 10. isolation on the chain
 
     public function test_two_learners_matching_the_same_project_get_separate_recommendations(): void
     {
@@ -505,7 +454,6 @@ class ProjectMatchingWorkflowIntegrationTest extends TestCase
 
         $this->assertDatabaseCount('recommendations', 2);
 
-        // Each learner reads back only their own.
         Sanctum::actingAs($first);
         $this->getJson('/api/v1/recommendations')->assertJsonPath('meta.total', 1);
         $this->getJson('/api/v1/projects/'.$project->id.'/recommendation')->assertStatus(200);

@@ -10,31 +10,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* SkillSpan design tokens. This block is identical on every admin page
-       (each page is standalone, so it is repeated inline on purpose). */
+
     --cw-navy-950:#020720;
     --cw-navy-900:#060D2E;
     --cw-navy-800:#0D1A4A;
-    --cw-blue:#1667E0;          /* SkillSpan royal blue: the one accent */
+    --cw-blue:#1667E0;
     --cw-blue-700:#0F52BA;
     --cw-blue-100:#D0E3FA;
     --cw-blue-50:#E2EEFC;
-    --cw-gold:#F2B544;          /* used sparingly: nav counters, Free Track */
+    --cw-gold:#F2B544;
     --cw-gray:#5A6482;
     --cw-gray-bg:#EEF1F6;
     --cw-soft:#F7FAFE;
 
-    /* Sidebar: SkillSpan navy */
     --nav-bg:#060D2E;
     --nav-bg-soft:#0D1A4A;
     --nav-bg-hover:rgba(255,255,255,.05);
     --nav-ink:#E8EEFF;
     --nav-ink-soft:#AAB5D6;
     --nav-line:rgba(255,255,255,.07);
-    --accent:#3D8BFF;           /* active marker on navy */
+    --accent:#3D8BFF;
     --accent-soft:rgba(22,103,224,.18);
 
-    /* Content area: white cards on a cool light background */
     --paper:#F0F6FC;
     --paper-raised:#FFFFFF;
     --ink:#05103D;
@@ -43,8 +40,7 @@
     --line:#E4EBF5;
     --line-soft:#EEF2F8;
 
-    /* Actions + status palette (names kept so every page rule still resolves) */
-    --teal:#1667E0;             /* primary action, now SkillSpan blue */
+    --teal:#1667E0;
     --teal-deep:#0F52BA;
     --amber:#9A5B00;
     --amber-bg:#FFF3DF;
@@ -75,9 +71,6 @@
 
   .app{display:flex;min-height:100vh;}
 
-  /* ----------------------------------------------------------------
-   * Sidebar
-   * ---------------------------------------------------------------- */
   .sidebar{
     width:var(--sidebar-w);
     flex-shrink:0;
@@ -176,9 +169,6 @@
   .user-card .meta .nm{font-size:13.5px;color:#fff;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .user-card .meta .rl{font-size:11.5px;color:var(--nav-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  /* ----------------------------------------------------------------
-   * Main column
-   * ---------------------------------------------------------------- */
   .main{flex:1;min-width:0;display:flex;flex-direction:column;}
   .topbar{
     background:var(--paper-raised);
@@ -223,7 +213,6 @@
   .page-head h1{font-family:inherit;font-weight:600;font-size:30px;margin:0 0 6px;letter-spacing:-.015em;}
   .page-head p{margin:0;color:var(--ink-soft);font-size:14.5px;max-width:680px;}
 
-  /* Stats row — mirrors the dashboard cards in the screenshots */
   .stats{
     display:grid;
     grid-template-columns:repeat(4,1fr);
@@ -251,7 +240,6 @@
   .stat .body .val{font-family:inherit;font-size:24px;font-weight:600;line-height:1.1;margin-top:2px;}
   .stat .body .val.skeleton{color:var(--ink-faint);}
 
-  /* Filter tabs */
   .tabs{
     display:flex;gap:4px;margin-bottom:18px;
     border-bottom:1px solid var(--line);
@@ -359,7 +347,6 @@
   .empty-state{text-align:center;padding:60px 20px;color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-size:20px;color:var(--ink);margin-bottom:6px;}
 
-  /* Mobile: collapse the sidebar into a top bar */
   @media (max-width:880px){
     .sidebar{position:fixed;left:-260px;height:auto;z-index:30;transition:left .2s ease;}
     .sidebar.open{left:0;box-shadow:0 0 60px rgba(0,0,0,.4);}
@@ -373,24 +360,11 @@
     .topbar{padding:12px 16px;}
   }
 
-
-
-
-
-
-
-
-  /* ==================================================================
-   * SkillSpan design system layer
-   * Identical on every admin page. Visual only: it restyles the classes
-   * the page already uses and adds no behaviour.
-   * ================================================================== */
   body{font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
   ::placeholder{color:var(--ink-faint);}
   ::selection{background:var(--cw-blue-100);}
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-  /* Brand: the SkillSpan mark always sits on a light-blue tile */
   .brand .bolt{width:34px;height:34px;border-radius:10px;background:var(--cw-blue-50);color:var(--cw-blue);}
   .brand .name{font-family:inherit;font-weight:600;font-size:19px;letter-spacing:-.01em;}
   .sidebar .brand .name{color:#fff;}
@@ -398,7 +372,6 @@
   .shell .brand .name{color:var(--ink);}
   .shell .brand .name span{color:var(--cw-blue);}
 
-  /* Sidebar */
   .sidebar{background:var(--nav-bg);scrollbar-width:none;}
   .sidebar::-webkit-scrollbar{display:none;}
   .brand{border-bottom-color:var(--nav-line);}
@@ -418,7 +391,6 @@
   .user-card .avatar{background:var(--cw-blue);}
   .user-card .meta .rl{color:#8E9AC0;}
 
-  /* Top bar */
   .topbar{background:var(--paper-raised);border-bottom:1px solid var(--line);}
   .topbar .crumb{color:var(--ink-faint);}
   .topbar .crumb .cur{color:var(--ink);font-weight:600;}
@@ -427,12 +399,10 @@
   .logout-btn{border-radius:10px;color:var(--ink-soft);font-weight:500;}
   .logout-btn:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Page heading */
   .page-head h1{font-family:inherit;font-weight:600;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .page-head p{color:var(--ink-soft);font-size:14px;}
   .page-head p strong{color:var(--ink);font-weight:600;}
 
-  /* Cards, stats, panels */
   .card, .stat, .table-wrap, .filters{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .stat .glyph{border-radius:10px;}
   .stat .body .lbl{color:var(--ink-soft);}
@@ -442,7 +412,6 @@
   .empty-state{color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-weight:600;font-size:16px;color:var(--ink);}
 
-  /* Buttons: flat, solid colours */
   .btn-primary{background:var(--cw-blue);color:#fff;border-radius:10px;font-weight:600;box-shadow:none;}
   .btn-primary:hover{background:var(--cw-blue-700);}
   .btn-secondary{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;font-weight:500;}
@@ -454,28 +423,23 @@
   .row-btn:hover{border-color:var(--cw-blue);color:var(--cw-blue);background:var(--cw-blue-50);}
   .row-btn.danger:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Inputs */
   .field label, .filters label{color:var(--ink-soft);font-weight:500;}
   .field input, .field select, .field textarea, .filters input, .filters select{background:#fff;border:1px solid var(--line);border-radius:10px;color:var(--ink);}
   .field input:focus, .field select:focus, .field textarea:focus, .filters input:focus, .filters select:focus{outline:none;border-color:var(--cw-blue);background:#fff;box-shadow:0 0 0 3px rgba(22,103,224,.14);}
   .field.invalid input, .field.invalid select, .field.invalid textarea{border-color:var(--brick);background:var(--brick-bg);}
   input[type="checkbox"], input[type="radio"]{accent-color:var(--cw-blue);}
 
-  /* Tables */
   thead th{background:var(--cw-soft);color:#6B7593;font-size:11.5px;letter-spacing:.06em;border-bottom-color:var(--line);}
   tbody td{border-bottom-color:var(--line-soft);}
   tbody tr:hover{background:var(--cw-soft);}
 
-  /* Organization monograms: one calm tile instead of hashed colours */
   .card-top > .avatar{background:var(--cw-blue-50) !important;color:var(--cw-navy-800);font-family:inherit;font-weight:700;font-size:15px;letter-spacing:-.02em;border-radius:12px;}
 
-  /* Row actions stay reachable when a table scrolls sideways */
   .table-scroll td.actions-cell, .table-scroll thead th:last-child{position:sticky;right:0;z-index:1;}
   .table-scroll td.actions-cell{background:#fff;}
   .table-scroll thead th:last-child{background:var(--cw-soft);}
   .table-scroll tbody tr:hover td.actions-cell{background:var(--cw-soft);}
 
-  /* Tabs */
   .tabs{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .tabs button{color:var(--ink-soft);font-weight:500;}
   .tabs button:hover{color:var(--ink);}
@@ -483,7 +447,6 @@
   .tabs button .count{background:var(--cw-gray-bg);border-color:transparent;color:var(--cw-gray);font-weight:600;}
   .tabs button.active .count{background:var(--cw-blue);color:#fff;border-color:transparent;}
 
-  /* Status chips: one palette on every page */
   .pill{border-radius:999px;font-weight:600;font-size:12px;letter-spacing:0;}
   .pill.verified, .pill.approved, .pill.open, .pill.selection, .pill.active,
   .pill.completed, .pill.resolved, .pill.in-use{background:var(--sage-bg);color:var(--sage);}
@@ -494,23 +457,19 @@
   .pill.draft, .pill.archived, .pill.closed, .pill.inactive, .pill.unused{background:var(--cw-gray-bg);color:var(--cw-gray);}
   .pill.free{background:#FDF3DC;color:#8A5D00;}
 
-  /* Modals */
   .overlay{background:rgba(2,7,32,.5);}
   .modal{border-radius:var(--radius);box-shadow:0 24px 60px -12px rgba(2,7,32,.35);}
   .modal-head h2{font-family:inherit;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
   .modal-head .close:hover{background:var(--cw-gray-bg);color:var(--ink);}
 
-  /* Inner scrolling panels scroll without a visible scrollbar */
   .table-scroll, .queue-list, .thread-scroll, .modal-body, .picker-list, .overlay{scrollbar-width:none;-ms-overflow-style:none;}
   .table-scroll::-webkit-scrollbar, .queue-list::-webkit-scrollbar, .thread-scroll::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar, .picker-list::-webkit-scrollbar, .overlay::-webkit-scrollbar{display:none;}
 
-  /* Toasts */
   .toast{background:var(--cw-navy-900);color:#fff;border-radius:10px;}
   .toast.err{background:var(--brick);}
   .toast.ok{background:var(--sage);}
 
-  /* Small screens: the navy sidebar becomes a top strip so the pages stay reachable */
   @media (max-width:880px){
     .app{flex-direction:column;}
     .sidebar{position:sticky;top:0;left:0;width:100%;height:auto;z-index:40;box-shadow:none;
@@ -537,7 +496,6 @@
     .filters input, .filters select{width:100%;min-width:0;}
   }
 
-  /* SkillSpan wordmark (brand): Span in its brand gradient, as in the platform */
   .brand .bolt{display:none !important;}
   .brand .name{font-weight:600;letter-spacing:-.01em;}
   .brand .name span{background:linear-gradient(180deg,#0491AF 0%,#034076 100%);-webkit-background-clip:text;background-clip:text;color:transparent !important;-webkit-text-fill-color:transparent;}
@@ -546,7 +504,6 @@
 <body>
 <div class="app">
 
-  <!-- ============================= Sidebar ============================= -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="bolt" aria-hidden="true">
@@ -625,7 +582,6 @@
     @include('admin.partials.user-card')
   </aside>
 
-  <!-- ============================= Main ============================= -->
   <main class="main">
     <header class="topbar">
       <div class="crumb">
@@ -660,7 +616,6 @@
         <p>Review registrations from companies, universities and training partners before they join <strong>SkillSpan</strong>.</p>
       </header>
 
-      <!-- Stats -->
       <div class="stats" id="stats">
         <div class="stat">
           <div class="glyph total">
@@ -700,7 +655,6 @@
         </div>
       </div>
 
-      <!-- Filter tabs -->
       <div class="tabs" id="tabs">
         <button data-status="" class="active">All <span class="count" id="count-all">—</span></button>
         <button data-status="pending">Pending <span class="count" id="count-pending">—</span></button>
@@ -718,9 +672,6 @@
 </div>
 
 <script>
-// The page is protected by the admin session, so there is no token to paste:
-// the browser sends the session cookie automatically, and we send the CSRF
-// token along for any mutating request.
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
 let currentStatus = '';
@@ -767,8 +718,6 @@ async function api(path, options = {}) {
     },
   });
 
-  // 401 = no session, 419 = session/CSRF token has gone stale.
-  // Either way, send the user back to the sign-in page.
   if (res.status === 401 || res.status === 419) {
     window.location.href = '/admin/login';
     throw new Error('Your session has ended. Please sign in again.');
@@ -785,9 +734,6 @@ async function loadOrganizations(){
   const feed = document.getElementById('feed');
   setStatusLine('Loading organization requests…');
   try {
-    // Pull every org once (per_page=100 keeps the full set in a single page for
-    // the review queue) so the stats and the search both work client-side with
-    // no extra round-trips when the filter changes.
     const body = await api('/admin/api/organizations?per_page=100');
     allOrgs = body.data?.data || [];
 
@@ -896,7 +842,6 @@ async function toggleDetail(id){
   const detailEl = document.getElementById(`detail-${id}`);
   const isOpen = detailEl.classList.contains('open');
 
-  // Close any other open card — like a Facebook post, only one is open at a time.
   document.querySelectorAll('.detail.open').forEach(d => {
     d.classList.remove('open');
     const c = d.closest('.card');
@@ -924,12 +869,6 @@ async function toggleDetail(id){
 }
 
 function detailTemplate(org){
-  // A description that is null, undefined, or only whitespace all mean the
-  // same thing to a reviewer: nothing was written. Testing `org.description`
-  // for truthiness alone let a whitespace-only value through and rendered an
-  // empty paragraph — neither the description nor the "not provided" fallback,
-  // which reads like a rendering glitch. Trimming first keeps the two real
-  // cases (has a description / has none) distinguishable and exhaustive.
   const description = (org.description === null || org.description === undefined)
     ? ''
     : String(org.description).trim();
@@ -938,12 +877,6 @@ function detailTemplate(org){
     ? `<p class="desc">${escapeHtml(description)}</p>`
     : `<p class="desc empty">No description was provided for this organization.</p>`;
 
-  // Three distinct cases, each of which must look different:
-  //   1) no proof file was uploaded at all,
-  //   2) there is a row in the database but the file itself is missing from disk
-  //      (happened to us after every deploy),
-  //   3) the file is present and downloadable.
-  // Collapsing into two would make "missing" look like "none" and misstate the cause.
   const proof = !org.proof_file
     ? `<div class="proof-row"><span>No proof document has been uploaded.</span></div>`
     : (org.proof_file.available === false
@@ -959,15 +892,6 @@ function detailTemplate(org){
              </a>
            </div>`);
 
-  // Every organization detail the API returns is rendered here. The list
-  // used to show only email / phone / website / company size, so industry,
-  // country, city, address and postal code were fetched on every request and
-  // then thrown away — an organization could submit a full address and the
-  // reviewer had no way to see it before approving.
-  //
-  // Each row is omitted when its value is empty, so an organization that
-  // genuinely left a field blank does not render an empty label. `fact()`
-  // treats null, undefined and a whitespace-only string as "not provided".
   const fact = (label, value) => {
     const v = (value === null || value === undefined) ? '' : String(value).trim();
     return v ? `<div><span>${label}: </span><span>${escapeHtml(v)}</span></div>` : '';
@@ -1017,7 +941,6 @@ async function decide(id, action){
     });
     delete cache[id];
     setStatusLine(action === 'approve' ? 'Organization approved.' : 'Organization rejected.');
-    // Refresh the full list so stats and the active filter both reflect the change.
     loadOrganizations();
   } catch (e) {
     alert('Something went wrong: ' + e.message);

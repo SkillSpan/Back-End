@@ -16,22 +16,10 @@ use App\Models\SkillGapResult;
 use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * US-INT-01 §22/§28 — the roadmap half of the intelligence decision and
- * the `GET /api/v1/intelligence/latest` read model.
- *
- * The Roadmap v1 endpoint is published at POST /api/v1/roadmap, but
- * generation is feature-flagged off (DATA_SCIENCE_ROADMAP_ENABLED=false)
- * so enabling it is an explicit decision. These tests pin the two things
- * that matter: (1) a disabled flag must never fabricate a roadmap, and
- * must not disturb skill gaps / readiness; (2) when a roadmap IS
- * persisted, the latest endpoint must actually return it.
- */
 class IntelligenceLatestRoadmapTest extends TestCase
 {
     use RefreshDatabase;
@@ -55,12 +43,8 @@ class IntelligenceLatestRoadmapTest extends TestCase
         ]);
     }
 
-    // ------------------------------------------------ feature flag
-
     public function test_roadmap_is_not_generated_while_the_flag_is_disabled(): void
     {
-        // Default configuration: DATA_SCIENCE_ROADMAP_ENABLED is false, so
-        // roadmap generation is opt-in and never runs implicitly.
         $this->assertFalse((bool) config('services.data_science.roadmap_enabled'));
 
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -75,11 +59,8 @@ class IntelligenceLatestRoadmapTest extends TestCase
 
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201)
-            // A disabled roadmap is reported as "no roadmap", never as an
-            // empty or fabricated one.
             ->assertJsonPath('data.roadmap', null);
 
-        // No roadmap endpoint may be called while the flag is off.
         $this->assertSame(
             [],
             array_values(array_filter($urls, fn (string $url) => str_contains($url, 'roadmap'))),
@@ -89,7 +70,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         $this->assertSame(0, Roadmap::count());
         $this->assertSame(0, RoadmapAction::count());
 
-        // The disabled flag must not disturb the rest of the decision.
         $snapshot = DecisionSnapshot::where('student_profile_id', $profile->id)->first();
         $this->assertNotNull($snapshot);
         $this->assertSame(DecisionSnapshot::STATUS_SUCCEEDED, $snapshot->status);
@@ -110,8 +90,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.roadmap', null);
     }
-
-    // ------------------------------------------------ roadmap persistence
 
     public function test_generated_roadmap_is_returned_by_the_latest_endpoint(): void
     {
@@ -136,8 +114,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
 
         $response = $this->getJson('/api/v1/intelligence/latest?career_role_id='.$role->id)->assertOk();
 
-        // The roadmap linked to the latest successful decision must be
-        // returned — with its actions, not just its header row.
         $this->assertNotNull($response->json('data.roadmap'), 'the stored roadmap must be exposed by /intelligence/latest');
         $this->assertSame($roadmap->id, $response->json('data.roadmap.id'));
         $this->assertSame(2, count($response->json('data.roadmap.actions')));
@@ -169,15 +145,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         $this->assertSame(2, $response->json('data.roadmap.roadmap_version'));
     }
 
-    /**
-     * The legacy composite readiness flow (`POST /readiness/calculate`)
-     * writes its own SUCCEEDED decision snapshot, which carries readiness
-     * and skill-gap rows but never a roadmap. Because
-     * `GET /intelligence/latest` used to select the newest succeeded
-     * snapshot regardless of which flow produced it, a readiness
-     * calculation silently hid the intelligence roadmap that exists in the
-     * database — the roadmap was there, the endpoint reported null.
-     */
     public function test_a_readiness_calculation_does_not_hide_the_intelligence_roadmap(): void
     {
         config(['services.data_science.roadmap_enabled' => true]);
@@ -201,7 +168,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
             return Http::response(['detail' => 'unexpected endpoint'], 404);
         });
 
-        // 1. An intelligence decision WITH a roadmap.
         $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
@@ -209,13 +175,11 @@ class IntelligenceLatestRoadmapTest extends TestCase
         $roadmap = Roadmap::where('decision_snapshot_id', $intelligenceSnapshot->id)->first();
         $this->assertNotNull($roadmap);
 
-        // 2. A legacy readiness calculation for the same learner + role.
         $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
             ->assertStatus(201);
 
         $this->assertSame(2, DecisionSnapshot::where('status', DecisionSnapshot::STATUS_SUCCEEDED)->count());
 
-        // 3. The roadmap must still be reachable.
         $response = $this->getJson('/api/v1/intelligence/latest?career_role_id='.$role->id)->assertOk();
 
         $this->assertNotNull(
@@ -225,16 +189,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         $this->assertSame($roadmap->id, $response->json('data.roadmap.id'));
     }
 
-    /**
-     * The discriminator is written for BOTH flows at snapshot creation, not
-     * inferred at read time.
-     *
-     * `GET /intelligence/latest` selects on the `flow` column, and a NULL
-     * value is treated as intelligence (that is what every pre-column row
-     * was). A flow that failed to tag itself would therefore be misread as
-     * an intelligence decision — so the write side is pinned here directly,
-     * not only through the endpoint's behaviour.
-     */
     public function test_each_flow_tags_its_own_decision_snapshot(): void
     {
         [$user, $profile, $role, $roleSkills] = $this->createScenario();
@@ -259,8 +213,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         );
     }
 
-    // ------------------------------------------------ failure handling
-
     public function test_invalid_roadmap_response_does_not_persist_a_partial_decision(): void
     {
         config(['services.data_science.roadmap_enabled' => true]);
@@ -283,8 +235,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
             ->assertStatus(502)
             ->assertJsonPath('code', 'INTELLIGENCE_INVALID_RESPONSE');
 
-        // A decision is atomic: a failed roadmap must not leave a
-        // half-written "successful" result behind.
         $snapshot = DecisionSnapshot::where('student_profile_id', $profile->id)->first();
         $this->assertNotNull($snapshot);
         $this->assertSame(DecisionSnapshot::STATUS_FAILED, $snapshot->status);
@@ -319,8 +269,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         $this->assertSame(0, SkillGapResult::count());
         $this->assertSame(0, Roadmap::count());
     }
-
-    // ------------------------------------------------ helpers
 
     private function fakeCalculation($profile, $role, $roleSkills, bool $withRoadmap): void
     {
@@ -383,10 +331,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         ];
     }
 
-    /**
-     * The legacy readiness flow's Skill Match v1 contract, derived from the
-     * fixture so the validator's arithmetic checks hold.
-     */
     private function skillMatchResponse($profile, $role, $roleSkills): array
     {
         $weightTotal = (float) $roleSkills->sum('importance_weight');
@@ -459,8 +403,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
             'configuration_version' => 'roadmap-config-v1',
             'roadmap_version' => 1,
             'status' => 'active',
-            // Roadmap v1 totals + limitations. This learner has NO weekly
-            // availability, so a null calendar duration is valid.
             'estimated_total_hours' => 10.0,
             'estimated_duration_weeks' => null,
             'limitations' => [],
@@ -503,9 +445,6 @@ class IntelligenceLatestRoadmapTest extends TestCase
         ];
     }
 
-    /**
-     * @return array{0: User, 1: StudentProfile, 2: CareerRole, 3: Collection<int, CareerRoleSkill>}
-     */
     private function createScenario(): array
     {
         $user = User::forceCreate([

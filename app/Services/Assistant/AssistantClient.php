@@ -3,43 +3,14 @@
 namespace App\Services\Assistant;
 
 use App\Exceptions\AssistantException;
-use App\Services\Intelligence\IntelligenceClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * US-REC-01 — assistant service client.
- *
- * Transport for the FastAPI chatbot service at `E:\SkillSpan\chatbot`:
- *
- *     POST /chat   { user_id, message, context? }
- *              -> { reply, provider_used, timestamp, prompt_version }
- *     GET  /health -> { status, providers, auth_enabled, retrieval }
- *
- * Laravel is the ONLY permitted caller. The service requires a bearer token on
- * every /chat and allows no browser origins, so the frontend cannot reach it —
- * which is what makes the §12.5 gate below the single door rather than one of
- * two. A gate on one of two doors is not a gate.
- *
- * The transport mirrors {@see IntelligenceClient::post()} deliberately: the same
- * credential handling, the same X-Request-ID correlation, the same failure
- * taxonomy, and the same rule that nothing is ever fabricated. Two integrations
- * that both talk to FastAPI should not fail in two different vocabularies.
- *
- * ⚠️ `provider_used === null` is a SOFT failure, not a success. The service
- * returns HTTP 200 with a fallback message when every provider in its failover
- * chain fails, so the status code cannot distinguish "answered" from "nobody
- * answered". {@see AssistantService::ask()} branches on it.
- */
 class AssistantClient
 {
-    /**
-     * Configured request timeout in seconds. Declared, typed, and assigned
-     * exactly once in the constructor — never a dynamic property.
-     */
     private readonly int $timeout;
 
     public function __construct(
@@ -52,20 +23,6 @@ class AssistantClient
             : (int) config('services.assistant.timeout', 60);
     }
 
-    /**
-     * SRS v1.1 §12.5 — AI Assistant Boundaries:
-     *
-     *   "Sensitive data shall not be inserted into external AI services
-     *    without explicit technical and governance approval."
-     *
-     * Fails closed. The assistant stays disabled unless it is explicitly
-     * enabled AND a reference to the recorded approval is present. This
-     * mirrors the approved pattern the SRS already uses for collaborative
-     * signals (REC-06 / BR-REC-07): off by default, and not enableable
-     * without approval metadata.
-     *
-     * @throws AssistantException
-     */
     public function assertGovernanceApproval(): void
     {
         if (! config('services.assistant.enabled', false)) {
@@ -91,17 +48,6 @@ class AssistantClient
         }
     }
 
-    /**
-     * Ask the assistant service one question about an approved context snapshot.
-     *
-     * @param  string  $userId  The learner's identifier. The service logs it for
-     *                          correlation and never puts it in the prompt.
-     * @param  array<string, mixed>  $contextSnapshot  The approved snapshot from
-     *                                                 {@see AssistantContextBuilder::build()}.
-     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null, answer_status: string|null, grounded: bool}
-     *
-     * @throws AssistantException
-     */
     public function ask(
         string $userId,
         string $message,
@@ -109,26 +55,11 @@ class AssistantClient
         string $requestId,
         string $intent,
     ): array {
-        // §12.5 first — never reach the network without approval. The service
-        // asserts this too, so the transport cannot be reached without approval
-        // even when called directly.
         $this->assertGovernanceApproval();
 
-        // Both fail locally, before any network I/O, when misconfigured.
         $baseUrl = $this->resolvedBaseUrl();
         $token = $this->resolvedServiceToken();
 
-        /*
-         * The four fields the service's ChatRequest declares, and nothing else.
-         *
-         * `intent` is passed through rather than folded into `message`: Laravel
-         * has already validated it against the six-value §12.5 whitelist in
-         * AskAssistantRequest, so by the time it reaches here it is a value the
-         * service can key prompt selection off directly. Sending it as a
-         * separate field keeps the user's own words (`message`) intact in the
-         * audit trail and lets the service add intents without Laravel parsing
-         * prose to guess one.
-         */
         $payload = [
             'user_id' => $userId,
             'message' => $message,
@@ -187,13 +118,6 @@ class AssistantClient
         return $url;
     }
 
-    /**
-     * The dedicated service credential. Mandatory on every Laravel -> assistant
-     * request; never a learner Sanctum token. A missing token fails locally
-     * before any network I/O — the service is never called unauthenticated.
-     *
-     * @return non-empty-string
-     */
     private function resolvedServiceToken(): string
     {
         $token = $this->serviceToken ?? config('services.assistant.service_token');
@@ -209,16 +133,6 @@ class AssistantClient
         return trim($token);
     }
 
-    /**
-     * Render the approved snapshot as the `context` string the service expects.
-     *
-     * JSON rather than prose, deliberately. The snapshot is structured decision
-     * data, and a hand-written prose rendering would be a second, unreviewed
-     * description of the learner's record — exactly the kind of paraphrase
-     * REC-07 forbids. The label tells the model where the data starts.
-     *
-     * @param  array<string, mixed>  $snapshot
-     */
     private function serialiseContext(array $snapshot): string
     {
         $encoded = json_encode(
@@ -237,22 +151,12 @@ class AssistantClient
         return "SkillSpan learner context (authoritative stored values):\n".$encoded;
     }
 
-    /**
-     * @return array{reply: string, provider_used: string|null, prompt_version: string|null, timestamp: string|null, answer_status: string|null, grounded: bool}
-     */
     private function parseResponse(Response $response, string $requestId, float $startedAt): array
     {
         $status = $response->status();
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
 
         if ($status === 401 || $status === 403) {
-            /*
-             * The service rejected *our* credential, not the learner's. This is
-             * a deployment fault: ASSISTANT_SERVICE_TOKEN and the service's own
-             * SERVICE_TOKEN must be the same value. Surfacing it as a 503 rather
-             * than a 401 keeps the distinction honest — the learner's session is
-             * fine, the integration is misconfigured.
-             */
             $this->logFailure($requestId, $status, $startedAt, 'service rejected our credential');
 
             throw new AssistantException(
@@ -274,8 +178,6 @@ class AssistantClient
         }
 
         if ($status === 503) {
-            // The service reports 503 when its own SERVICE_TOKEN is unset, so
-            // every /chat is refused at the far end.
             $this->logFailure($requestId, $status, $startedAt, 'service not configured');
 
             throw new AssistantException(
@@ -308,8 +210,6 @@ class AssistantClient
 
         $data = $response->json();
 
-        // A 200 without a reply is not a usable answer, and treating it as one
-        // would hand the learner an empty string where an explanation belongs.
         if (! is_array($data) || ! isset($data['reply']) || ! is_string($data['reply'])) {
             $this->logFailure($requestId, $status, $startedAt, 'invalid JSON response');
 
@@ -330,24 +230,8 @@ class AssistantClient
             'prompt_version' => $data['prompt_version'] ?? null,
             'http_status' => $status,
             'duration_ms' => $durationMs,
-            // Deliberately no question, no reply and no context snapshot.
-            // §12.5 data minimisation applies to logs as much as to the database:
-            // a log line is still a copy of learner content on a third party's
-            // infrastructure.
         ]);
 
-        /*
-         * `status` is REQUIRED in the service's published AssistantChatResponse
-         * schema and is either 'answered' or 'insufficient_context'. It is the
-         * only machine-readable way to tell "the assistant could not answer"
-         * from "the assistant answered" — the reply is generated prose in the
-         * learner's own language, so it can never be string-matched. Dropping
-         * this field (as this method used to) makes the difference invisible and
-         * costs the learner the offer of a human.
-         *
-         * `grounded` is reported alongside it and means the reply was grounded
-         * in the service's documentation rather than improvised.
-         */
         $answerStatus = isset($data['status']) && is_string($data['status'])
             ? $data['status']
             : null;
@@ -373,15 +257,6 @@ class AssistantClient
         return is_array($data) ? $data : [];
     }
 
-    /**
-     * Structured failure logging with correlation data only — no secrets, no
-     * tokens, no question, no reply, no context snapshot.
-     *
-     * Note the deliberate absence of a `$payload` argument, unlike
-     * {@see IntelligenceClient::logFailure()}. That client logs identifiers from
-     * its payload for correlation; here the payload *is* the learner's record,
-     * so it must never reach a log line.
-     */
     private function logFailure(
         string $requestId,
         ?int $status,

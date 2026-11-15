@@ -4,11 +4,6 @@ namespace App\Traits;
 
 use App\Models\AuditEvent;
 
-/**
- * Provides a single audit-logging method for services that need to
- * record state transitions. Centralises the AuditEvent::create() call
- * so every service writes audit rows in the same shape.
- */
 trait AuditsActions
 {
     protected function audit(

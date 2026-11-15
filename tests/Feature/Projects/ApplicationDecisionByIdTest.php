@@ -12,15 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * `POST /api/v1/applications/{application}/decision` — the owner's decision,
- * addressed by the application alone.
- *
- * The path differs from the original PATCH, so the things worth pinning down
- * are: that it reaches the same service method, that dropping the project from
- * the URL does not weaken authorization, and that both routes stay in parity
- * on the error envelope.
- */
 class ApplicationDecisionByIdTest extends TestCase
 {
     use RefreshDatabase;
@@ -33,10 +24,6 @@ class ApplicationDecisionByIdTest extends TestCase
         Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(string $name = 'Test Org'): Organization
     {
@@ -109,10 +96,6 @@ class ApplicationDecisionByIdTest extends TestCase
         ]);
     }
 
-    // -----------------------------------------------------------------
-    // The happy path, for every decision value the API accepts
-    // -----------------------------------------------------------------
-
     public function test_the_owner_can_shortlist_by_application_id(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -177,10 +160,6 @@ class ApplicationDecisionByIdTest extends TestCase
             ->assertJsonPath('data.status', Application::STATUS_WAITLISTED);
     }
 
-    // -----------------------------------------------------------------
-    // Parity with the project-scoped route
-    // -----------------------------------------------------------------
-
     public function test_both_decision_routes_return_the_same_payload_shape(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -204,10 +183,6 @@ class ApplicationDecisionByIdTest extends TestCase
         $this->assertSame($scoped['message'], $direct['message']);
         $this->assertSame($scoped['data']['status'], $direct['data']['status']);
     }
-
-    // -----------------------------------------------------------------
-    // Authorization — unchanged by dropping the project from the URL
-    // -----------------------------------------------------------------
 
     public function test_another_organizations_owner_cannot_decide(): void
     {
@@ -262,10 +237,6 @@ class ApplicationDecisionByIdTest extends TestCase
         ])->assertStatus(401);
     }
 
-    // -----------------------------------------------------------------
-    // Envelope
-    // -----------------------------------------------------------------
-
     public function test_an_unknown_application_answers_404(): void
     {
         $owner = $this->user('owner@test.com', 'company_admin', $this->organization());
@@ -299,8 +270,6 @@ class ApplicationDecisionByIdTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        // `submitted` and `withdrawn` are real application states but not
-        // decisions an owner may make.
         foreach ([Application::STATUS_SUBMITTED, Application::STATUS_WITHDRAWN, 'shortlist'] as $bad) {
             $this->postJson("/api/v1/applications/{$application->id}/decision", ['status' => $bad])
                 ->assertStatus(422)

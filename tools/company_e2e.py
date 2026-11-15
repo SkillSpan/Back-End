@@ -29,7 +29,6 @@ LEARNER = ("e2e-learner@example.test", "Password123!")
 
 results: list[tuple[str, bool, str]] = []
 
-
 def http(method: str, path: str, token: str | None = None, body=None) -> tuple[int, dict]:
     cmd = [
         "curl", "-s", "-o", BODY_FILE, "-w", "%{http_code}", "--noproxy", "*",
@@ -49,11 +48,9 @@ def http(method: str, path: str, token: str | None = None, body=None) -> tuple[i
         payload = {}
     return int(status or 0), payload
 
-
 def record(name: str, ok: bool, note: str) -> None:
     results.append((name, ok, note))
     print(f"{'PASS' if ok else 'FAIL'}  {name:<46} {note}")
-
 
 def check(name: str, status: int, payload: dict, expect: tuple[int, ...], extra: str = "") -> bool:
     ok = status in expect
@@ -65,13 +62,11 @@ def check(name: str, status: int, payload: dict, expect: tuple[int, ...], extra:
     record(name, ok, detail)
     return ok
 
-
 def login(path: str, email: str, password: str) -> str:
     status, payload = http("POST", path, body={"email": email, "password": password})
     token = (payload.get("data") or {}).get("token") or payload.get("token") or ""
     check(f"login {email}", status, payload, (200,), f"token={'yes' if token else 'NO'}")
     return token
-
 
 def main() -> None:
     host = urlparse(BASE).hostname or ""
@@ -85,19 +80,15 @@ def main() -> None:
         print("\nno company token — stopping")
         return
 
-    # --- dashboard -------------------------------------------------------
     status, payload = http("GET", "/api/v1/company/dashboard", company)
     check("dashboard", status, payload, (200,))
 
     status, payload = http("GET", "/api/v1/organization/profile", company)
     check("organization profile", status, payload, (200,))
 
-    # --- reference data the project form needs ---------------------------
-    # Both of these used to block "add project": career-roles answered 403
-    # LEARNER_ONLY for a company and /rubrics did not exist at all.
     status, payload = http("GET", "/api/v1/career-roles", company)
     roles = payload.get("data")
-    if isinstance(roles, dict):          # paginated: {data: {data: [...], meta}}
+    if isinstance(roles, dict):
         roles = roles.get("data") or []
     roles = roles or []
     career_role_id = (roles[0] or {}).get("id") if roles else None
@@ -108,7 +99,6 @@ def main() -> None:
     rubric_id = (rubric_list[0] or {}).get("id") if rubric_list else None
     check("rubrics readable by company", status, payload, (200,), f"ids={[r.get('id') for r in rubric_list][:3]}")
 
-    # --- create a project ------------------------------------------------
     draft = {
         "type": "company_sponsored",
         "title": "E2E Frontend Project",
@@ -122,9 +112,6 @@ def main() -> None:
         "end_date": "2027-02-01",
         "application_deadline": "2026-11-20",
         "confidentiality": "public",
-        # A project cannot be submitted without at least one mapped skill and one
-        # project role (PROJECT_INCOMPLETE otherwise). Skill 10 is mapped to
-        # career role 1 in the seeded fixture.
         "required_skills": [{"skill_id": 10, "minimum_required_level": 2}],
         "roles": [{"title": "Frontend Developer", "description": "E2E role"}],
     }
@@ -132,10 +119,6 @@ def main() -> None:
         draft["rubric_id"] = rubric_id
     project_id = None
 
-    # A project's required skills must be mapped to the chosen career role, and
-    # not every seeded role has a mapping. A rejected create writes nothing, so
-    # trying the next role is safe — and it mirrors what the form does when the
-    # company picks a different role.
     tried = []
     status, payload = 0, {}
     for role in roles[:5]:
@@ -160,7 +143,6 @@ def main() -> None:
     status, payload = http("GET", f"/api/v1/company/projects/{project_id}", company)
     check("company project detail", status, payload, (200,))
 
-    # --- publish ---------------------------------------------------------
     status, payload = http("POST", f"/api/v1/projects/{project_id}/submit", company)
     check("submit project", status, payload, (200,), f"status={(payload.get('data') or {}).get('status')}")
 
@@ -172,7 +154,6 @@ def main() -> None:
         status, payload = http("POST", f"/api/v1/projects/{project_id}/open", admin)
     check("open project", status, payload, (200,), f"status={(payload.get('data') or {}).get('status')}")
 
-    # --- the learner applies --------------------------------------------
     status, payload = http("POST", f"/api/v1/projects/{project_id}/applications", learner, {})
     application_id = (payload.get("data") or {}).get("id")
     check("learner applies", status, payload, (200, 201), f"id={application_id}")
@@ -187,7 +168,6 @@ def main() -> None:
         status, payload = http("POST", f"/api/v1/applications/{application_id}/decision", company, {"status": "accepted"})
         check("accept application", status, payload, (200,), f"status={(payload.get('data') or {}).get('status')}")
 
-        # --- team --------------------------------------------------------
         status, payload = http("GET", f"/api/v1/projects/{project_id}/team", company)
         check("team view", status, payload, (200,))
 
@@ -206,11 +186,9 @@ def main() -> None:
         status, payload = http("POST", f"/api/v1/projects/{project_id}/transitions", company, {"to": "archived"})
         check("archive project", status, payload, (200,), f"status={(payload.get('data') or {}).get('status')}")
 
-    # --- clone -----------------------------------------------------------
     status, payload = http("POST", f"/api/v1/projects/{project_id}/clone", company, {"title": "E2E Clone"})
     check("clone project", status, payload, (200, 201), f"id={(payload.get('data') or {}).get('id')}")
 
-    # --- talent ----------------------------------------------------------
     status, payload = http("GET", "/api/v1/talent?per_page=5", company)
     check("talent search", status, payload, (200,))
     rows = payload.get("data") or []
@@ -257,20 +235,17 @@ def main() -> None:
     status, payload = http("GET", "/api/v1/talent/funnel", company)
     check("talent funnel", status, payload, (200,), json.dumps(payload.get("data"))[:60])
 
-    # --- notifications ---------------------------------------------------
     status, payload = http("GET", "/api/v1/notifications", company)
     check("notifications", status, payload, (200,))
     status, payload = http("GET", "/api/v1/notifications/unread-count", company)
     check("unread count", status, payload, (200,))
 
-    # --- summary ---------------------------------------------------------
     passed = sum(1 for _, ok, _ in results if ok)
     print()
     print(f"steps: {len(results)}  passed: {passed}  failed: {len(results) - passed}")
     for name, ok, note in results:
         if not ok:
             print(f"  FAILED  {name}: {note}")
-
 
 if __name__ == "__main__":
     args = sys.argv[1:]

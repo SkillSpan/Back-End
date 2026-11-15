@@ -67,10 +67,6 @@ class ProjectMatchingPayloadBuilder
             ];
         }
 
-        // Interests live in the learner block of the snapshot, alongside the
-        // other learner-owned attributes (availability, preferred_work_type).
-        // This used to read a top-level `$data['interests']`, which the
-        // snapshot service never wrote — so interests were always dropped.
         if (isset($learner['interests']) && $learner['interests'] !== null) {
             $context['interests'] = $learner['interests'];
         }

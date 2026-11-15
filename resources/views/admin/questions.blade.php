@@ -10,31 +10,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* SkillSpan design tokens. This block is identical on every admin page
-       (each page is standalone, so it is repeated inline on purpose). */
+
     --cw-navy-950:#020720;
     --cw-navy-900:#060D2E;
     --cw-navy-800:#0D1A4A;
-    --cw-blue:#1667E0;          /* SkillSpan royal blue: the one accent */
+    --cw-blue:#1667E0;
     --cw-blue-700:#0F52BA;
     --cw-blue-100:#D0E3FA;
     --cw-blue-50:#E2EEFC;
-    --cw-gold:#F2B544;          /* used sparingly: nav counters, Free Track */
+    --cw-gold:#F2B544;
     --cw-gray:#5A6482;
     --cw-gray-bg:#EEF1F6;
     --cw-soft:#F7FAFE;
 
-    /* Sidebar: SkillSpan navy */
     --nav-bg:#060D2E;
     --nav-bg-soft:#0D1A4A;
     --nav-bg-hover:rgba(255,255,255,.05);
     --nav-ink:#E8EEFF;
     --nav-ink-soft:#AAB5D6;
     --nav-line:rgba(255,255,255,.07);
-    --accent:#3D8BFF;           /* active marker on navy */
+    --accent:#3D8BFF;
     --accent-soft:rgba(22,103,224,.18);
 
-    /* Content area: white cards on a cool light background */
     --paper:#F0F6FC;
     --paper-raised:#FFFFFF;
     --ink:#05103D;
@@ -43,8 +40,7 @@
     --line:#E4EBF5;
     --line-soft:#EEF2F8;
 
-    /* Actions + status palette (names kept so every page rule still resolves) */
-    --teal:#1667E0;             /* primary action, now SkillSpan blue */
+    --teal:#1667E0;
     --teal-deep:#0F52BA;
     --amber:#9A5B00;
     --amber-bg:#FFF3DF;
@@ -75,9 +71,6 @@
 
   .app{display:flex;min-height:100vh;}
 
-  /* ----------------------------------------------------------------
-   * Sidebar — identical to the rest of the panel
-   * ---------------------------------------------------------------- */
   .sidebar{
     width:var(--sidebar-w);
     flex-shrink:0;
@@ -144,9 +137,6 @@
   .user-card .meta .nm{font-size:13.5px;color:#fff;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .user-card .meta .rl{font-size:11.5px;color:var(--nav-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  /* ----------------------------------------------------------------
-   * Main column
-   * ---------------------------------------------------------------- */
   .main{flex:1;min-width:0;display:flex;flex-direction:column;}
   .topbar{
     background:var(--paper-raised);
@@ -190,7 +180,6 @@
   .btn-primary:hover{background:var(--teal-deep);}
   .btn-primary:disabled{opacity:.5;cursor:default;}
 
-  /* Filter bar */
   .filters{
     background:var(--paper-raised);border:1px solid var(--line);
     border-radius:11px;padding:14px 16px;margin-bottom:14px;
@@ -209,7 +198,6 @@
   }
   .filters .btn-ghost:hover{border-color:var(--teal);color:var(--teal-deep);}
 
-  /* The selected chain, rendered as a breadcrumb of pills */
   .chain{
     display:flex;align-items:center;gap:8px;flex-wrap:wrap;
     font-size:13px;color:var(--ink-soft);margin:0 0 16px;min-height:26px;
@@ -225,7 +213,6 @@
   #status-line.err{color:var(--brick);}
   #status-line.ok{color:var(--sage);}
 
-  /* Table */
   .table-wrap{
     background:var(--paper-raised);border:1px solid var(--line);
     border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
@@ -261,7 +248,6 @@
   .row-btn:hover{border-color:var(--teal);color:var(--teal-deep);}
   .row-btn.danger:hover{border-color:var(--brick);color:var(--brick);}
 
-  /* Pagination */
   .pager{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap;}
   .pager .info{font-size:13px;color:var(--ink-soft);}
   .pager .pages{display:flex;gap:6px;align-items:center;}
@@ -277,7 +263,6 @@
   .empty-state .big{font-family:inherit;font-size:20px;color:var(--ink);margin-bottom:6px;}
   .empty-state .hint{font-size:13.5px;}
 
-  /* Modal */
   .overlay{
     position:fixed;inset:0;background:rgba(2,7,32,.45);
     display:none;align-items:flex-start;justify-content:center;
@@ -336,7 +321,6 @@
   }
   .section-title:first-child{margin-top:0;}
 
-  /* Option editor rows */
   .opt-row{display:flex;gap:10px;align-items:center;margin-bottom:8px;}
   .opt-row input{flex:1;}
   .opt-row .idx{
@@ -347,7 +331,6 @@
   }
   .hidden{display:none !important;}
 
-  /* Toast */
   #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:80;}
   .toast{
     background:var(--cw-navy-900);color:#F2F5FA;border-radius:10px;
@@ -368,24 +351,11 @@
     .page-head{flex-direction:column;}
   }
 
-
-
-
-
-
-
-
-  /* ==================================================================
-   * SkillSpan design system layer
-   * Identical on every admin page. Visual only: it restyles the classes
-   * the page already uses and adds no behaviour.
-   * ================================================================== */
   body{font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
   ::placeholder{color:var(--ink-faint);}
   ::selection{background:var(--cw-blue-100);}
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-  /* Brand: the SkillSpan mark always sits on a light-blue tile */
   .brand .bolt{width:34px;height:34px;border-radius:10px;background:var(--cw-blue-50);color:var(--cw-blue);}
   .brand .name{font-family:inherit;font-weight:600;font-size:19px;letter-spacing:-.01em;}
   .sidebar .brand .name{color:#fff;}
@@ -393,7 +363,6 @@
   .shell .brand .name{color:var(--ink);}
   .shell .brand .name span{color:var(--cw-blue);}
 
-  /* Sidebar */
   .sidebar{background:var(--nav-bg);scrollbar-width:none;}
   .sidebar::-webkit-scrollbar{display:none;}
   .brand{border-bottom-color:var(--nav-line);}
@@ -413,7 +382,6 @@
   .user-card .avatar{background:var(--cw-blue);}
   .user-card .meta .rl{color:#8E9AC0;}
 
-  /* Top bar */
   .topbar{background:var(--paper-raised);border-bottom:1px solid var(--line);}
   .topbar .crumb{color:var(--ink-faint);}
   .topbar .crumb .cur{color:var(--ink);font-weight:600;}
@@ -422,12 +390,10 @@
   .logout-btn{border-radius:10px;color:var(--ink-soft);font-weight:500;}
   .logout-btn:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Page heading */
   .page-head h1{font-family:inherit;font-weight:600;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .page-head p{color:var(--ink-soft);font-size:14px;}
   .page-head p strong{color:var(--ink);font-weight:600;}
 
-  /* Cards, stats, panels */
   .card, .stat, .table-wrap, .filters{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .stat .glyph{border-radius:10px;}
   .stat .body .lbl{color:var(--ink-soft);}
@@ -437,7 +403,6 @@
   .empty-state{color:var(--ink-soft);}
   .empty-state .big{font-family:inherit;font-weight:600;font-size:16px;color:var(--ink);}
 
-  /* Buttons: flat, solid colours */
   .btn-primary{background:var(--cw-blue);color:#fff;border-radius:10px;font-weight:600;box-shadow:none;}
   .btn-primary:hover{background:var(--cw-blue-700);}
   .btn-secondary{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;font-weight:500;}
@@ -449,28 +414,23 @@
   .row-btn:hover{border-color:var(--cw-blue);color:var(--cw-blue);background:var(--cw-blue-50);}
   .row-btn.danger:hover{border-color:#F3C1C1;color:var(--brick);background:var(--brick-bg);}
 
-  /* Inputs */
   .field label, .filters label{color:var(--ink-soft);font-weight:500;}
   .field input, .field select, .field textarea, .filters input, .filters select{background:#fff;border:1px solid var(--line);border-radius:10px;color:var(--ink);}
   .field input:focus, .field select:focus, .field textarea:focus, .filters input:focus, .filters select:focus{outline:none;border-color:var(--cw-blue);background:#fff;box-shadow:0 0 0 3px rgba(22,103,224,.14);}
   .field.invalid input, .field.invalid select, .field.invalid textarea{border-color:var(--brick);background:var(--brick-bg);}
   input[type="checkbox"], input[type="radio"]{accent-color:var(--cw-blue);}
 
-  /* Tables */
   thead th{background:var(--cw-soft);color:#6B7593;font-size:11.5px;letter-spacing:.06em;border-bottom-color:var(--line);}
   tbody td{border-bottom-color:var(--line-soft);}
   tbody tr:hover{background:var(--cw-soft);}
 
-  /* Organization monograms: one calm tile instead of hashed colours */
   .card-top > .avatar{background:var(--cw-blue-50) !important;color:var(--cw-navy-800);font-family:inherit;font-weight:700;font-size:15px;letter-spacing:-.02em;border-radius:12px;}
 
-  /* Row actions stay reachable when a table scrolls sideways */
   .table-scroll td.actions-cell, .table-scroll thead th:last-child{position:sticky;right:0;z-index:1;}
   .table-scroll td.actions-cell{background:#fff;}
   .table-scroll thead th:last-child{background:var(--cw-soft);}
   .table-scroll tbody tr:hover td.actions-cell{background:var(--cw-soft);}
 
-  /* Tabs */
   .tabs{border-color:var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
   .tabs button{color:var(--ink-soft);font-weight:500;}
   .tabs button:hover{color:var(--ink);}
@@ -478,7 +438,6 @@
   .tabs button .count{background:var(--cw-gray-bg);border-color:transparent;color:var(--cw-gray);font-weight:600;}
   .tabs button.active .count{background:var(--cw-blue);color:#fff;border-color:transparent;}
 
-  /* Status chips: one palette on every page */
   .pill{border-radius:999px;font-weight:600;font-size:12px;letter-spacing:0;}
   .pill.verified, .pill.approved, .pill.open, .pill.selection, .pill.active,
   .pill.completed, .pill.resolved, .pill.in-use{background:var(--sage-bg);color:var(--sage);}
@@ -489,23 +448,19 @@
   .pill.draft, .pill.archived, .pill.closed, .pill.inactive, .pill.unused{background:var(--cw-gray-bg);color:var(--cw-gray);}
   .pill.free{background:#FDF3DC;color:#8A5D00;}
 
-  /* Modals */
   .overlay{background:rgba(2,7,32,.5);}
   .modal{border-radius:var(--radius);box-shadow:0 24px 60px -12px rgba(2,7,32,.35);}
   .modal-head h2{font-family:inherit;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
   .modal-head .close:hover{background:var(--cw-gray-bg);color:var(--ink);}
 
-  /* Inner scrolling panels scroll without a visible scrollbar */
   .table-scroll, .queue-list, .thread-scroll, .modal-body, .picker-list, .overlay{scrollbar-width:none;-ms-overflow-style:none;}
   .table-scroll::-webkit-scrollbar, .queue-list::-webkit-scrollbar, .thread-scroll::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar, .picker-list::-webkit-scrollbar, .overlay::-webkit-scrollbar{display:none;}
 
-  /* Toasts */
   .toast{background:var(--cw-navy-900);color:#fff;border-radius:10px;}
   .toast.err{background:var(--brick);}
   .toast.ok{background:var(--sage);}
 
-  /* Small screens: the navy sidebar becomes a top strip so the pages stay reachable */
   @media (max-width:880px){
     .app{flex-direction:column;}
     .sidebar{position:sticky;top:0;left:0;width:100%;height:auto;z-index:40;box-shadow:none;
@@ -532,7 +487,6 @@
     .filters input, .filters select{width:100%;min-width:0;}
   }
 
-  /* SkillSpan wordmark (brand): Span in its brand gradient, as in the platform */
   .brand .bolt{display:none !important;}
   .brand .name{font-weight:600;letter-spacing:-.01em;}
   .brand .name span{background:linear-gradient(180deg,#0491AF 0%,#034076 100%);-webkit-background-clip:text;background-clip:text;color:transparent !important;-webkit-text-fill-color:transparent;}
@@ -542,7 +496,6 @@
 
 <div class="app">
 
-  <!-- ============================= Sidebar ============================= -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="bolt" aria-hidden="true">
@@ -614,7 +567,6 @@
     @include('admin.partials.user-card')
   </aside>
 
-  <!-- ============================= Main ============================= -->
   <main class="main">
     <header class="topbar">
       <div class="crumb">
@@ -657,7 +609,6 @@
         </button>
       </header>
 
-      <!-- Filters -->
       <form class="filters" id="filters" onsubmit="return false;">
         <div class="field">
           <label for="f-spec">Specialization</label>
@@ -680,7 +631,6 @@
         <button type="button" class="btn-ghost" id="f-clear">Clear</button>
       </form>
 
-      <!-- Selected chain -->
       <div class="chain" id="chain" aria-live="polite"></div>
 
       <p id="status-line"></p>
@@ -712,7 +662,6 @@
 
 </div>
 
-<!-- ============================= Create / edit modal ============================= -->
 <div class="overlay" id="form-overlay">
   <div class="modal">
     <div class="modal-head">
@@ -764,7 +713,6 @@
           </div>
         </div>
 
-        <!-- Multiple choice -->
         <div id="mcq-fields">
           <div class="section-title">Options</div>
           <div id="options-list"></div>
@@ -781,7 +729,6 @@
           </div>
         </div>
 
-        <!-- Text answer -->
         <div id="text-fields" class="hidden">
           <div class="section-title">Model answer</div>
           <div class="field-row one">
@@ -803,7 +750,6 @@
   </div>
 </div>
 
-<!-- ============================= Confirm modal ============================= -->
 <div class="overlay" id="confirm-overlay">
   <div class="modal narrow">
     <div class="modal-head">
@@ -823,9 +769,6 @@
 <div id="toasts"></div>
 
 <script>
-// Session-authenticated panel: the cookie rides along automatically and the
-// CSRF token is sent for every mutating request.
-
 const TYPE_LABELS = { single_choice: 'Multiple choice', text: 'Text answer' };
 
 let state = {
@@ -840,7 +783,6 @@ let state = {
   confirmAction: null,
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────
 function setStatusLine(text, kind){
   const el = document.getElementById('status-line');
   el.textContent = text || '';
@@ -931,7 +873,6 @@ function optionHtml(list, selected, placeholder){
   return `<option value="">${escapeHtml(placeholder)}</option>${opts}`;
 }
 
-// ── Dropdowns ─────────────────────────────────────────────────────────────
 async function loadSpecializations(){
   const body = await api('/admin/api/questions/specializations');
   state.specializations = (body.data || []).map(s => ({ id: s.id, label: s.name }));
@@ -950,7 +891,6 @@ async function fetchSkills(careerRoleId){
   return (body.data || []).map(s => ({ id: s.id, label: s.name }));
 }
 
-// ── Filters ───────────────────────────────────────────────────────────────
 async function onFilterSpecializationChange(){
   const specId = document.getElementById('f-spec').value;
   state.filters.specialization_id = specId;
@@ -1043,7 +983,6 @@ function renderChain(){
     node('Questions', true);
 }
 
-// ── Questions list ────────────────────────────────────────────────────────
 async function loadQuestions(){
   const tbody = document.getElementById('rows');
   setStatusLine('Loading questions…');
@@ -1155,7 +1094,6 @@ function renderPager(data){
   pages.innerHTML = html;
 }
 
-// ── Form ──────────────────────────────────────────────────────────────────
 function addOptionRow(value){
   const list = document.getElementById('options-list');
   const wrap = document.createElement('div');
@@ -1175,7 +1113,6 @@ function renumberOptions(){
   syncCorrectOptions();
 }
 
-/** Rebuild the "correct answer" select from the current option inputs. */
 function syncCorrectOptions(){
   const values = [...document.querySelectorAll('#options-list .opt-input')]
     .map(i => i.value.trim())
@@ -1213,7 +1150,6 @@ function showFormErrors(errors){
   if (!errors) return;
   for (const [field, messages] of Object.entries(errors)){
     const base = field.split('.')[0];
-    // The MCQ/Text answer inputs live under their own wrappers.
     const map = { correct_answer: 'wrap-correct_answer', options: 'wrap-correct_answer' };
     const wrapId = map[base] || ('wrap-' + base);
     const wrap = document.getElementById(wrapId);
@@ -1249,7 +1185,6 @@ async function openCreateForm(){
   addOptionRow();
   syncCorrectOptions();
 
-  // Pre-select the current filter context so the common path is one click.
   if (state.filters.specialization_id){
     specSel.value = state.filters.specialization_id;
     await onFormSpecializationChange(state.filters.career_role_id, state.filters.skill_id);
@@ -1341,9 +1276,6 @@ async function openEditForm(id){
 
   applyTypeVisibility();
 
-  // Resolve the specialization/career role this question's skill sits under,
-  // then pre-select the whole chain. Falls back to the active filter when the
-  // reverse lookup finds nothing.
   const specSel = document.getElementById('q-spec');
   specSel.innerHTML = optionHtml(state.specializations, '', 'Select a specialization…');
 
@@ -1358,7 +1290,6 @@ async function openEditForm(id){
       await onFormSpecializationChange(roleId, q.skill_id);
     }
   } catch (e){
-    // Leave the chain empty rather than blocking the edit.
   }
 
   document.getElementById('form-overlay').classList.add('open');
@@ -1424,7 +1355,6 @@ async function submitForm(event){
   }
 }
 
-// ── Delete ────────────────────────────────────────────────────────────────
 function askConfirm(opts){
   document.getElementById('confirm-title').textContent = opts.title;
   document.getElementById('confirm-text').innerHTML = opts.html;
@@ -1453,7 +1383,6 @@ function doDelete(id){
   });
 }
 
-// ── Wiring ────────────────────────────────────────────────────────────────
 let searchTimer = null;
 function debounceLoad(){
   clearTimeout(searchTimer);
@@ -1473,7 +1402,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderChain();
   loadQuestions();
 
-  // Filters
   specFilter.addEventListener('change', onFilterSpecializationChange);
   document.getElementById('f-role').addEventListener('change', onFilterRoleChange);
   document.getElementById('f-skill').addEventListener('change', onFilterSkillChange);
@@ -1492,13 +1420,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadQuestions();
   });
 
-  // Top-bar search mirrors the question-text search.
   document.getElementById('global-search').addEventListener('input', (e) => {
     state.filters.q = e.target.value.trim();
     debounceLoad();
   });
 
-  // Row actions (delegated)
   document.getElementById('rows').addEventListener('click', (e) => {
     const edit = e.target.closest('[data-edit]');
     if (edit){ openEditForm(edit.dataset.edit); return; }
@@ -1506,7 +1432,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (del){ doDelete(del.dataset.del); }
   });
 
-  // Pagination (delegated)
   document.getElementById('pager-pages').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-page]');
     if (!btn || btn.disabled) return;
@@ -1514,7 +1439,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadQuestions();
   });
 
-  // Form
   document.getElementById('btn-add').addEventListener('click', openCreateForm);
   document.getElementById('question-form').addEventListener('submit', submitForm);
   document.getElementById('q-type').addEventListener('change', applyTypeVisibility);
@@ -1537,7 +1461,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target.classList.contains('opt-input')) syncCorrectOptions();
   });
 
-  // Modals
   document.querySelectorAll('[data-close]').forEach(btn => {
     btn.addEventListener('click', () => document.getElementById(btn.dataset.close).classList.remove('open'));
   });

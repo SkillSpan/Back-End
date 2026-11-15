@@ -15,21 +15,6 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-/**
- * The reference lists are 541 KB at their largest and identical for every
- * caller, yet Laravel answered them with `Cache-Control: no-cache, private`, so
- * a browser downloaded them again on every page load.
- *
- * These tests pin the HTTP cache contract:
- *
- *   1. the public dropdowns advertise a shared cache and carry an ETag;
- *   2. a matching If-None-Match returns 304 with no body — the whole point of
- *      the change, because that is what a repeat visit costs;
- *   3. a stale ETag still returns the full payload, so the 304 can never
- *      swallow a real change;
- *   4. the authenticated taxonomy is `private`, never `public`, because it sits
- *      behind a token and a shared cache must not hand it to a guest.
- */
 class ReferenceHttpCacheTest extends TestCase
 {
     use RefreshDatabase;
@@ -58,10 +43,6 @@ class ReferenceHttpCacheTest extends TestCase
 
         return $etag;
     }
-
-    // ---------------------------------------------------------------------
-    // Shared caching on the public dropdowns
-    // ---------------------------------------------------------------------
 
     public function test_the_public_dropdowns_advertise_a_shared_cache(): void
     {
@@ -111,7 +92,6 @@ class ReferenceHttpCacheTest extends TestCase
         University::forceCreate(['name' => 'Cairo University', 'is_active' => true]);
         $before = $this->etag($this->getJson('/api/v1/reference/universities')->assertOk());
 
-        // Simulate a redeploy whose seeder added a row, then a revalidation.
         University::forceCreate(['name' => 'Ain Shams University', 'is_active' => true]);
         Cache::forget(ReferenceCache::UNIVERSITIES);
 
@@ -152,10 +132,6 @@ class ReferenceHttpCacheTest extends TestCase
             ['If-None-Match' => $this->etag($egyptResponse)],
         )->assertStatus(304);
     }
-
-    // ---------------------------------------------------------------------
-    // The authenticated taxonomy must stay private
-    // ---------------------------------------------------------------------
 
     public function test_the_skills_taxonomy_is_private_and_never_public(): void
     {

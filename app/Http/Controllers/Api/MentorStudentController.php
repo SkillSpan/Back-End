@@ -16,10 +16,6 @@ class MentorStudentController extends Controller
 {
     public function __construct(private readonly MentorStudentService $mentorService) {}
 
-    /**
-     * GET /api/v1/mentor/students
-     * Permitted student retrieval — visibility rules enforced in the service.
-     */
     public function students(Request $request): JsonResponse
     {
         $mentorId = $request->user()->id;
@@ -43,10 +39,6 @@ class MentorStudentController extends Controller
         ], 200, ['X-Request-ID' => $this->requestId($request)]);
     }
 
-    /**
-     * GET /api/v1/mentor/students/{student}
-     * Student summary retrieval — visibility enforced.
-     */
     public function studentSummary(Request $request, int $student): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -65,10 +57,6 @@ class MentorStudentController extends Controller
         }
     }
 
-    /**
-     * POST /api/v1/mentor/connections
-     * Mentor/project connection creation with availability + eligibility validation.
-     */
     public function connect(StoreConnectionRequest $request): JsonResponse
     {
         $requestId = $this->requestId($request);
@@ -91,10 +79,6 @@ class MentorStudentController extends Controller
         }
     }
 
-    /**
-     * GET /api/v1/mentor/connections
-     * List mentor's connections.
-     */
     public function connections(Request $request): JsonResponse
     {
         $connections = $this->mentorService->getMentorConnections(
@@ -114,10 +98,6 @@ class MentorStudentController extends Controller
         ], 200, ['X-Request-ID' => $this->requestId($request)]);
     }
 
-    /**
-     * PATCH /api/v1/mentor/connections/{connection}
-     * Update connection status (accept, disconnect, archive).
-     */
     public function updateConnection(Request $request, int $connection): JsonResponse
     {
         $request->validate([

@@ -12,55 +12,14 @@ use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
-use Tests\Feature\Intelligence\RoadmapActionContractTest;
 use Tests\TestCase;
 
-/**
- * BA-03 — the Project Type / Difficulty contract, frozen.
- *
- * WHY THIS EXISTS
- * ---------------
- * The frontend shows five "project" cards (Practice Task / Simulation Project /
- * Real Project / Assessment / Capstone) and four difficulty labels (Beginner /
- * Intermediate / Advanced / Expert). Neither vocabulary belongs to `projects`:
- *
- *   - the five card labels are `roadmap_actions.type` values (plus the
- *     display-only "Capstone" milestone, which has no backend value at all);
- *   - `projects.type` has exactly TWO values, and `projects.difficulty` is a
- *     plain `decimal(3,2)` in 0–5, not an enum.
- *
- * The mapping is documented in PROJECT_TYPE_DIFFICULTY_CONTRACT.md. This test
- * pins the backend half of that document LITERALLY, so the doc cannot go stale
- * without a red test: if someone adds, renames or drops a value, the frozen
- * constants below stop matching and this file fails on purpose.
- *
- * The pre-existing tests already pin the REJECTION side (an unknown type 422s).
- * What was missing — and what this file adds — is the ACCEPTANCE side (every
- * official value really is writable), the difficulty boundaries (0 and 5 are
- * inclusive), and the literal vocabulary guard.
- *
- * @see ProjectManagementWorkflowTest::test_creation_validates_the_project_type
- * @see ProjectCatalogTest::test_invalid_type_filter_is_rejected
- * @see RoadmapActionContractTest::test_unknown_action_type_is_rejected_instead_of_falling_back_to_practice
- */
 class ProjectTypeDifficultyContractTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * BA-03 — FROZEN. The single source of truth for `projects.type`.
-     *
-     * Mirrored by three places that must never disagree: the
-     * `create_projects_table` enum, StoreProjectRequest's `Rule::in`, and
-     * ProjectController's catalog filter (`in:simulation,company_sponsored`).
-     */
     private const PROJECT_TYPES = ['simulation', 'company_sponsored'];
 
-    /**
-     * BA-03 — FROZEN. Mirrors the `roadmap_actions.type` enum and
-     * RoadmapAction::TYPES. These are the four card labels the roadmap
-     * renders, plus `resource` (a learning resource, not a project card).
-     */
     private const ROADMAP_ACTION_TYPES = [
         'assessment',
         'resource',
@@ -78,10 +37,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         Role::create(['name' => 'Company Admin', 'slug' => 'company_admin', 'description' => '']);
     }
 
-    // -----------------------------------------------------------------
-    // Vocabulary guards — the literal half of the document
-    // -----------------------------------------------------------------
-
     public function test_the_roadmap_action_vocabulary_is_exactly_the_documented_five(): void
     {
         $this->assertSame(
@@ -95,7 +50,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
     {
         Sanctum::actingAs($this->companyAdmin());
 
-        // Every OFFICIAL value is writable...
         foreach (self::PROJECT_TYPES as $type) {
             $this->postJson('/api/v1/projects', $this->payload([
                 'type' => $type,
@@ -105,13 +59,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
                 ->assertJsonPath('data.type', $type);
         }
 
-        // ...and the set is CLOSED: nothing else is. `capstone`,
-        // `real_project` and `simulation_project` are roadmap/frontend words,
-        // not project types — none of them may reach `projects.type`.
-        //
-        // NOTE: a trailing-space variant is deliberately absent — Laravel's
-        // TrimStrings middleware normalises it to the official value before
-        // validation, so it is accepted for the right reason, not by accident.
         $unofficial = [
             'capstone',
             'real_project',
@@ -138,10 +85,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         );
     }
 
-    // -----------------------------------------------------------------
-    // Difficulty — a number, and the whole 0–5 range is legal
-    // -----------------------------------------------------------------
-
     public function test_difficulty_accepts_the_full_inclusive_0_to_5_range(): void
     {
         Sanctum::actingAs($this->companyAdmin());
@@ -154,8 +97,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
 
             $response->assertStatus(201);
 
-            // Compared numerically: 0 and 5 are legitimately serialised as
-            // integers, so a strict type check would be a false negative.
             $this->assertSame(
                 (float) $difficulty,
                 (float) $response->json('data.difficulty'),
@@ -183,10 +124,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
             ->assertStatus(201)
             ->assertJsonPath('data.difficulty', null);
     }
-
-    // -----------------------------------------------------------------
-    // The catalog list filter speaks the same closed vocabulary
-    // -----------------------------------------------------------------
 
     public function test_the_catalog_type_filter_accepts_only_the_official_values(): void
     {
@@ -218,10 +155,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         }
     }
 
-    // -----------------------------------------------------------------
-    // Update — the vocabulary holds on the partial-update path too
-    // -----------------------------------------------------------------
-
     public function test_update_accepts_a_switch_between_the_two_official_types(): void
     {
         Sanctum::actingAs($this->companyAdmin());
@@ -230,8 +163,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
             ->assertStatus(201)
             ->json('data.id');
 
-        // company_sponsored → simulation is a legitimate type change on a
-        // draft: the service re-runs the ownership rules for the new type.
         $this->patchJson('/api/v1/projects/'.$id, ['type' => 'simulation'])
             ->assertStatus(200)
             ->assertJsonPath('data.type', 'simulation');
@@ -250,10 +181,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR')
             ->assertJsonValidationErrors(['type']);
     }
-
-    // -----------------------------------------------------------------
-    // Fixtures
-    // -----------------------------------------------------------------
 
     private function organization(): Organization
     {
@@ -283,11 +210,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         return $user->fresh();
     }
 
-    /**
-     * A learner WITH a student profile — the catalog answers 422
-     * STUDENT_PROFILE_NOT_FOUND without one, which would mask the filter
-     * behaviour this test is about.
-     */
     private function learner(): User
     {
         $user = User::forceCreate([
@@ -318,10 +240,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         ]);
     }
 
-    /**
-     * The career role every project must target, with its test skill approved
-     * in the mapping so the project may require it.
-     */
     private function careerRole(): CareerRole
     {
         $role = CareerRole::first() ?? CareerRole::create([
@@ -345,11 +263,6 @@ class ProjectTypeDifficultyContractTest extends TestCase
         return $role;
     }
 
-    /**
-     * A complete, submittable creation payload.
-     *
-     * @return array<string, mixed>
-     */
     private function payload(array $overrides = []): array
     {
         return array_merge([

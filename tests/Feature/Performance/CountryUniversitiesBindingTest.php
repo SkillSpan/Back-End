@@ -9,22 +9,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
-/**
- * `/reference/countries/{country}/universities` used to take `Country $country`
- * and rely on route-model binding. Binding runs a database query *before* the
- * controller, so the endpoint paid a full round trip even when the list it
- * returned was already cached: 1.33 s on a cache HIT against 0.43 s for a list
- * that needed no binding. The database is on another provider, so that round
- * trip is roughly 0.7 s.
- *
- * The id is now validated against the cached country list instead. These tests
- * pin the two things that could go wrong with that change:
- *
- *   1. the cache hit really does reach zero queries — otherwise nothing was
- *      gained;
- *   2. an unknown or non-numeric id still returns 404, and never a 500. An `int`
- *      type hint would have thrown a TypeError on "abc".
- */
 class CountryUniversitiesBindingTest extends TestCase
 {
     use RefreshDatabase;
