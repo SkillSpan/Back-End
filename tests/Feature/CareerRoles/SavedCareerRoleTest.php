@@ -140,7 +140,8 @@ class SavedCareerRoleTest extends TestCase
         $this->assertSame([], $this->getJson('/api/v1/saved-career-roles')->json('data'));
     }
 
-    public function test_a_role_that_stops_being_selectable_remains_in_the_saved_list(): void    {
+    public function test_a_role_that_stops_being_selectable_remains_in_the_saved_list(): void
+    {
         $role = $this->approvedRole('Data Analyst');
         $user = $this->learner();
 
