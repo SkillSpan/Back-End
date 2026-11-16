@@ -70,8 +70,16 @@ class Project extends Model
             self::STATUS_OPEN,
             self::STATUS_CANCELLED,
         ],
-        self::STATUS_ACTIVE => [self::STATUS_COMPLETED, self::STATUS_CANCELLED],
-        self::STATUS_UNDER_REVIEW => [self::STATUS_COMPLETED, self::STATUS_CANCELLED],
+        self::STATUS_ACTIVE => [
+            self::STATUS_UNDER_REVIEW,
+            self::STATUS_COMPLETED,
+            self::STATUS_CANCELLED,
+        ],
+        self::STATUS_UNDER_REVIEW => [
+            self::STATUS_ACTIVE,
+            self::STATUS_COMPLETED,
+            self::STATUS_CANCELLED,
+        ],
         self::STATUS_COMPLETED => [self::STATUS_ARCHIVED],
         self::STATUS_CANCELLED => [self::STATUS_ARCHIVED],
         self::STATUS_ARCHIVED => [],
@@ -166,6 +174,31 @@ class Project extends Model
     public function evaluations()
     {
         return $this->hasMany(Evaluation::class);
+    }
+
+    public function evaluationTasks()
+    {
+        return $this->hasMany(EvaluationTask::class);
+    }
+
+    public function delegates()
+    {
+        return $this->hasMany(ProjectDelegate::class);
+    }
+
+    public function selfReflections()
+    {
+        return $this->hasMany(SelfReflection::class);
+    }
+
+    public function isSimulation(): bool
+    {
+        return $this->type === 'simulation';
+    }
+
+    public function currentTeam(): ?ProjectTeam
+    {
+        return $this->teams()->latest('id')->first();
     }
 
     public function matchingSnapshots()

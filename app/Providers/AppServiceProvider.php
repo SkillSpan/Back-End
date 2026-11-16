@@ -2,8 +2,12 @@
 
 namespace App\Providers;
 
+use App\Events\EvaluationFinalized;
+use App\Events\ProjectEnteredReview;
 use App\Events\SkillDataChanged;
 use App\Listeners\RecalculateIntelligence;
+use App\Listeners\RouteProjectEvaluations;
+use App\Listeners\SyncProfessionalRecord;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +46,16 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             SkillDataChanged::class,
             RecalculateIntelligence::class,
+        );
+
+        Event::listen(
+            ProjectEnteredReview::class,
+            RouteProjectEvaluations::class,
+        );
+
+        Event::listen(
+            EvaluationFinalized::class,
+            SyncProfessionalRecord::class,
         );
     }
 
