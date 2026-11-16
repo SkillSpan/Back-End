@@ -45,12 +45,6 @@ class CareerRoleSeeder extends Seeder
                 );
             }
 
-            if ($resolvedSkillIds !== []) {
-                $careerRole->roleSkills()
-                    ->whereNotIn('skill_id', $resolvedSkillIds)
-                    ->delete();
-            }
-
             $this->ensureDescription($careerRole, $title, count($resolvedSkillIds));
         }
     }

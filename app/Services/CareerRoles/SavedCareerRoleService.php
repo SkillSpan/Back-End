@@ -14,7 +14,6 @@ class SavedCareerRoleService
         return SavedCareerRole::query()
             ->where('user_id', $user->id)
             ->with(['careerRole' => fn ($query) => $query
-                ->selectable()
                 ->withCount('roleSkills as skills_count')])
             ->latest('id')
             ->get()

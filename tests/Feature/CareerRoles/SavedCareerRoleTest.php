@@ -140,7 +140,7 @@ class SavedCareerRoleTest extends TestCase
         $this->assertSame([], $this->getJson('/api/v1/saved-career-roles')->json('data'));
     }
 
-    public function test_a_role_that_stops_being_selectable_leaves_the_list(): void
+    public function test_a_role_that_stops_being_selectable_remains_in_the_saved_list(): void
     {
         $role = $this->approvedRole('Data Analyst');
         $user = $this->learner();
@@ -150,7 +150,13 @@ class SavedCareerRoleTest extends TestCase
 
         $role->forceFill(['is_active' => false])->save();
 
-        $this->assertSame([], $this->getJson('/api/v1/saved-career-roles')->json('data'));
+        $response = $this->getJson('/api/v1/saved-career-roles')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.id', $role->id)
+            ->assertJsonPath('data.0.title', 'Data Analyst')
+            ->assertJsonPath('data.0.is_saved', true);
+
+        $this->assertCount(1, $response->json('data'));
         $this->assertSame(1, SavedCareerRole::query()->where('user_id', $user->id)->count());
     }
 

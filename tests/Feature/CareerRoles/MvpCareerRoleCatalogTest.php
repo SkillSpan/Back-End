@@ -145,7 +145,7 @@ class MvpCareerRoleCatalogTest extends TestCase
         foreach (config('mvp.career_role_priority.Computer Science') as $slug) {
             $role = CareerRole::where('slug', $slug)->first();
 
-            if ($role !== null) {
+            if ($role !== null && $role->isSelectable()) {
                 $expected[] = $role->title;
             }
         }
@@ -232,7 +232,7 @@ class MvpCareerRoleCatalogTest extends TestCase
         $cs = Specialization::where('name', 'Computer Science')->firstOrFail();
 
         $response = $this->getJson(
-            '/api/v1/career-roles?specialization_id='.$cs->id.'&search=engineer&per_page=100'
+            '/api/v1/career-roles?specialization_id='.$cs->id.'&search=developer&per_page=100'
         )->assertOk();
 
         $titles = array_column($response->json('data.data'), 'title');
@@ -240,11 +240,13 @@ class MvpCareerRoleCatalogTest extends TestCase
         $this->assertNotEmpty($titles);
 
         foreach ($titles as $title) {
-            $this->assertStringContainsStringIgnoringCase('engineer', $title);
+            $this->assertStringContainsStringIgnoringCase('developer', $title);
         }
 
-        $this->assertContains('Software Engineer', $titles);
-        $this->assertNotContains('QA Engineer', $titles);
+        $this->assertContains('Frontend Developer', $titles);
+        $this->assertContains('Backend Developer', $titles);
+        $this->assertContains('Full Stack Developer', $titles);
+        $this->assertContains('Mobile Developer', $titles);
     }
 
     public function test_a_deactivated_role_cannot_start_a_new_assessment(): void
@@ -342,34 +344,50 @@ class MvpCareerRoleCatalogTest extends TestCase
         }
     }
 
-    public function test_the_network_and_cloud_security_roles_are_out_but_their_engineering_roles_stay(): void
+    public function test_network_and_cloud_roles_are_outside_the_mvp_but_their_data_is_preserved(): void
     {
         $offeredTitles = $this->allTitles('/api/v1/career-roles?per_page=100');
 
-        foreach (['network-security-engineer', 'cloud-security-engineer'] as $slug) {
+        $outOfScopeSlugs = [
+            'network-security-engineer',
+            'cloud-security-engineer',
+            'network-engineer',
+            'cloud-engineer',
+            'devops-engineer',
+            'site-reliability-engineer',
+        ];
+
+        foreach ($outOfScopeSlugs as $slug) {
             $role = CareerRole::where('slug', $slug)->firstOrFail();
 
-            $this->assertFalse((bool) $role->is_active, "[{$slug}] must not be offered in the MVP.");
-            $this->assertNotContains($role->title, $offeredTitles, "[{$slug}] still appears in the learner list.");
+            $this->assertFalse(
+                (bool) $role->is_active,
+                "[{$slug}] must be inactive outside the MVP."
+            );
 
-            $this->assertGreaterThan(0, $role->roleSkills()->count(), "[{$slug}] lost its skills.");
+            $this->assertNotContains(
+                $role->title,
+                $offeredTitles,
+                "[{$slug}] must not appear in the learner list."
+            );
+
+            $this->assertGreaterThan(
+                0,
+                $role->roleSkills()->count(),
+                "[{$slug}] lost its skills."
+            );
+
             $this->assertGreaterThan(
                 0,
                 $this->questionsForRole($role),
-                "[{$slug}] lost its questions.",
+                "[{$slug}] lost its questions."
             );
+
             $this->assertGreaterThan(
                 0,
                 $role->specializations()->count(),
-                "[{$slug}] lost its specialization links.",
+                "[{$slug}] lost its specialization links."
             );
-        }
-
-        foreach (['network-engineer', 'cloud-engineer', 'devops-engineer', 'site-reliability-engineer'] as $slug) {
-            $role = CareerRole::where('slug', $slug)->firstOrFail();
-
-            $this->assertTrue((bool) $role->is_active, "[{$slug}] must stay offered.");
-            $this->assertContains($role->title, $offeredTitles, "[{$slug}] is missing from the learner list.");
         }
     }
 

@@ -360,7 +360,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
     });
 
-    Route::middleware(['auth:sanctum', 'account.active'])->prefix('saved-career-roles')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('saved-career-roles')->group(function () {
         Route::get('/', [SavedCareerRoleController::class, 'index'])
             ->name('saved-career-roles.index');
         Route::put('/{id}', [SavedCareerRoleController::class, 'store'])

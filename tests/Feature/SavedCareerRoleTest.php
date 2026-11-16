@@ -74,7 +74,9 @@ class SavedCareerRoleTest extends TestCase
         Sanctum::actingAs($this->learner());
         foreach ([['status' => 'draft'], ['is_active' => false]] as $attributes) {
             $role = $this->careerRole($attributes);
-            $this->putJson('/api/v1/saved-career-roles/'.$role->id)->assertNotFound();
+            $this->putJson('/api/v1/saved-career-roles/'.$role->id)
+                ->assertStatus(422)
+                ->assertJsonPath('code', 'CAREER_ROLE_NOT_APPROVED');
         }
         $role = $this->careerRole();
         $url = '/api/v1/saved-career-roles/'.$role->id;
