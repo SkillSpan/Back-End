@@ -329,7 +329,7 @@ return new class extends Migration
         if (! Schema::hasTable('professional_record_section_visibility')) {
             Schema::create('professional_record_section_visibility', function (Blueprint $table) {
                 $table->id();
-                $table->foreignId('student_profile_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('student_profile_id')->constrained('student_profiles', 'id', 'record_visibility_student_profile_fk')->cascadeOnDelete();
                 $table->string('section');
                 $table->string('visibility')->default('private');
                 $table->timestamps();
@@ -340,7 +340,7 @@ return new class extends Migration
         if (! Schema::hasTable('professional_record_share_links')) {
             Schema::create('professional_record_share_links', function (Blueprint $table) {
                 $table->id();
-                $table->foreignId('student_profile_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('student_profile_id')->constrained('student_profiles', 'id', 'record_share_student_profile_fk')->cascadeOnDelete();
                 $table->string('token_hash', 64)->unique();
                 $table->json('sections');
                 $table->timestamp('expires_at')->nullable();
@@ -369,7 +369,7 @@ return new class extends Migration
                 $table->id();
                 $table->string('reference', 40)->unique();
                 $table->foreignId('record_item_id')->constrained('professional_record_items')->cascadeOnDelete();
-                $table->foreignId('student_profile_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('student_profile_id')->constrained('student_profiles', 'id', 'record_verification_student_profile_fk')->cascadeOnDelete();
                 $table->timestamp('revoked_at')->nullable();
                 $table->unsignedInteger('access_count')->default(0);
                 $table->timestamps();

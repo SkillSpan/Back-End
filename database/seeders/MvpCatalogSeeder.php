@@ -104,22 +104,29 @@ class MvpCatalogSeeder extends Seeder
 
     private function deactivateOutOfScopeCareerRoles(): void
     {
-        $slugs = config('mvp.inactive_career_role_slugs', []);
+        $slugs = config('mvp.active_career_role_slugs', []);
 
         if (! is_array($slugs) || $slugs === []) {
             return;
         }
 
-        $slugs = array_values(array_filter(
+        $slugs = array_values(array_unique(array_filter(
             array_map(fn ($slug) => is_string($slug) ? trim($slug) : '', $slugs),
-        ));
+        )));
 
         if ($slugs === []) {
             return;
         }
 
+        // Activate the four MVP career roles.
         CareerRole::query()
             ->whereIn('slug', $slugs)
+            ->where('is_active', false)
+            ->update(['is_active' => true]);
+
+        // Deactivate every other career role without deleting it.
+        CareerRole::query()
+            ->whereNotIn('slug', $slugs)
             ->where('is_active', true)
             ->update(['is_active' => false]);
     }

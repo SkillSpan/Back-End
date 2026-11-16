@@ -25,7 +25,11 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
     {
         parent::setUp();
 
-        $this->adminRole = Role::create(['name' => 'Admin', 'slug' => 'admin', 'description' => '']);
+        $this->adminRole = Role::create([
+            'name' => 'Admin',
+            'slug' => 'admin',
+            'description' => '',
+        ]);
 
         $this->seed([
             SpecializationsSeeder::class,
@@ -37,7 +41,7 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         ]);
     }
 
-    public function test_data_science_lists_its_six_roles_first(): void
+    public function test_data_science_lists_the_four_mvp_roles(): void
     {
         $dataScience = Specialization::where('name', 'Data Science')->firstOrFail();
 
@@ -45,42 +49,41 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
 
         $this->assertSame(
             [
-                'Analytics Engineer',
-                'Business Intelligence Analyst',
-                'Data Analyst',
-                'Data Engineer',
-                'Data Scientist',
-                'Machine Learning Engineer',
+                'Backend Developer',
+                'Frontend Developer',
+                'Full Stack Developer',
+                'Mobile Developer',
             ],
-            array_slice($titles, 0, 6),
+            $titles,
         );
     }
 
-    public function test_every_other_active_role_follows_the_priority_block(): void
+    public function test_only_the_four_active_mvp_roles_are_offered(): void
     {
         $dataScience = Specialization::where('name', 'Data Science')->firstOrFail();
 
         $titles = $this->careerRoleTitles($dataScience);
 
+        $expected = [
+            'Backend Developer',
+            'Frontend Developer',
+            'Full Stack Developer',
+            'Mobile Developer',
+        ];
+
+        $this->assertSame(4, count($titles));
+
         $this->assertSame(
-            CareerRole::where('status', 'approved')->where('is_active', true)->count(),
             count($titles),
+            count(array_unique($titles)),
         );
 
-        $rest = array_slice($titles, 6);
-
-        foreach (array_slice($titles, 0, 6) as $mapped) {
-            $this->assertNotContains($mapped, $rest, "[{$mapped}] appears twice across the two blocks.");
+        foreach ($expected as $title) {
+            $this->assertContains($title, $titles);
         }
-
-        foreach (['Frontend Developer', 'Backend Developer', 'Full Stack Developer', 'Mobile Developer'] as $title) {
-            $this->assertContains($title, $rest, "[{$title}] must still be offered after the priority block.");
-        }
-
-        $this->assertSame(count($titles), count(array_unique($titles)));
     }
 
-    public function test_changing_the_specialization_changes_the_priority(): void
+    public function test_active_specializations_offer_the_same_four_mvp_roles(): void
     {
         $dataScience = Specialization::where('name', 'Data Science')->firstOrFail();
         $computerScience = Specialization::where('name', 'Computer Science')->firstOrFail();
@@ -88,20 +91,18 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         $dataScienceTitles = $this->careerRoleTitles($dataScience);
         $computerScienceTitles = $this->careerRoleTitles($computerScience);
 
-        $this->assertNotSame(
-            array_slice($dataScienceTitles, 0, 6),
-            array_slice($computerScienceTitles, 0, 6),
-            'The priority block must depend on the chosen specialization.',
-        );
+        sort($dataScienceTitles);
+        sort($computerScienceTitles);
 
-        $this->assertSame('AI Engineer', $computerScienceTitles[0]);
+        $expected = [
+            'Backend Developer',
+            'Frontend Developer',
+            'Full Stack Developer',
+            'Mobile Developer',
+        ];
 
-        $dataScienceSorted = $dataScienceTitles;
-        $computerScienceSorted = $computerScienceTitles;
-        sort($dataScienceSorted);
-        sort($computerScienceSorted);
-
-        $this->assertSame($dataScienceSorted, $computerScienceSorted);
+        $this->assertSame($expected, $dataScienceTitles);
+        $this->assertSame($expected, $computerScienceTitles);
     }
 
     public function test_the_free_track_gets_a_neutral_order(): void
@@ -116,9 +117,14 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             ->pluck('title')
             ->all();
 
-        $this->assertSame($unranked, $titles, 'The free track must not apply a priority rank.');
+        $this->assertSame(
+            $unranked,
+            $titles,
+            'The free track must not apply a priority rank.',
+        );
+
         $this->assertCount(
-            CareerRole::where('status', 'approved')->where('is_active', true)->count(),
+            CareerRole::query()->selectable()->count(),
             $titles,
         );
     }
@@ -140,9 +146,13 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             'effective_date' => now()->toDateString(),
             'is_active' => true,
         ]);
+
         $dataScience->careerRoles()->attach($draft->id);
 
-        $this->assertNotContains('Draft Data Role', $this->careerRoleTitles($dataScience));
+        $this->assertNotContains(
+            'Draft Data Role',
+            $this->careerRoleTitles($dataScience),
+        );
     }
 
     public function test_the_skills_dropdown_and_the_question_chain_are_unchanged(): void
@@ -164,7 +174,8 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         $response = $this->getJson(
             '/admin/api/questions/career-roles?specialization_id='
             .Specialization::where('name', 'Data Science')->firstOrFail()->id
-        )->assertOk()
+        )
+            ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('message', 'Career roles retrieved successfully.');
 
@@ -179,7 +190,9 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
         $this->actingAs($this->admin());
 
         return array_column(
-            $this->getJson('/admin/api/questions/career-roles?specialization_id='.$specialization->id)
+            $this->getJson(
+                '/admin/api/questions/career-roles?specialization_id='.$specialization->id
+            )
                 ->assertOk()
                 ->json('data'),
             'title',
@@ -195,6 +208,7 @@ class AdminQuestionCareerRoleOrderTest extends TestCase
             'status' => 'active',
             'email_verified_at' => now(),
         ]);
+
         $user->roles()->attach($this->adminRole->id);
 
         return $user;

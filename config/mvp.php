@@ -104,7 +104,12 @@ return [
             'site-reliability-engineer',
         ],
     ],
-
+    'active_career_role_slugs' => [
+        'frontend-developer',
+        'backend-developer',
+        'full-stack-developer',
+        'mobile-developer',
+    ],
     'inactive_career_role_slugs' => [
         'api-developer',
         'software-tester',
