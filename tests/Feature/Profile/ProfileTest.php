@@ -109,11 +109,29 @@ class ProfileTest extends TestCase
         Sanctum::actingAs($this->learner());
 
         $payload = $this->validPayload();
-        $payload['expected_graduation'] = 1999;
+        $payload['expected_graduation'] = 1899;
 
         $this->postJson('/api/v1/profile', $payload)
             ->assertStatus(422)
             ->assertJsonValidationErrors(['expected_graduation']);
+    }
+
+    public function test_graduate_can_store_historical_graduation_year(): void
+    {
+        Sanctum::actingAs($this->learner());
+
+        $payload = $this->validPayload();
+        $payload['academic_level'] = 'graduate';
+        $payload['expected_graduation'] = 1999;
+
+        $this->postJson('/api/v1/profile', $payload)
+            ->assertStatus(201)
+            ->assertJsonPath('data.expected_graduation', 1999);
+
+        $this->assertDatabaseHas('student_profiles', [
+            'academic_level' => 'graduate',
+            'expected_graduation' => 1999,
+        ]);
     }
 
     public function test_store_caps_bio_length(): void
