@@ -68,6 +68,14 @@ class BaselineQuestionSelectionService
             $minQuestions,
         );
 
+        $requiredCount = (config('baseline_policies.versions', [])[$assessmentVersion]['questions_per_skill'] ?? null);
+        if ($requiredCount !== null) {
+            $minQuestions = $maxQuestions = (int) $requiredCount;
+            if ($maxTotalQuestions < $roleSkills->count() * $minQuestions) {
+                throw BaselineAssessmentException::insufficientQuestionCapacity($roleSkills->count() * $minQuestions, $maxTotalQuestions);
+            }
+        }
+
         $deterministic = (bool) config(
             'services.baseline_assessment.deterministic_selection',
             false
@@ -81,7 +89,7 @@ class BaselineQuestionSelectionService
 
             $skillItems = $itemsBySkill->get($skillId, collect());
 
-            if ($skillItems->isEmpty()) {
+            if ($skillItems->isEmpty() || ($requiredCount !== null && $skillItems->count() < $minQuestions)) {
                 $uncoveredSkills[] = [
                     'skill_id' => $skillId,
                     'skill_name' => $roleSkill->skill?->name,
