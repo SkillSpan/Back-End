@@ -12,6 +12,7 @@ use App\Models\Skill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
+use Database\Seeders\DataAnalystBaselineV11Seeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -1193,6 +1194,43 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonPath('data.0.confidence_score', 90);
         $this->assertEquals(2, $self->fresh()->level);
         $this->assertSame('self', $self->fresh()->source_type);
+    }
+
+    public function test_data_analyst_new_version_selects_25_questions_and_preserves_old_attempt(): void
+    {
+        [$user, $profile] = $this->createLearner();
+        $slugs = ['sql', 'statistics-fundamentals', 'data-cleaning', 'data-visualization', 'data-analysis'];
+        $role = $this->careerRole('Data Analyst', 'approved', $slugs);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        $this->assertSame(25, BaselineAssessmentItem::where('assessment_version', 'v1.1-data-analyst')->count());
+        $old = BaselineAssessment::forceCreate([
+            'student_profile_id' => $profile->id, 'career_role_id' => $role->id,
+            'assessment_type' => 'baseline', 'assessment_version' => 'v1.0',
+            'status' => 'completed', 'question_count' => 6,
+        ]);
+        Config::set('baseline_policies.role_versions.'.$role->slug, 'v1.1-data-analyst');
+        Sanctum::actingAs($user);
+        $response = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id]);
+        $response->assertStatus(201);
+        $attempt = BaselineAssessment::findOrFail($response->json('data.id'));
+        $this->assertSame('v1.1-data-analyst', $attempt->assessment_version);
+        $this->assertCount(25, $attempt->questionSnapshots);
+        $this->assertSame([5, 5, 5, 5, 5], $attempt->questionSnapshots->groupBy('skill_id')->map->count()->values()->all());
+        $this->assertSame('completed', $old->fresh()->status);
+        $this->assertSame('v1.0', $old->fresh()->assessment_version);
+    }
+
+    public function test_data_analyst_policy_rejects_insufficient_bank_coverage(): void
+    {
+        [$user] = $this->createLearner();
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql', 'statistics-fundamentals', 'data-cleaning', 'data-visualization', 'data-analysis']);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        BaselineAssessmentItem::where('assessment_version', 'v1.1-data-analyst')->first()->update(['is_active' => false]);
+        Config::set('baseline_policies.role_versions.'.$role->slug, 'v1.1-data-analyst');
+        Sanctum::actingAs($user);
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])->assertStatus(422);
+        $this->assertSame(0, BaselineAssessment::where('assessment_version', 'v1.1-data-analyst')->count());
     }
 
     private function createLearner(): array
