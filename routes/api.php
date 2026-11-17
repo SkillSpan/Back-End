@@ -360,17 +360,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/{id}/skills', [CareerRoleController::class, 'skills']);
     });
 
-    Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->prefix('saved-career-roles')->group(function () {
-        Route::get('/', [SavedCareerRoleController::class, 'index'])
-            ->name('saved-career-roles.index');
-        Route::put('/{id}', [SavedCareerRoleController::class, 'store'])
-            ->whereNumber('id')
-            ->name('saved-career-roles.store');
-        Route::delete('/{id}', [SavedCareerRoleController::class, 'destroy'])
-            ->whereNumber('id')
-            ->name('saved-career-roles.destroy');
-    });
-
     Route::middleware(['auth:sanctum', 'account.active', 'role:company_admin'])
         ->get('/rubrics', [RubricController::class, 'index'])
         ->name('rubrics.index');

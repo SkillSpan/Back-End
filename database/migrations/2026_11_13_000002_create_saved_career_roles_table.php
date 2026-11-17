@@ -13,13 +13,11 @@ return new class extends Migration
         }
 
         Schema::create('saved_career_roles', function (Blueprint $table) {
-            $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('career_role_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
 
-            $table->unique(['user_id', 'career_role_id'], 'saved_career_roles_user_role_unique');
-            $table->index('career_role_id', 'saved_career_roles_role_index');
+            $table->primary(['user_id', 'career_role_id']);
         });
     }
 
