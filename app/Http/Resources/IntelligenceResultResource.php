@@ -18,6 +18,8 @@ class IntelligenceResultResource extends JsonResource
         $skillGaps = $this->resource['skill_gaps'];
 
         $roadmap = $this->resource['roadmap'];
+        $confidenceVersions = collect($snapshot->snapshot['skills'] ?? [])
+            ->pluck('confidence_algorithm_version', 'skill_id');
 
         return [
             'decision_id' => $snapshot->decision_uuid,
@@ -61,6 +63,7 @@ class IntelligenceResultResource extends JsonResource
                     'importance_weight' => (float) $gap->importance_weight,
                     'is_critical' => (bool) $gap->is_critical,
                     'confidence' => $gap->confidence === null ? null : (float) $gap->confidence,
+                    'confidence_algorithm_version' => $confidenceVersions->get($gap->skill_id),
                     'status' => $gap->status,
                     'explanation' => $gap->explanation,
                 ])

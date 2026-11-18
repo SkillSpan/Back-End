@@ -654,8 +654,8 @@ class BaselineAssessmentTest extends TestCase
             'student_profile_id' => $profile->id,
             'skill_id' => $python->id,
             'level' => 3.00,
-            'confidence' => 70.00,
-            'algorithm_version' => 'baseline-v1.0',
+            'confidence' => 30.00,
+            'algorithm_version' => 'skill-confidence-v2-baseline',
         ]);
 
         $this->assertNotEmpty($questions);

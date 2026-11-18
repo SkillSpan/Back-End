@@ -563,9 +563,14 @@ class BaselineDataScienceContractTest extends TestCase
 
         $this->assertSame(2, SkillEvaluation::count());
         $this->assertSame(
-            ['baseline-v2.0'],
+            ['skill-confidence-v2-baseline'],
             SkillEvaluation::query()->pluck('algorithm_version')->unique()->values()->all()
         );
+
+        $this->assertSame('baseline-v2.0', $assessment->fresh()->result['algorithm_version']);
+        foreach (SkillEvaluation::all() as $evaluation) {
+            $this->assertEquals(30, $evaluation->confidence);
+        }
 
         $this->assertSame(
             87.5,

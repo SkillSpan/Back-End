@@ -2,6 +2,7 @@
 
 namespace App\Services\Skills;
 
+use App\Models\BaselineAssessment;
 use App\Models\LearnerSkill;
 use App\Models\Skill;
 use App\Models\SkillEvaluation;
@@ -19,7 +20,8 @@ class SkillEvaluationService
 
     public function recalculate(
         StudentProfile $studentProfile,
-        Skill $skill
+        Skill $skill,
+        bool $syncLearnerSkill = true
     ): SkillEvaluation {
         $sourceWeights = config('services.evidence.source_weights', []);
 
@@ -37,6 +39,19 @@ class SkillEvaluationService
             ->where('skill_id', $skill->id)
             ->get()
             ->groupBy('source');
+
+        $hasBaseline = $evidenceBySource->flatten(1)->contains(
+            fn ($evidence) => $evidence->source_record_type === BaselineAssessment::class
+        );
+        $latestBaselineId = null;
+        if ($hasBaseline) {
+            $baselineIds = $evidenceBySource->flatten(1)
+                ->where('source_record_type', BaselineAssessment::class)->pluck('source_record_id');
+            $latestBaselineId = BaselineAssessment::query()
+                ->where('student_profile_id', $studentProfile->id)
+                ->where('status', 'completed')->whereIn('id', $baselineIds)
+                ->orderByDesc('completed_at')->orderByDesc('id')->value('id');
+        }
 
         $levelNumerator = 0.0;
         $levelDenominator = 0.0;
@@ -67,7 +82,12 @@ class SkillEvaluationService
                 continue;
             }
 
-            $distinctRecords = $this->deduplicateEvidenceRecords($records);
+            // One current baseline result per skill; old versions remain auditable.
+            // Select before verification filtering: revocation must not revive an old attempt.
+            $currentRecords = $records->filter(fn ($evidence) => $evidence->source_record_type !== BaselineAssessment::class
+                || ($latestBaselineId !== null && (int) $evidence->source_record_id === (int) $latestBaselineId)
+            );
+            $distinctRecords = $this->deduplicateEvidenceRecords($currentRecords);
 
             $distinctRecords->each(function (SkillEvidence $evidence) use (
                 $evaluationDate
@@ -192,7 +212,7 @@ class SkillEvaluationService
             min(100.00, $confidence)
         );
 
-        $algorithmVersion = self::ALGORITHM_VERSION;
+        $algorithmVersion = $hasBaseline ? 'skill-confidence-v2-baseline' : self::ALGORITHM_VERSION;
 
         $snapshot = [
             'algorithm_version' => $algorithmVersion,
@@ -208,6 +228,15 @@ class SkillEvaluationService
             'sources' => $contributions,
         ];
 
+        if ($hasBaseline) {
+            $snapshot['source'] = 'evidence_aggregate';
+            $snapshot['baseline_policy'] = 'latest-completed-per-skill-v1';
+            $snapshot['baseline_assessment_id'] = $latestBaselineId;
+            $snapshot['baseline_answer_coverage'] = $latestBaselineId === null ? null
+                : collect(BaselineAssessment::find($latestBaselineId)?->normalized_skills ?? [])
+                    ->firstWhere('skill_id', $skill->id)['confidence'] ?? null;
+        }
+
         return DB::transaction(function () use (
             $studentProfile,
             $skill,
@@ -215,7 +244,8 @@ class SkillEvaluationService
             $confidence,
             $snapshot,
             $algorithmVersion,
-            $evaluationDate
+            $evaluationDate,
+            $syncLearnerSkill
         ) {
             $evaluation = SkillEvaluation::create([
                 'student_profile_id' => $studentProfile->id,
@@ -233,27 +263,29 @@ class SkillEvaluationService
                 'snapshot' => $snapshot,
             ]);
 
-            LearnerSkill::updateOrCreate(
-                [
-                    'learner_id' => $studentProfile->user_id,
-                    'skill_id' => $skill->id,
-                ],
-                [
-                    'level' => $level,
+            if ($syncLearnerSkill) {
+                LearnerSkill::updateOrCreate(
+                    [
+                        'learner_id' => $studentProfile->user_id,
+                        'skill_id' => $skill->id,
+                    ],
+                    [
+                        'level' => $level,
 
-                    'confidence_score' => $confidence,
+                        'confidence_score' => $confidence,
 
-                    'source_type' => 'evidence_aggregate',
+                        'source_type' => 'evidence_aggregate',
 
-                    'algorithm_version' => $algorithmVersion,
+                        'algorithm_version' => $algorithmVersion,
 
-                    'calculated_at' => $evaluationDate,
+                        'calculated_at' => $evaluationDate,
 
-                    'source_contributions' => $snapshot['sources'],
+                        'source_contributions' => $snapshot['sources'],
 
-                    'latest_skill_evaluation_id' => $evaluation->id,
-                ]
-            );
+                        'latest_skill_evaluation_id' => $evaluation->id,
+                    ]
+                );
+            }
 
             return $evaluation;
         });
