@@ -1,0 +1,290 @@
+{
+  "version": "v1.1-data-analyst",
+  "skills": {
+    "sql": [
+      [
+        "Orders contains (customer_id, amount): (1,10), (1,20), (2,5). What does SELECT customer_id, SUM(amount) FROM orders GROUP BY customer_id return?",
+        [
+          "(1,10), (1,20), (2,5)",
+          "(1,30), (2,5)",
+          "(1,35), (2,35)",
+          "(1,2), (2,1)"
+        ],
+        1,
+        "GROUP BY creates one group per customer and SUM adds amounts within each group."
+      ],
+      [
+        "A table has x values 10, NULL, 20. What are COUNT(*) and COUNT(x)?",
+        [
+          "2 and 2",
+          "3 and 3",
+          "3 and 2",
+          "2 and 3"
+        ],
+        2,
+        "COUNT(*) counts rows; COUNT(x) excludes NULL values."
+      ],
+      [
+        "Customers A and B exist. Only A has two orders. How many rows does a LEFT JOIN from customers to orders return, with no filters?",
+        [
+          "2",
+          "1",
+          "4",
+          "3"
+        ],
+        3,
+        "A produces two matching rows; B produces one row with NULL order columns."
+      ],
+      [
+        "Which clause filters groups whose SUM(amount) exceeds 100 after aggregation?",
+        [
+          "HAVING SUM(amount) > 100",
+          "WHERE SUM(amount) > 100",
+          "ORDER BY SUM(amount) > 100",
+          "GROUP BY SUM(amount) > 100"
+        ],
+        0,
+        "HAVING filters aggregate groups; WHERE filters input rows before aggregation."
+      ],
+      [
+        "Events have a stable event_id. Duplicate imports repeat the same event_id, but different events can have equal timestamps. Which key best identifies duplicate events?",
+        [
+          "Timestamp alone",
+          "event_id",
+          "Amount alone",
+          "Row position"
+        ],
+        1,
+        "The stable event identifier distinguishes legitimate events with equal timestamps."
+      ]
+    ],
+    "statistics-fundamentals": [
+      [
+        "For values 2, 3, 3, 4, 100, what are the mean and median?",
+        [
+          "3 and 22.4",
+          "20 and 4",
+          "22.4 and 3",
+          "22.4 and 4"
+        ],
+        2,
+        "The sum is 112, so the mean is 22.4; the middle sorted value is 3."
+      ],
+      [
+        "Two datasets have the same mean. One has a larger standard deviation. What does that indicate?",
+        [
+          "Its mean must be wrong",
+          "It contains more rows",
+          "It has a higher median",
+          "Its values are more dispersed around the mean"
+        ],
+        3,
+        "Standard deviation measures dispersion, not sample size or the median."
+      ],
+      [
+        "A satisfaction survey is sent only to customers who renewed. What is the main concern when estimating satisfaction of all customers?",
+        [
+          "Selection bias from excluding non-renewers",
+          "Renewal guarantees a representative sample",
+          "The mean cannot be calculated",
+          "All responses must be false"
+        ],
+        0,
+        "Renewal can be related to satisfaction, so excluding non-renewers changes the target population represented."
+      ],
+      [
+        "A conversion estimate rises from 20 successes in 100 independent trials to 200 in 1000, with similar sampling conditions. What usually happens to sampling uncertainty?",
+        [
+          "It must increase tenfold",
+          "It generally decreases",
+          "It becomes exactly zero",
+          "It is determined only by the numerator"
+        ],
+        1,
+        "At the same estimated proportion, a larger independent sample generally reduces the standard error."
+      ],
+      [
+        "A diagnostic test has 90% sensitivity. Which statement follows directly?",
+        [
+          "90% of positive results are true cases",
+          "90% of all people have the condition",
+          "90% of people with the condition test positive",
+          "The false-positive rate is 10%"
+        ],
+        2,
+        "Sensitivity conditions on having the condition; positive predictive value also depends on prevalence and specificity."
+      ]
+    ],
+    "data-cleaning": [
+      [
+        "An age field contains -5, 25, and 40. Ages must be non-negative. What is the most defensible first action?",
+        [
+          "Replace -5 with 0 automatically",
+          "Delete the entire table",
+          "Assume -5 is a valid age",
+          "Flag -5 and investigate the source before choosing a correction"
+        ],
+        3,
+        "Validation identifies an impossible value; correction needs evidence about its intended value."
+      ],
+      [
+        "Order rows repeat because of an import error. A unique order_id is available. What should guide deduplication?",
+        [
+          "The documented order_id uniqueness rule",
+          "Delete every row sharing a customer",
+          "Keep only the largest order",
+          "Round all amounts"
+        ],
+        0,
+        "A documented business key distinguishes duplicate orders from multiple legitimate orders by one customer."
+      ],
+      [
+        "Income is missing much more often for high-income respondents. What is unsafe to assume?",
+        [
+          "The missingness pattern should be investigated",
+          "The missing values are a completely random subset",
+          "An imputation method needs justification",
+          "Sensitivity analysis may be useful"
+        ],
+        1,
+        "Observed dependence on income conflicts with treating missingness as completely random."
+      ],
+      [
+        "A pipeline receives dates 03/04/2026 from sources using both DD/MM and MM/DD. What is safest?",
+        [
+          "Always use the machine locale",
+          "Sort the text and infer the format",
+          "Parse using each source's documented format",
+          "Replace all dates with today's date"
+        ],
+        2,
+        "The date is ambiguous without source-specific format information."
+      ],
+      [
+        "A valid transaction is far larger than the rest. What should happen before removing it as an outlier?",
+        [
+          "Remove it because it affects the mean",
+          "Replace it with the median without logging",
+          "Delete all large transactions",
+          "Check provenance and whether it belongs to the analysis population"
+        ],
+        3,
+        "An unusual value can be genuine; removal must follow the analysis purpose and documented rules."
+      ]
+    ],
+    "data-visualization": [
+      [
+        "Which chart is usually most suitable for monthly revenue over two years?",
+        [
+          "A line chart with ordered months",
+          "A pie chart with 24 slices",
+          "A map without geographic data",
+          "An unordered word cloud"
+        ],
+        0,
+        "A line chart preserves temporal ordering and supports trend inspection."
+      ],
+      [
+        "A bar chart compares 98 and 100 with a vertical axis beginning at 97. What is the main risk?",
+        [
+          "It hides the category names automatically",
+          "It exaggerates the visual difference in bar lengths",
+          "It changes the underlying values",
+          "It guarantees a causal conclusion"
+        ],
+        1,
+        "Bar lengths encode magnitude, so a truncated baseline can exaggerate differences."
+      ],
+      [
+        "Which plot best shows the distribution and skew of a numeric variable?",
+        [
+          "A pie chart of row numbers",
+          "A network diagram",
+          "A histogram with justified bin widths",
+          "A decorative gauge"
+        ],
+        2,
+        "A histogram summarizes frequencies across numeric intervals and reveals distribution shape."
+      ],
+      [
+        "Two groups have similar point estimates but wide confidence intervals. What should a chart show?",
+        [
+          "Only the larger estimate",
+          "Only a red or green winner label",
+          "A claim that the groups are equal",
+          "The estimates and their uncertainty intervals"
+        ],
+        3,
+        "Intervals communicate uncertainty that point estimates alone conceal."
+      ],
+      [
+        "A sales chart combines amounts in USD and EUR without conversion. What must be addressed before comparing heights?",
+        [
+          "Convert to a common currency using a stated basis or separate the units clearly",
+          "Use a brighter color",
+          "Remove the legend",
+          "Sort alphabetically"
+        ],
+        0,
+        "Comparable magnitudes require compatible units and a stated conversion basis."
+      ]
+    ],
+    "data-analysis": [
+      [
+        "Ice cream sales and drowning incidents rise together in summer. What conclusion is justified from this observation alone?",
+        [
+          "Ice cream causes drowning",
+          "They are associated; season may be a confounder",
+          "Drowning causes all ice cream sales",
+          "There is no possible third variable"
+        ],
+        1,
+        "Association alone cannot establish causality; temperature or season can affect both variables."
+      ],
+      [
+        "Campaign A has 20 purchases from 100 visits and B has 30 from 300. Which has the higher observed conversion rate?",
+        [
+          "B at 30%",
+          "They are both 20%",
+          "A at 20%, compared with B at 10%",
+          "B because it has more purchases"
+        ],
+        2,
+        "Conversion rates use purchases divided by visits, not purchase counts alone."
+      ],
+      [
+        "An overall conversion rate improves while rates within both device groups decline. What should be investigated?",
+        [
+          "Assume the data are impossible",
+          "Delete device categories",
+          "Conclude every group improved",
+          "Changes in the proportions of traffic across device groups"
+        ],
+        3,
+        "Changing group composition can reverse an aggregate comparison, as in Simpson's paradox."
+      ],
+      [
+        "Before estimating whether a new onboarding flow improves retention, what should be specified first?",
+        [
+          "The retention definition, population, observation window, and comparison design",
+          "The desired positive result",
+          "Only a dashboard color",
+          "A rule to exclude all users who leave"
+        ],
+        0,
+        "A defined estimand and comparison design make the analysis interpretable and reduce selective reporting."
+      ],
+      [
+        "A classifier is evaluated on records used to fit it. What is the main concern?",
+        [
+          "Training data always contain no signal",
+          "Performance may be optimistic compared with unseen data",
+          "Accuracy becomes a causal effect",
+          "A larger chart fixes the problem"
+        ],
+        1,
+        "Training-set evaluation does not provide an independent estimate of generalization performance."
+      ]
+    ]
+  }
+}

@@ -15,7 +15,8 @@ class SavedCareerRoleService
             ->where('user_id', $user->id)
             ->with(['careerRole' => fn ($query) => $query
                 ->withCount('roleSkills as skills_count')])
-            ->latest('id')
+            ->orderByDesc('created_at')
+            ->orderByDesc('career_role_id')
             ->get()
             ->filter(fn (SavedCareerRole $saved) => $saved->careerRole !== null)
             ->values();

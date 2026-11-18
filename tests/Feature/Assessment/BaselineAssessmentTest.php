@@ -12,9 +12,11 @@ use App\Models\Skill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
 use App\Models\User;
+use Database\Seeders\DataAnalystBaselineV11Seeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -1193,6 +1195,107 @@ class BaselineAssessmentTest extends TestCase
             ->assertJsonPath('data.0.confidence_score', 90);
         $this->assertEquals(2, $self->fresh()->level);
         $this->assertSame('self', $self->fresh()->source_type);
+    }
+
+    public function test_data_analyst_new_version_selects_25_questions_and_preserves_old_attempt(): void
+    {
+        [$user, $profile] = $this->createLearner();
+        $slugs = ['sql', 'statistics-fundamentals', 'data-cleaning', 'data-visualization', 'data-analysis'];
+        $role = $this->careerRole('Data Analyst', 'approved', $slugs);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        $this->assertSame(25, BaselineAssessmentItem::where('assessment_version', 'v1.1-data-analyst')->count());
+        $old = BaselineAssessment::forceCreate([
+            'student_profile_id' => $profile->id, 'career_role_id' => $role->id,
+            'assessment_type' => 'baseline', 'assessment_version' => 'v1.0',
+            'status' => 'completed', 'question_count' => 6,
+        ]);
+        Config::set('baseline_policies.role_versions.'.$role->slug, 'v1.1-data-analyst');
+        Sanctum::actingAs($user);
+        $response = $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id]);
+        $response->assertStatus(201);
+        $attempt = BaselineAssessment::findOrFail($response->json('data.id'));
+        $this->assertSame('v1.1-data-analyst', $attempt->assessment_version);
+        $this->assertCount(25, $attempt->questionSnapshots);
+        $this->assertSame([5, 5, 5, 5, 5], $attempt->questionSnapshots->groupBy('skill_id')->map->count()->values()->all());
+        $this->assertSame('completed', $old->fresh()->status);
+        $this->assertSame('v1.0', $old->fresh()->assessment_version);
+    }
+
+    public function test_data_analyst_policy_rejects_insufficient_bank_coverage(): void
+    {
+        [$user] = $this->createLearner();
+        $role = $this->careerRole('Data Analyst', 'approved', ['sql', 'statistics-fundamentals', 'data-cleaning', 'data-visualization', 'data-analysis']);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        BaselineAssessmentItem::where('assessment_version', 'v1.1-data-analyst')->first()->update(['is_active' => false]);
+        Config::set('baseline_policies.role_versions.'.$role->slug, 'v1.1-data-analyst');
+        Sanctum::actingAs($user);
+        $this->postJson('/api/v1/baseline-assessments', ['career_role_id' => $role->id])->assertStatus(422);
+        $this->assertSame(0, BaselineAssessment::where('assessment_version', 'v1.1-data-analyst')->count());
+    }
+
+    public function test_calibration_export_is_pseudonymous_and_compatible_with_csv_template(): void
+    {
+        Storage::fake('local');
+        Config::set('app.key', 'test-calibration-key');
+        $attempt = $this->calibrationAttempt();
+        $this->artisan('baseline:export-calibration', ['--assessments' => (string) $attempt->id, '--output' => 'pilot.csv'])->assertSuccessful();
+        $csv = Storage::disk('local')->get('calibration/pilot.csv');
+        $lines = explode("\n", trim($csv));
+        $this->assertCount(26, $lines);
+        $this->assertSame('participant_id,assessment_version,item_id,answer', $lines[0]);
+        $first = str_getcsv($lines[1], escape: '');
+        $this->assertMatchesRegularExpression('/^P[a-f0-9]{24}$/', $first[0]);
+        $this->assertSame('v1.1-data-analyst', $first[1]);
+        $this->assertStringNotContainsString('@test.com', $csv);
+        $this->assertStringNotContainsString('correct_answer', $csv);
+        $this->assertStringNotContainsString('Test User', $csv);
+        $this->artisan('baseline:export-calibration', ['--assessments' => (string) $attempt->id, '--output' => 'pilot.csv'])->assertFailed();
+    }
+
+    public function test_calibration_export_rejects_development_participant_without_writing_file(): void
+    {
+        Storage::fake('local');
+        Config::set('app.key', 'test-calibration-key');
+        $attempt = $this->calibrationAttempt();
+        $this->artisan('baseline:export-calibration', ['--assessments' => (string) $attempt->id,
+            '--exclude-profile' => [(string) $attempt->student_profile_id], '--output' => 'pilot.csv'])->assertFailed();
+        Storage::disk('local')->assertMissing('calibration/pilot.csv');
+    }
+
+    public function test_calibration_export_rejects_changed_question_snapshot(): void
+    {
+        Storage::fake('local');
+        Config::set('app.key', 'test-calibration-key');
+        $attempt = $this->calibrationAttempt();
+        $attempt->questionSnapshots()->first()->update(['question_text' => 'Changed wording']);
+        $this->artisan('baseline:export-calibration', ['--assessments' => (string) $attempt->id, '--output' => 'pilot.csv'])->assertFailed();
+        Storage::disk('local')->assertMissing('calibration/pilot.csv');
+    }
+
+    private function calibrationAttempt(): BaselineAssessment
+    {
+        [$user, $profile] = $this->createLearner();
+        $bank = json_decode(file_get_contents(database_path('data/data-analyst-v1.1.json')), true, flags: JSON_THROW_ON_ERROR);
+        $role = $this->careerRole('Data Analyst', 'approved', array_keys($bank['skills']));
+        $role->update(['slug' => 'data-analyst']);
+        $this->seed(DataAnalystBaselineV11Seeder::class);
+        $attempt = BaselineAssessment::forceCreate(['student_profile_id' => $profile->id,
+            'career_role_id' => $role->id, 'assessment_version' => $bank['version'],
+            'assessment_type' => 'baseline', 'status' => 'completed', 'question_count' => 25]);
+        $responses = [];
+        foreach (BaselineAssessmentItem::where('assessment_version', $bank['version'])->with('skill')->get() as $item) {
+            $attempt->questionSnapshots()->create(['baseline_assessment_item_id' => $item->id,
+                'career_role_id' => $role->id, 'skill_id' => $item->skill_id,
+                'item_id' => $item->item_id, 'item_type' => $item->item_type,
+                'question_text' => $item->question_text, 'options' => $item->options,
+                'correct_answer' => $item->correct_answer, 'weight' => $item->weight,
+                'skill_slug' => $item->skill->slug, 'importance_weight' => 1, 'is_critical' => false]);
+            $responses[] = ['question_id' => $item->item_id, 'answer' => $item->options[0]];
+        }
+        $attempt->update(['responses' => $responses]);
+
+        return $attempt;
     }
 
     private function createLearner(): array

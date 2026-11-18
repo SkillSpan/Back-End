@@ -30,7 +30,7 @@ class BaselineAssessmentService
         CareerRole $careerRole,
         string $requestId
     ): BaselineAssessment {
-        $version = $this->activeVersion();
+        $version = $this->activeVersion($careerRole);
 
         if ($careerRole->status !== 'approved') {
             throw new BaselineAssessmentException(
@@ -501,9 +501,10 @@ class BaselineAssessmentService
         }
     }
 
-    private function activeVersion(): string
+    private function activeVersion(CareerRole $careerRole): string
     {
-        return (string) config('services.data_science.baseline.version', 'v1.0');
+        return (string) (config('baseline_policies.role_versions.'.$careerRole->slug)
+            ?: config('services.data_science.baseline.version', 'v1.0'));
     }
 
     private function recordPrimaryCareerRole(StudentProfile $studentProfile, CareerRole $careerRole): void
