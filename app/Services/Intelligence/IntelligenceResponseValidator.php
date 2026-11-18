@@ -195,6 +195,28 @@ class IntelligenceResponseValidator
         }
     }
 
+    public function validateCompositeReadiness(array $result, array $payload): void
+    {
+        $valid = ($result['algorithm_version'] ?? null) === 'readiness-v2-srs13'
+            && ($result['policy'] ?? null) == $payload['readiness_policy'];
+        foreach (['practical_experience', 'assessment_reliability', 'profile_completeness'] as $name) {
+            $expected = $payload['readiness_inputs'][$name];
+            $actual = $result[$name.'_component'] ?? null;
+            $valid = $valid && ($expected === null ? $actual === null
+                : is_numeric($actual) && abs((float) $actual - (float) $expected) < 0.001);
+        }
+        $valid = $valid && is_array($result['components'] ?? null)
+            && is_array($result['effective_weights'] ?? null)
+            && is_array($result['excluded_components'] ?? null)
+            && is_bool($result['is_provisional'] ?? null);
+        if (! $valid) {
+            throw new IntelligenceException(
+                'The readiness result does not match the frozen component inputs or policy.',
+                502, 'INTELLIGENCE_RESPONSE_MISMATCH',
+            );
+        }
+    }
+
     public function validateReadiness(array $result, array $payload): void
     {
         $this->validateCommonIdentity($result, $payload);

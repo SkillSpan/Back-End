@@ -28,6 +28,8 @@ return [
     ],
 
     'data_science' => [
+        'composite_readiness_enabled' => (bool) env('DATA_SCIENCE_COMPOSITE_READINESS_ENABLED', false),
+        'readiness_path' => env('DATA_SCIENCE_READINESS_PATH', '/api/v1/readiness'),
         'url' => env('DATA_SCIENCE_SERVICE_URL', 'http://127.0.0.1:8001'),
 
         'timeout' => (int) env('DATA_SCIENCE_SERVICE_TIMEOUT', 60),

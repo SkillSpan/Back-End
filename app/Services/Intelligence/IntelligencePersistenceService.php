@@ -94,6 +94,7 @@ class IntelligencePersistenceService
             'career_role_version' => $snapshot->career_role_version,
             'decision_snapshot_id' => $snapshot->id,
             'score' => $result['readiness_score'],
+            'is_provisional' => (bool) ($result['is_provisional'] ?? false),
             'skill_match_component' => $result['base_readiness_score'],
             'practical_experience_component' => $result['practical_experience_component'] ?? null,
             'assessment_reliability_component' => $result['assessment_reliability_component'] ?? null,
@@ -109,6 +110,14 @@ class IntelligencePersistenceService
                 'fastapi_skill_gap' => $result['fastapi_skill_gap'] ?? $result,
                 'fastapi_result' => $result,
                 'band_ranges' => config('readiness.bands', []),
+                'effective_weights' => $result['effective_weights'] ?? null,
+                'components' => $result['components'] ?? null,
+                'excluded_components' => $result['excluded_components'] ?? [],
+                'policy' => $result['policy'] ?? null,
+                'critical_skill_rule' => [
+                    'cap' => $result['critical_skill_readiness_cap'] ?? null,
+                    'critical_skill_names' => $result['critical_skill_names'] ?? [],
+                ],
                 'request_id' => $requestId,
             ],
         ]);

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\IntelligenceException;
 use App\Exceptions\ReadinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CalculateReadinessRequest;
 use App\Http\Resources\ReadinessResultResource;
+use App\Services\Intelligence\IntelligenceService;
 use App\Services\Readiness\ReadinessService;
 use App\Support\SafeLog;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +19,10 @@ use Throwable;
 
 class ReadinessController extends Controller
 {
-    public function __construct(private readonly ReadinessService $readinessService) {}
+    public function __construct(
+        private readonly ReadinessService $readinessService,
+        private readonly IntelligenceService $intelligenceService,
+    ) {}
 
     public function calculate(CalculateReadinessRequest $request): ReadinessResultResource|JsonResponse
     {
@@ -36,6 +41,15 @@ class ReadinessController extends Controller
         }
 
         try {
+            if (config('services.data_science.composite_readiness_enabled', false)) {
+                $decision = $this->intelligenceService->calculate(
+                    $studentProfile, $request->integer('career_role_id') ?: null, $requestId,
+                );
+
+                return (new ReadinessResultResource($decision['readiness']))
+                    ->response()->header('X-Request-ID', $requestId);
+            }
+
             $result = $this->readinessService->calculate(
                 $studentProfile,
                 $request->integer('career_role_id') ?: null,
@@ -45,7 +59,7 @@ class ReadinessController extends Controller
             return (new ReadinessResultResource($result))
                 ->response()
                 ->header('X-Request-ID', $requestId);
-        } catch (ReadinessException $e) {
+        } catch (ReadinessException|IntelligenceException $e) {
             return $this->errorResponse($e->codeName, $e->getMessage(), $e->status, $requestId, $e->details);
         } catch (ValidationException $e) {
             return response()->json([

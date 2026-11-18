@@ -94,6 +94,20 @@ class IntelligenceClient
         return $this->parseResponse($response, $requestId, $operation, $startedAt, $payload);
     }
 
+    public function calculateCompositeReadiness(array $payload, string $requestId): array
+    {
+        $request = $this->toSkillGapRequest($payload);
+        $request['policy'] = $payload['readiness_policy'];
+        foreach (['practical_experience', 'assessment_reliability', 'profile_completeness'] as $name) {
+            $request[$name] = $payload['readiness_inputs'][$name];
+        }
+
+        return $this->post(
+            (string) config('services.data_science.readiness_path', '/api/v1/readiness'),
+            $request, $requestId, 'composite_readiness',
+        );
+    }
+
     public function calculateSkillGap(array $payload, string $requestId): array
     {
         return $this->post(
