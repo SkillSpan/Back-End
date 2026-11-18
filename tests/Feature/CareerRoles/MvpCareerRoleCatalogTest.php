@@ -299,6 +299,40 @@ class MvpCareerRoleCatalogTest extends TestCase
             ->assertJsonValidationErrors('primary_career_role_id');
     }
 
+    public function test_an_inactive_role_cannot_be_used_for_readiness(): void
+    {
+        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+
+        $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'CAREER_ROLE_INACTIVE');
+    }
+
+    public function test_an_inactive_role_cannot_be_used_for_intelligence(): void
+    {
+        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+
+        $this->postJson('/api/v1/intelligence/calculate', ['career_role_id' => $role->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'CAREER_ROLE_INACTIVE');
+    }
+
+    public function test_a_learner_may_still_progress_their_own_deactivated_role(): void
+    {
+        $role = CareerRole::where('slug', 'qa-engineer')->firstOrFail();
+
+        $user = $this->learner();
+        $user->studentProfile->forceFill(['primary_career_role_id' => $role->id])->save();
+        Sanctum::actingAs($user);
+
+        // Continuity: the guard must not block the learner's existing goal. The
+        // calculation itself fails later for want of a data-science token, which
+        // is unrelated to the MVP restriction under test.
+        $response = $this->postJson('/api/v1/readiness/calculate', ['career_role_id' => $role->id]);
+
+        $this->assertNotSame('CAREER_ROLE_INACTIVE', $response->json('code'));
+    }
+
     public function test_every_configured_inactive_slug_exists_in_the_catalog(): void
     {
         $knownMissing = array_keys((array) config('mvp.missing_career_roles', []));

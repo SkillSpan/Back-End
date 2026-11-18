@@ -181,4 +181,13 @@ return [
         'baseline_items_secret' => env('INTERNAL_BASELINE_ITEMS_SECRET', ''),
     ],
 
+    /*
+     * Diagnostic endpoint at /api/v1/_pulse/{token}. It reports the database
+     * host, resolved IPs, timings and the PHP version without authentication,
+     * so it stays closed unless explicitly enabled for a deployment check.
+     */
+    'system_pulse' => [
+        'enabled' => (bool) env('SYSTEM_PULSE_ENABLED', false),
+    ],
+
 ];

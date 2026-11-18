@@ -187,6 +187,16 @@ class AdminProfileService
 
     private function squareAvatar(string $binary, string $sourceMime): array
     {
+        // GD is a deployment prerequisite; without it the call below is a fatal
+        // error, so surface a clear server-side failure instead.
+        if (! function_exists('imagecreatefromstring')) {
+            throw new ReadinessException(
+                'Image processing is not available on this server.',
+                503,
+                'PROFILE_AVATAR_UNSUPPORTED',
+            );
+        }
+
         $source = @imagecreatefromstring($binary);
 
         if (! $source instanceof GdImage) {

@@ -15,7 +15,9 @@ class CareerRoleSeeder extends Seeder
     public function run(): void
     {
         foreach ($this->roles() as $slug => [$title, $skillList]) {
-            $careerRole = CareerRole::updateOrCreate(
+            // effective_date records when the role definition took effect, so it
+            // is written once at creation and never rewritten by a re-seed.
+            $careerRole = CareerRole::firstOrCreate(
                 ['slug' => $slug, 'version' => 1],
                 [
                     'title' => $title,
@@ -23,6 +25,10 @@ class CareerRoleSeeder extends Seeder
                     'effective_date' => now()->toDateString(),
                 ]
             );
+
+            if ($careerRole->title !== $title || $careerRole->status !== 'approved') {
+                $careerRole->forceFill(['title' => $title, 'status' => 'approved'])->save();
+            }
 
             $resolvedSkillIds = [];
 

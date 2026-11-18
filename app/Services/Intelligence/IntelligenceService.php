@@ -8,6 +8,7 @@ use App\Models\CareerRole;
 use App\Models\DecisionSnapshot;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
+use App\Support\CareerRoleGuard;
 use App\Support\SafeLog;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -61,6 +62,15 @@ class IntelligenceService
         }
 
         $roleSkills = $careerRole->roleSkills;
+
+        if (! CareerRoleGuard::allowsProgression($careerRole, $studentProfile->primary_career_role_id)) {
+            throw new ReadinessException(
+                'The selected career role is not available for intelligence calculation.',
+                422,
+                'CAREER_ROLE_INACTIVE',
+                ['career_role_id' => $careerRole->id],
+            );
+        }
 
         if ($roleSkills->isEmpty()) {
             throw new ReadinessException(

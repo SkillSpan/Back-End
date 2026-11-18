@@ -123,9 +123,6 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
-        Route::get('/saved-career-roles', [SavedCareerRoleController::class, 'index']);
-        Route::put('/saved-career-roles/{id}', [SavedCareerRoleController::class, 'store'])->whereNumber('id');
-        Route::delete('/saved-career-roles/{id}', [SavedCareerRoleController::class, 'destroy'])->whereNumber('id');
         Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
         Route::get('/projects/{project}', [ProjectController::class, 'show'])
             ->name('projects.show')

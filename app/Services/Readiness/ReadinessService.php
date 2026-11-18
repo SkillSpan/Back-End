@@ -11,6 +11,7 @@ use App\Models\SkillEvaluation;
 use App\Models\SkillGapResult;
 use App\Models\StudentProfile;
 use App\Services\Intelligence\DecisionSnapshotService;
+use App\Support\CareerRoleGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -46,7 +47,6 @@ class ReadinessService
             ->where('status', 'approved')
             ->with('roleSkills.skill')
             ->first();
-
         if (! $careerRole) {
             $exists = CareerRole::query()
                 ->whereKey($careerRoleId)
@@ -69,6 +69,15 @@ class ReadinessService
         }
 
         $roleSkills = $careerRole->roleSkills;
+
+        if (! CareerRoleGuard::allowsProgression($careerRole, $studentProfile->primary_career_role_id)) {
+            throw new ReadinessException(
+                'The selected career role is not available for readiness calculation.',
+                422,
+                'CAREER_ROLE_INACTIVE',
+                ['career_role_id' => $careerRole->id],
+            );
+        }
 
         if ($roleSkills->isEmpty()) {
             throw new ReadinessException(

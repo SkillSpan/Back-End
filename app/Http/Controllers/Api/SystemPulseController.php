@@ -21,6 +21,10 @@ class SystemPulseController extends Controller
 
     public function show(): JsonResponse
     {
+        if (! (bool) config('services.system_pulse.enabled', false)) {
+            abort(404);
+        }
+
         $host = (string) config('database.connections.mysql.host');
         $cname = $this->cname($host);
 
