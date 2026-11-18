@@ -146,6 +146,11 @@ class IntelligenceService
             );
         }
 
+        if (config('services.data_science.roadmap_assessment_aware_enabled', false)) {
+            $payload['roadmap_action_policy'] = 'assessment-aware-v2';
+            $payload['recent_assessment_window_months'] = 6;
+        }
+
         $decisionUuid = (string) Str::uuid();
 
         $snapshot = $this->snapshotService->createPendingSnapshot(

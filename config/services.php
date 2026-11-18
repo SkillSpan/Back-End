@@ -63,6 +63,7 @@ return [
         'algorithm_version' => env('DATA_SCIENCE_ALGORITHM_VERSION', 'skill-gap-v1'),
 
         'roadmap_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ENABLED', false),
+        'roadmap_assessment_aware_enabled' => (bool) env('DATA_SCIENCE_ROADMAP_ASSESSMENT_AWARE_ENABLED', false),
 
         'baseline' => [
             'path' => env('DATA_SCIENCE_BASELINE_PATH', '/api/v1/baseline'),

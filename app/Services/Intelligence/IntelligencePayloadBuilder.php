@@ -7,6 +7,7 @@ use App\Models\CareerRole;
 use App\Models\CareerRoleSkill;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 class IntelligencePayloadBuilder
@@ -69,6 +70,7 @@ class IntelligencePayloadBuilder
                 'is_critical' => (bool) $roleSkill->is_critical,
                 'confidence' => $confidence,
                 'confidence_algorithm_version' => $evaluation->algorithm_version,
+                'has_recent_verified_assessment' => $this->hasRecentVerifiedAssessment($evaluation),
                 'evidence' => $evidenceSummary[$skillId] ?? [],
                 'prerequisite_skill_ids' => $this->prerequisiteSkillIds($roleSkill),
             ];
@@ -92,6 +94,26 @@ class IntelligencePayloadBuilder
             'algorithm_version' => $algorithmVersion,
             'configuration_version' => $configurationVersion,
         ];
+    }
+
+    private function hasRecentVerifiedAssessment(SkillEvaluation $evaluation): bool
+    {
+        // Re-evaluate freshness at decision time, not the aggregate's original timestamp.
+        foreach ($evaluation->snapshot['sources']['assessment_test']['records'] ?? [] as $record) {
+            if (($record['verification_status'] ?? null) !== 'verified' || empty($record['evidence_date'])) {
+                continue;
+            }
+            try {
+                $date = Carbon::parse($record['evidence_date']);
+                if ($date->betweenIncluded(now()->subMonthsNoOverflow(6)->startOfDay(), now()->endOfDay())) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                // Invalid or absent source dates cannot establish a recent assessment.
+            }
+        }
+
+        return false;
     }
 
     private function prerequisiteSkillIds(CareerRoleSkill $roleSkill): array
