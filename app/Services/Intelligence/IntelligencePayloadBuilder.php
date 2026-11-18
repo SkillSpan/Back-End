@@ -68,6 +68,7 @@ class IntelligencePayloadBuilder
                 'importance_weight' => $importanceWeight,
                 'is_critical' => (bool) $roleSkill->is_critical,
                 'confidence' => $confidence,
+                'confidence_algorithm_version' => $evaluation->algorithm_version,
                 'evidence' => $evidenceSummary[$skillId] ?? [],
                 'prerequisite_skill_ids' => $this->prerequisiteSkillIds($roleSkill),
             ];

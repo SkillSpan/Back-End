@@ -8,9 +8,9 @@ use App\Models\BaselineAssessment;
 use App\Models\BaselineQuestionSnapshot;
 use App\Models\CareerRole;
 use App\Models\Skill;
-use App\Models\SkillEvaluation;
 use App\Models\SkillEvidence;
 use App\Models\StudentProfile;
+use App\Services\Skills\SkillEvaluationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +21,7 @@ class BaselineAssessmentService
 
     public function __construct(
         private readonly BaselineDataScienceClient $dataScienceClient,
+        private readonly SkillEvaluationService $skillEvaluationService,
         private readonly BaselineQuestionSelectionService $questionSelection,
         private readonly BaselineIntelligencePayloadBuilder $payloadBuilder,
     ) {}
@@ -456,21 +457,11 @@ class BaselineAssessmentService
                 'source_record_id' => $assessment->id,
             ]);
 
-            SkillEvaluation::forceCreate([
-                'student_profile_id' => $studentProfileId,
-                'skill_id' => $skill['skill_id'],
-                'level' => $skill['level'],
-                'confidence' => $skill['confidence'],
-                'algorithm_version' => $algorithmVersion,
-                'calculated_at' => now(),
-                'snapshot' => [
-                    'assessment_id' => $assessment->id,
-                    'assessment_version' => $assessment->assessment_version,
-                    'career_role_id' => $assessment->career_role_id,
-                    'source' => 'baseline_assessment',
-                    'request_id' => $requestId,
-                ],
-            ]);
+            // Preserve the raw assessment result/coverage and the stored self declaration.
+            // The canonical evaluation combines this evidence with other valid sources.
+            $this->skillEvaluationService->recalculate(
+                $assessment->studentProfile, Skill::findOrFail($skill['skill_id']), false,
+            );
         }
 
         Log::info(

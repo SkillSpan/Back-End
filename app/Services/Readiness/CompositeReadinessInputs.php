@@ -19,7 +19,7 @@ class CompositeReadinessInputs
         // Baseline confidence is answer coverage, not evidence quality. Only the
         // canonical evidence aggregator's versioned records qualify here.
         $latest = $evaluations->sortByDesc('id')->unique('skill_id');
-        $eligible = $latest->filter(fn ($evaluation) => $evaluation->algorithm_version === 'skill-confidence-v1'
+        $eligible = $latest->filter(fn ($evaluation) => in_array($evaluation->algorithm_version, ['skill-confidence-v1', 'skill-confidence-v2-baseline'], true)
             && is_array($evaluation->snapshot['sources'] ?? null)
             && is_numeric($evaluation->confidence)
             && (float) $evaluation->confidence >= 0

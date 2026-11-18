@@ -65,7 +65,8 @@ class SkillsController extends Controller
             ->unique(fn ($evaluation) => $evaluation->student_profile_id.':'.$evaluation->skill_id);
 
         foreach ($evaluations as $evaluation) {
-            if (($evaluation->snapshot['source'] ?? null) !== 'baseline_assessment') {
+            $isAggregate = $evaluation->algorithm_version === 'skill-confidence-v2-baseline';
+            if (! $isAggregate && ($evaluation->snapshot['source'] ?? null) !== 'baseline_assessment') {
                 continue;
             }
             $ownerId = $evaluation->studentProfile->user_id;
@@ -79,7 +80,11 @@ class SkillsController extends Controller
                 'skill_id' => $evaluation->skill_id,
                 'level' => (float) $evaluation->level,
                 'confidence_score' => (float) $evaluation->confidence,
-                'source_type' => 'assessment',
+                'source_type' => $isAggregate && collect($evaluation->snapshot['sources'] ?? [])
+                    ->filter(fn ($source, $name) => $name !== 'assessment_test' && ($source['included_in_level'] ?? false))
+                    ->isNotEmpty() ? 'evidence_aggregate' : 'assessment',
+                'algorithm_version' => $evaluation->algorithm_version,
+                'source_contributions' => $evaluation->snapshot['sources'] ?? [],
                 'latest_skill_evaluation_id' => $evaluation->id,
                 'calculated_at' => $evaluation->calculated_at,
             ]);
