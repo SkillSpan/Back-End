@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\LearningResourceController;
 use App\Http\Controllers\Api\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Api\Admin\ProjectController as AdminProjectController;
@@ -36,6 +37,7 @@ use App\Http\Controllers\Api\ReadinessController;
 use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\RecommendationFeedbackController;
 use App\Http\Controllers\Api\ReferenceController;
+use App\Http\Controllers\Api\RoadmapLearningController;
 use App\Http\Controllers\Api\RubricController;
 use App\Http\Controllers\Api\SavedCareerRoleController;
 use App\Http\Controllers\Api\SelfReflectionController;
@@ -100,6 +102,13 @@ Route::prefix('v1')->group(function () {
         });
 
     Route::middleware(['auth:sanctum', 'account.active', 'admin'])->prefix('admin')->group(function () {
+        Route::get('/learning-resources', [LearningResourceController::class, 'index']);
+        Route::post('/learning-resources', [LearningResourceController::class, 'store']);
+        Route::post('/learning-resources/{resource}/approve', [LearningResourceController::class, 'approve']);
+        Route::post('/learning-resources/{resource}/deactivate', [LearningResourceController::class, 'deactivate']);
+        Route::get('/learning-activities/pending', [LearningResourceController::class, 'pending']);
+        Route::post('/learning-activities/{activity}/review', [LearningResourceController::class, 'review']);
+
         Route::get('/organizations', [AdminOrganizationController::class, 'index']);
         Route::get('/organizations/{organization}', [AdminOrganizationController::class, 'show']);
         Route::get('/organizations/{organization}/proof-file', [AdminOrganizationController::class, 'downloadProofFile'])
@@ -123,6 +132,10 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'account.active', 'role:learner'])->group(function () {
+        Route::get('/roadmap-actions/{action}/resources', [RoadmapLearningController::class, 'index']);
+        Route::post('/roadmap-actions/{action}/start', [RoadmapLearningController::class, 'start'])->middleware('throttle:30,1');
+        Route::patch('/roadmap-actions/{action}/progress', [RoadmapLearningController::class, 'progress'])->middleware('throttle:30,1');
+
         Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
         Route::get('/projects/{project}', [ProjectController::class, 'show'])
             ->name('projects.show')
