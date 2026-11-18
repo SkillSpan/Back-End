@@ -31,6 +31,9 @@ class IntelligenceResultResource extends JsonResource
 
             'readiness' => $readiness === null ? null : [
                 'score' => (float) $readiness->score,
+                'is_provisional' => (bool) $readiness->is_provisional,
+                'effective_weights' => $readiness->snapshot['effective_weights'] ?? null,
+                'excluded_components' => $readiness->snapshot['excluded_components'] ?? [],
                 'skill_match_component' => $readiness->skill_match_component === null
                     ? null
                     : (float) $readiness->skill_match_component,

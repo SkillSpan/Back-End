@@ -8,6 +8,7 @@ use App\Models\CareerRole;
 use App\Models\DecisionSnapshot;
 use App\Models\SkillEvaluation;
 use App\Models\StudentProfile;
+use App\Services\Readiness\CompositeReadinessInputs;
 use App\Support\CareerRoleGuard;
 use App\Support\SafeLog;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +19,7 @@ class IntelligenceService
 {
     public function __construct(
         private readonly IntelligenceClient $client,
+        private readonly CompositeReadinessInputs $compositeInputs,
         private readonly IntelligencePayloadBuilder $payloadBuilder,
         private readonly IntelligenceResponseValidator $validator,
         private readonly DecisionSnapshotService $snapshotService,
@@ -131,6 +133,19 @@ class IntelligenceService
             $configurationVersion,
         );
 
+        if (config('services.data_science.composite_readiness_enabled', false)) {
+            $payload['algorithm_version'] = 'readiness-v2-srs13';
+            $payload['readiness_inputs'] = $this->compositeInputs->build($studentProfile, $evaluations);
+            $payload['readiness_policy'] = array_merge(
+                ['version' => 'readiness-policy-srs13-v1'],
+                config('readiness.weights', []),
+                [
+                    'critical_minimum_match' => (float) config('readiness.critical_skill.minimum_match', 0.5),
+                    'critical_cap' => (float) config('readiness.critical_skill.cap', 69),
+                ],
+            );
+        }
+
         $decisionUuid = (string) Str::uuid();
 
         $snapshot = $this->snapshotService->createPendingSnapshot(
@@ -141,7 +156,12 @@ class IntelligenceService
         );
 
         try {
-            $skillGap = $this->client->calculateSkillGap($payload, $requestId);
+            $skillGap = isset($payload['readiness_inputs'])
+                ? $this->client->calculateCompositeReadiness($payload, $requestId)
+                : $this->client->calculateSkillGap($payload, $requestId);
+            if (isset($payload['readiness_inputs'])) {
+                $this->validator->validateCompositeReadiness($skillGap, $payload);
+            }
             $this->validator->validateSkillGap($skillGap, $payload);
 
             $readiness = $skillGap;

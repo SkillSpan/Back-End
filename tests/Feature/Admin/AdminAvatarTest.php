@@ -69,13 +69,14 @@ class AdminAvatarTest extends TestCase
     {
         $image = imagecreatetruecolor(400, 400);
         ob_start();
-        imageavif($image, null);
+        // BMP is readable by GD without depending on optional AVIF codec support.
+        imagebmp($image, null);
         $bytes = (string) ob_get_clean();
         imagedestroy($image);
 
         $this->actingAs($this->administrator())
             ->post('/admin/api/profile/avatar', [
-                'avatar' => UploadedFile::fake()->createWithContent('shot.avif', $bytes),
+                'avatar' => UploadedFile::fake()->createWithContent('shot.bmp', $bytes),
             ], ['Accept' => 'application/json'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('avatar');
