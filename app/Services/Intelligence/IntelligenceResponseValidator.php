@@ -329,6 +329,14 @@ class IntelligenceResponseValidator
 
     public function validateRoadmap(array $result, array $payload): void
     {
+        if (($payload['roadmap_action_policy'] ?? null) === 'assessment-aware-v2'
+            && (($result['algorithm_version'] ?? null) !== 'roadmap-v2'
+                || ($result['configuration_version'] ?? null) !== 'roadmap-config-v2')) {
+            throw new IntelligenceException(
+                'The intelligence service has not applied the requested roadmap policy.',
+                502, 'ROADMAP_POLICY_MISMATCH',
+            );
+        }
         $this->validateCommonIdentity($result, $payload);
         $this->validateAlgorithmVersion($result);
         $this->validateConfigurationVersion($result);

@@ -149,6 +149,7 @@ class IntelligenceClient
         $role = $payload['role'] ?? [];
 
         $skills = [];
+        $assessmentAware = ($payload['roadmap_action_policy'] ?? null) === 'assessment-aware-v2';
 
         foreach ($payload['skills'] ?? [] as $skill) {
             $skills[] = [
@@ -164,9 +165,13 @@ class IntelligenceClient
                     $skill['prerequisite_skill_ids'] ?? [],
                 )),
             ];
+            if ($assessmentAware) {
+                $skills[array_key_last($skills)]['has_recent_verified_assessment'] =
+                    (bool) ($skill['has_recent_verified_assessment'] ?? false);
+            }
         }
 
-        return [
+        $request = [
             'learner' => [
                 'student_profile_id' => (int) $learner['student_profile_id'],
                 'user_id' => (int) $learner['user_id'],
@@ -180,6 +185,11 @@ class IntelligenceClient
             ],
             'skills' => $skills,
         ];
+        if ($assessmentAware) {
+            $request['action_selection_policy'] = 'assessment-aware-v2';
+        }
+
+        return $request;
     }
 
     public function generateRoadmap(array $payload, string $requestId): array
