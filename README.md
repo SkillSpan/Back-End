@@ -1492,3 +1492,61 @@ weekly_availability_hours
 ``` text
 docs: improve developer onboarding documentation
 ```
+
+---
+
+# Docker & VPS Deployment
+
+The API ships as a Docker image (`php:8.3-cli` + `pdo_mysql`) and a Compose stack that runs the
+application together with MySQL 8.0. The container listens on port **10000**.
+
+## Run locally with Docker
+
+```bash
+cp .env.example .env
+docker compose run --rm --no-deps app php artisan key:generate
+docker compose up -d --build
+```
+
+The API is then served on `http://localhost:10000` (`/up` for the health check, `/docs` for Swagger).
+
+## Deploy to a VPS
+
+```bash
+# 1. install the tooling
+sudo apt update && sudo apt install -y git docker.io docker-compose-v2
+sudo systemctl enable --now docker
+
+# 2. clone
+git clone -b feature/authentication https://github.com/SkillSpan/Back-End.git
+cd Back-End
+
+# 3. configure
+cp .env.example .env
+docker compose run --rm --no-deps app php artisan key:generate
+
+# 4. build and run
+docker compose up -d --build
+
+# 5. open the port in the provider firewall (TCP 10000) and verify
+curl -i http://<server-ip>:10000/up
+```
+
+## Production URL
+
+| Item | Value |
+| --- | --- |
+| Provider | TODO |
+| Plan | TODO |
+| Public URL | TODO |
+| API base URL | TODO |
+| API docs | TODO |
+
+## Deployment Screenshots
+
+Deployment evidence for Assignment #3 is stored in [`docs/screenshots/`](docs/screenshots/), and the
+technical notes are in [`docs/notes.md`](docs/notes.md).
+
+## License
+
+Released under the [MIT License](LICENSE).
