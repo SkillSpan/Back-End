@@ -27,3 +27,5 @@ Thumbs.db
 /.opencode/
 
 *.md
+!README.md
+!docs/notes.md
