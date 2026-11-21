@@ -1,0 +1,47 @@
+services:
+  app:
+    build: .
+    container_name: skillspan-app
+    ports:
+      - "${PORT:-10000}:10000"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      PORT: "10000"
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: skillspan
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-skillspan_pass}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://127.0.0.1:10000/up') === false ? 1 : 0);\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    container_name: skillspan-db
+    environment:
+      MYSQL_DATABASE: skillspan
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-skillspan_pass}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  db_data:
